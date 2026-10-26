@@ -154,3 +154,32 @@ planned: a torch ship is usually one stage, and planning drops would mean guessi
   mod's engine controller. (Whether KSP includes the engine in its own delta-v, includeinDVCalcs, is no guide: on
   Kris's install a mod turns it off even for stock engines.)
 - **Stages below** means stages with engines or decouplers still to fire.
+
+## Addendum (2026-10-26): when the engines can't hold the acceleration; above 1 g
+
+Decided by Kris:
+
+1. **Overheating doesn't stop the trip.** When the drive can't hold the chosen acceleration because of heat, or any
+   other limit that isn't running out of fuel, Flip and Burn:
+   - drops to the highest acceleration the ship can actually sustain;
+   - re-plans the rest of the trip at it (flip timing, arrival, delta-v);
+   - keeps flying;
+   - tells the player in the window and with an on-screen message what happened, the acceleration it now holds, and how
+     the trip time changed.
+
+   It stops only if even the reduced acceleration can't finish the trip safely (for example, it can no longer beat the
+   target's gravity at the parking orbit), and says why.
+2. **1 g is not a maximum.** Ships that can go faster may choose it. The acceleration box takes anything above zero up
+   to the ship's own maximum, with no cap at 1 g anywhere (planner, guidance, autopilot). 1 g stays the default.
+
+How this is read in the code (`MechJebModuleFlipAndBurnAutopilot`):
+
+- **"Can't hold":** at full throttle the engines give less than 95 % of the acceleration, but at least 10 % (less
+  than that is the out-of-fuel case), for a minute of game time outside the flip.
+- **"Sustainable":** 95 % of what they give at full throttle, rounded down to 0.01 g. With KSP Interstellar's heat
+  rule the drive's thrust at full throttle is what its cooling can carry, and the 5 % leaves the throttle a little
+  room.
+- **Re-plan:** from the ship's current state, with the trip calculator's feasibility checks (including the target's
+  gravity at the parking orbit). A coast trip keeps its budget less the delta-v already burned.
+- **Found in the game:** the Bebop Refueller at 1 g overheats in about 100 s, settles at 0.80 g, and is re-planned at
+  0.76 g.

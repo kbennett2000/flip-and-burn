@@ -43,6 +43,8 @@ namespace FlipAndBurn
         private const double SecondsBetweenWarpChanges = 1.0;   // real seconds
 
         private FlipAndBurnGuidance guidance;
+        private GuidanceConfig baseConfig;
+        private double deltaVUsed;   // m/s burned so far (for a coast trip's re-plan)
         private TripStart trip;
         private ConfigNode savedLocal, savedType, savedGlobal;
         private float[] savedPhysicsRates;
@@ -70,6 +72,12 @@ namespace FlipAndBurn
         /// <summary>True once the flip has finished (for the test helper).</summary>
         public double FlipSeconds { get; private set; } = double.NaN;
         public string SettingsCheck { get; private set; } = "";
+        /// <summary>The acceleration being flown now (lower than chosen if the engines couldn't hold it).</summary>
+        public double CurrentAcceleration { get; private set; }
+        /// <summary>What changed during the trip, in plain words (shown in the window), or null.</summary>
+        public string Notice { get; private set; }
+        /// <summary>How many times the trip was re-planned at a lower acceleration.</summary>
+        public int Replans { get; private set; }
 
         // ------------------------------------------------------------------ start and stop
 
@@ -97,12 +105,17 @@ namespace FlipAndBurn
                 config.Departure.SafeRadius = v.mainBody.Radius + (v.mainBody.atmosphere ? v.mainBody.atmosphereDepth : 0) + 10_000;
 
             trip = start;
+            baseConfig = config;
             guidance = new FlipAndBurnGuidance(config);
+            Notice = null;
+            CurrentAcceleration = start.Acceleration;
+            deltaVUsed = 0;
             startUT = Planetarium.GetUniversalTime();
             plannedArrivalUT = startUT + start.PlannedTripTime;
             Last = null;
             StopReason = null;
             Arrived = false;
+            Replans = 0;
             FlipSeconds = double.NaN;
             flipStartUT = offCourseSince = mispointedSince = noThrustSince = weakSince = double.NaN;
             bestPointing = double.MaxValue;
@@ -273,6 +286,7 @@ namespace FlipAndBurn
             bool thrustWanted = cmd.Acceleration > 0;
             bool pointed = flipping || PointingError <= PointingTolerance;
             MechJebModuleThrustController thrust = Core.Thrust;
+            if (Vessel.ctrlState.mainThrottle > 0) deltaVUsed += MeasuredAcceleration * TimeWarp.fixedDeltaTime;
             if (thrustWanted && pointed)
             {
                 thrust.LimitAcceleration = true;
@@ -308,8 +322,9 @@ namespace FlipAndBurn
             }
             else noThrustSince = double.NaN;
 
-            // Can't hold the acceleration: at full throttle the engines give clearly less than asked, for a minute. (KSP
-            // Interstellar drives lose thrust when the ship overheats; found on the Bebop Refueller, which settles at 0.80 g.)
+            // Can't hold the acceleration: at full throttle the engines give clearly less than asked, for a minute, and it
+            // isn't a fuel problem (that's caught above). KSP Interstellar drives lose thrust when the ship overheats: the
+            // Bebop Refueller settles at 0.80 g when asked for 1 g. Drop to what the engines can sustain and re-plan (ADR 0002).
             bool fullThrottle = Vessel.ctrlState.mainThrottle >= 0.99f;
             if (thrustWanted && pointed && !flipping && fullThrottle && MeasuredAcceleration < 0.95 * cmd.Acceleration &&
                 MeasuredAcceleration >= 0.1 * cmd.Acceleration)
@@ -317,12 +332,7 @@ namespace FlipAndBurn
                 if (double.IsNaN(weakSince)) weakSince = ut;
                 if (ut - weakSince > 60)
                 {
-                    double heat = ResourceFill("WasteHeat");
-                    string why = heat > 0.9
-                        ? $" because the ship is overheating (waste heat at {heat * 100:N0}%; KSP Interstellar drives lose thrust above 90%)"
-                        : "";
-                    Stop($"Stopped: the engines can't hold {Planner.FormatG(cmd.Acceleration / Planner.OneG)}; at full throttle they give only " +
-                         $"{Planner.FormatG(MeasuredAcceleration / Planner.OneG)}{why}. Choose a lower acceleration.");
+                    ReplanAtLowerAcceleration(ut);
                     return;
                 }
             }
@@ -383,6 +393,90 @@ namespace FlipAndBurn
             }
             else offCourseSince = double.NaN;
         }
+
+        /// <summary>
+        /// The engines can't hold the acceleration: fly the rest of the trip at what they can sustain (95 % of what they give
+        /// at full throttle, rounded down to 0.01 g), re-planned from here, and tell the player. Stops only if the trip can't
+        /// be finished at that acceleration.
+        /// </summary>
+        private void ReplanAtLowerAcceleration(double ut)
+        {
+            double heat = ResourceFill("WasteHeat");
+            string why = heat > 0.9
+                ? $"the ship is overheating (waste heat at {heat * 100:N0}%; KSP Interstellar drives lose thrust above 90%)"
+                : "they give less thrust than expected";
+            double was = CurrentAcceleration;
+            double now = Math.Floor(0.95 * MeasuredAcceleration / TripCalculator.OneG * 100) / 100 * TripCalculator.OneG;
+            weakSince = double.NaN;
+            if (!(now > 0))
+            {
+                Stop($"Stopped: the engines can't hold any useful acceleration ({why}).");
+                return;
+            }
+
+            // Can the rest of the trip be flown at that acceleration?
+            Vessel v = Vessel;
+            CelestialBody sun = Planetarium.fetch.Sun;
+            StateVector state = KspShip.HeliocentricState(v, ut);
+            TargetPlanet departure = v.mainBody != sun && v.mainBody != trip.Target ? Planner.AsPlanet(v.mainBody) : null;
+            var request = new TripRequest
+            {
+                ShipPosition = state.Position,
+                ShipVelocity = state.Velocity,
+                StartTime = ut,
+                Target = baseConfig.Target,
+                Departure = departure,
+                Acceleration = now,
+                ParkingAltitude = trip.ParkingAltitude,
+                SunGravParameter = sun.gravParameter,
+            };
+            TripPlan plan = TripCalculator.Plan(request);
+            double budget = Math.Max(0, trip.DeltaVBudget - deltaVUsed);
+            CoastPlan coast = trip.Trip == TripType.CoastInTheMiddle ? CoastPlanner.Plan(request, budget) : null;
+            string g = Planner.FormatG(now / TripCalculator.OneG), gWas = Planner.FormatG(was / TripCalculator.OneG);
+            if (!plan.Feasible)
+            {
+                string reason = plan.Problem == TripProblem.TargetGravityTooStrong
+                    ? $"{Planner.BodyName(trip.Target)}'s gravity at the parking orbit needs at least {Planner.FormatG(plan.MinimumAcceleration / TripCalculator.OneG)}"
+                    : "there's no way to reach the target from here at that acceleration";
+                Stop($"Stopped: the engines could only hold {g} ({why}), and the trip can't be finished at {g}: {reason}.");
+                return;
+            }
+
+            if (coast != null && !coast.Feasible)
+            {
+                Stop($"Stopped: the engines could only hold {g} ({why}), and the delta-v left isn't enough for a coast trip at {g}.");
+                return;
+            }
+
+            double remaining = coast != null ? coast.TripTime : plan.TripTime;
+            double newArrival = ut + remaining;
+            double change = newArrival - plannedArrivalUT;
+            GuidanceConfig c = Copy(baseConfig);
+            c.Acceleration = now;
+            c.Departure = departure;
+            c.DeltaVBudget = budget;
+            guidance = new FlipAndBurnGuidance(c);
+            CurrentAcceleration = now;
+            plannedArrivalUT = newArrival;
+            Replans++;
+            Notice = $"The engines couldn't hold {gWas} because {why}. Flip and Burn is now holding {g} and has re-planned the rest " +
+                     $"of the trip: arrival is {Planner.FormatTime(Math.Abs(change))} {(change >= 0 ? "later" : "earlier")} " +
+                     $"({Planner.FormatTime(remaining)} from now).";
+            ScreenMessages.PostScreenMessage("Flip and Burn: " + Notice, 15f, ScreenMessageStyle.UPPER_CENTER);
+            Debug.Log($"[FlipAndBurn] re-planned at {now / TripCalculator.OneG:F2} g (was {was / TripCalculator.OneG:F2} g, measured " +
+                      $"{MeasuredAcceleration / TripCalculator.OneG:F4} g at full throttle, waste heat {heat * 100:F1}%): trip {remaining:F0} s from now, " +
+                      $"arrival {change:+0;-0} s; delta-v used {deltaVUsed:F0} m/s. {Notice}");
+        }
+
+        private static GuidanceConfig Copy(GuidanceConfig c) => new GuidanceConfig
+        {
+            Target = c.Target, Departure = c.Departure, Acceleration = c.Acceleration, Trip = c.Trip, DeltaVBudget = c.DeltaVBudget,
+            Flip = c.Flip, ParkingAltitude = c.ParkingAltitude, TurnRate = c.TurnRate, SunGravParameter = c.SunGravParameter,
+            SunSafetyDistance = c.SunSafetyDistance, EquatorNormal = c.EquatorNormal, RelightToleranceDeg = c.RelightToleranceDeg,
+            ArrivalCutoff = c.ArrivalCutoff, DetourMargin = c.DetourMargin, BrakingFraction = c.BrakingFraction,
+            CorrectionThreshold = c.CorrectionThreshold, MinThrustFraction = c.MinThrustFraction,
+        };
 
         /// <summary>How full the ship's store of a resource is, 0 to 1 (0 if it has none).</summary>
         private double ResourceFill(string resource)
