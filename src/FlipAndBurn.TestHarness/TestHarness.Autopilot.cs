@@ -23,10 +23,11 @@ namespace FlipAndBurn.TestHarness
         }
 
         // Physics warp rates to try while burning at 1 g; the highest stable one is used from then on.
-        private static readonly float[] ProbeRates = { 10, 25, 50, 100 };
+        // With overheating ignored the ship stays cool: 10x and 25x (25x destroyed the hot drive in an earlier run).
+        private static readonly float[] ProbeRates = { 10, 25 };
         private const float ProbeSeconds = 20f;          // real seconds at each rate
         private const float StatusEvery = 2f;            // real seconds between status lines
-        private const double CoastAcceleration = 0.7;    // g, for (b): below what the Bebop's cooling sustains (about 0.76 g)
+        private const double CoastAcceleration = 0.4;    // g, for (b): below what the Bebop's drive sustains (it was still cooling at 0.48 g)
 
         private double lastStatusReal, statusMaxAccelError, statusMaxPointing;
 
@@ -36,22 +37,16 @@ namespace FlipAndBurn.TestHarness
         {
             MechJebModuleFlipAndBurn module = f.Module;
             MechJebModuleFlipAndBurnAutopilot pilot = module.Autopilot;
-            // Only this harness turns the cheat on, only for this trip on the test copy, and off again at the end.
-            // Above 1 g works: the planner on this ship at 2 g (its maximum is 3.17 g).
+            // The flip at 1 g. The Bebop's drive can't sustain 1 g (see ProofOverheat), so this leg also ignores overheating:
+            // Kris's choice (2026-10-26), to reach the flip in reasonable time. Both cheats: this harness only, this test copy
+            // only, and off again at the end.
             module.FlipStyleIndex = 0;   // cut, flip, relight
             module.SelectTripType(TripType.FullBurn);
-            module.AccelerationG.Val = 2.0;
-            yield return new WaitForSecondsRealtime(SettleSeconds);
-            int planStep = step;
-            yield return Capture(step, "planner-bebop-2g.png", new CaptureResult(), () => LogPlanner(planStep, module, f.Ship));
-            step++;
             module.AccelerationG.Val = 1.0;
-
-            // (a) at 1 g with infinite propellant only. The Bebop overheats at 1 g: the autopilot must drop to what it can
-            // sustain, re-plan and say so, then fly on to the flip.
             CheatOptions.InfinitePropellant = true;
+            CheatOptions.IgnoreMaxTemperature = true;
             yield return new WaitForSecondsRealtime(SettleSeconds);
-            Log($"step {step}: (a) full burn to Duna at {module.AccelerationG.Val} g, infinite propellant {CheatOptions.InfinitePropellant}, ignore max temperature {CheatOptions.IgnoreMaxTemperature}, planner can start: {module.Planner.CanStart}");
+            Log($"step {step}: (a) flip run, full burn to Duna at {module.AccelerationG.Val} g, infinite propellant {CheatOptions.InfinitePropellant}, ignore max temperature {CheatOptions.IgnoreMaxTemperature}, planner can start: {module.Planner.CanStart}");
             string before = MechJebSettingsFingerprint(f);
 
             string problem = module.PressStart();
@@ -67,18 +62,6 @@ namespace FlipAndBurn.TestHarness
             // Climb out and settle into the burn.
             yield return Fly(pilot, () => pilot.Last != null && pilot.Last.Phase == GuidancePhase.Accelerate && !pilot.Last.Departing &&
                                           pilot.PointingError < 1 && Math.Abs(pilot.MeasuredAcceleration / pilot.Last.Acceleration - 1) < 0.02, 600, "settled at 1 g");
-            if (!pilot.Running) { Fail("step " + step, "trip stopped: " + pilot.StopReason); yield break; }
-
-            // Normal speed until the overheating re-plan (it took about 100 s of game time for the heat to pass 90 %, then a
-            // minute of shortfall).
-            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 1;
-            yield return Fly(pilot, () => pilot.Replans > 0, 900, "overheat and re-plan at normal speed");
-            if (!pilot.Running) { Fail("step " + step, "trip stopped: " + pilot.StopReason); yield break; }
-            if (pilot.Replans == 0) { Fail("step " + step, "no re-plan happened"); yield break; }
-            Log($"step {step}: re-planned: now holding {pilot.CurrentAcceleration / 9.81:F2} g. Notice: {pilot.Notice}");
-            yield return Shot("a-1-replanned.png", f);
-            double replanUT = Planetarium.GetUniversalTime();
-            yield return Fly(pilot, () => Planetarium.GetUniversalTime() - replanUT > 60, 300, "settle at the new acceleration");
             if (!pilot.Running) { Fail("step " + step, "trip stopped: " + pilot.StopReason); yield break; }
 
             // The probe needs a steady burn: wait until the climb out of Kerbin's sphere of influence is over (the re-plan
@@ -135,16 +118,16 @@ namespace FlipAndBurn.TestHarness
             yield return Fly(pilot, () => pilot.Last.Phase == GuidancePhase.Accelerate && pilot.Last.TimeToFlip < 20 && TimeWarp.CurrentRate <= 1.01f,
                 3 * 3600, "approach the flip");
             if (!pilot.Running) { Fail("step " + step, "trip stopped: " + pilot.StopReason); yield break; }
-            yield return Shot("a-2-before-flip.png", f);
+            yield return Shot("f-1-before-flip.png", f);
             yield return Fly(pilot, () => pilot.Last.Phase == GuidancePhase.Flip && pilot.PointingError < 120 && pilot.PointingError > 60, 600, "flip under way");
             if (!pilot.Running) { Fail("step " + step, "trip stopped: " + pilot.StopReason); yield break; }
-            yield return Shot("a-3-during-flip.png", f);
+            yield return Shot("f-2-during-flip.png", f);
             yield return Fly(pilot, () => pilot.Last.Phase == GuidancePhase.Decelerate && !double.IsNaN(pilot.FlipSeconds), 600, "flip finished");
             if (!pilot.Running) { Fail("step " + step, "trip stopped: " + pilot.StopReason); yield break; }
             double flipEnd = Planetarium.GetUniversalTime();
             Log($"step {step}: flip took {pilot.FlipSeconds:F1} s of game time");
             yield return Fly(pilot, () => Planetarium.GetUniversalTime() - flipEnd > 30, 120, "settle into braking");
-            yield return Shot("a-4-after-flip.png", f);
+            yield return Shot("f-3-after-flip.png", f);
             yield return Fly(pilot, () => Planetarium.GetUniversalTime() - flipEnd > 240, 600, "brake a few minutes");
             if (!pilot.Running) { Fail("step " + step, "trip stopped: " + pilot.StopReason); yield break; }
 
@@ -152,11 +135,72 @@ namespace FlipAndBurn.TestHarness
             Log($"step {step}: Abort pressed. {pilot.StopReason} {pilot.SettingsCheck}");
             yield return new WaitForSecondsRealtime(3f);
             LogAfterAbort(f);
-            yield return Shot("a-5-after-abort.png", f);
+            yield return Shot("f-4-after-abort.png", f);
             string after = MechJebSettingsFingerprint(f);
             Log($"step {step}: MechJeb settings files {(before == after ? "byte-identical" : "DIFFERENT")} before Start and after Abort: {after}");
             CheatOptions.InfinitePropellant = false;
-            Log($"step {step}: infinite propellant cheat back off: {!CheatOptions.InfinitePropellant}; ignore max temperature (never turned on): {CheatOptions.IgnoreMaxTemperature}");
+            CheatOptions.IgnoreMaxTemperature = false;
+            Log($"step {step}: infinite propellant cheat back off: {!CheatOptions.InfinitePropellant}; ignore max temperature cheat back off: {!CheatOptions.IgnoreMaxTemperature}");
+            step++;
+            outcome.Ok = before == after;
+            if (!outcome.Ok) Fail("step " + step, "MechJeb settings changed: before " + before);
+        }
+
+        // ------------------------------------------------------------------ (a) overheating
+
+        private IEnumerator ProofOverheat(Flown f, CaptureResult outcome)
+        {
+            MechJebModuleFlipAndBurn module = f.Module;
+            MechJebModuleFlipAndBurnAutopilot pilot = module.Autopilot;
+
+            // Above 1 g works: the planner on this ship at 2 g (its maximum is 3.17 g).
+            module.FlipStyleIndex = 0;   // cut, flip, relight
+            module.SelectTripType(TripType.FullBurn);
+            module.AccelerationG.Val = 2.0;
+            yield return new WaitForSecondsRealtime(SettleSeconds);
+            int planStep = step;
+            yield return Capture(step, "planner-bebop-2g.png", new CaptureResult(), () => LogPlanner(planStep, module, f.Ship));
+            step++;
+
+            // 1 g with infinite propellant only: the drive overheats; the autopilot must drop to what the ship can sustain,
+            // re-plan, say so, and keep flying.
+            module.AccelerationG.Val = 1.0;
+            CheatOptions.InfinitePropellant = true;
+            CheatOptions.IgnoreMaxTemperature = false;
+            yield return new WaitForSecondsRealtime(SettleSeconds);
+            Log($"step {step}: (a) overheating run, full burn to Duna at {module.AccelerationG.Val} g, infinite propellant {CheatOptions.InfinitePropellant}, ignore max temperature {CheatOptions.IgnoreMaxTemperature}, planner can start: {module.Planner.CanStart}");
+            string before = MechJebSettingsFingerprint(f);
+            string problem = module.PressStart();
+            if (problem != null)
+            {
+                Fail("step " + step, "Start refused: " + problem);
+                yield break;
+            }
+
+            LogPlan(pilot);
+            step++;
+            yield return Fly(pilot, () => pilot.Replans >= 1, 900, "overheat and re-plan");
+            if (!pilot.Running) { Fail("step " + step, "trip stopped: " + pilot.StopReason); yield break; }
+            if (pilot.Replans == 0) { Fail("step " + step, "no re-plan happened"); yield break; }
+            Log($"step {step}: re-planned: now holding {pilot.CurrentAcceleration / 9.81:F2} g. Notice: {pilot.Notice}");
+            yield return Shot("a-1-overheat-replanned.png", f);
+            yield return Fly(pilot, () => pilot.Replans >= 2, 900, "keep flying; re-plan again if still too hot");
+            if (!pilot.Running) { Fail("step " + step, "trip stopped: " + pilot.StopReason); yield break; }
+            Log($"step {step}: re-plans so far {pilot.Replans}, now holding {pilot.CurrentAcceleration / 9.81:F2} g. Notice: {pilot.Notice}");
+            yield return Shot("a-2-overheat-replanned-again.png", f);
+            double t0 = Planetarium.GetUniversalTime();
+            yield return Fly(pilot, () => Planetarium.GetUniversalTime() - t0 > 120, 300, "fly on at the reduced acceleration");
+            if (!pilot.Running) { Fail("step " + step, "trip stopped: " + pilot.StopReason); yield break; }
+
+            module.PressAbort();
+            Log($"step {step}: Abort pressed. {pilot.StopReason} {pilot.SettingsCheck}");
+            yield return new WaitForSecondsRealtime(3f);
+            LogAfterAbort(f);
+            yield return Shot("a-3-overheat-after-abort.png", f);
+            string after = MechJebSettingsFingerprint(f);
+            Log($"step {step}: MechJeb settings files {(before == after ? "byte-identical" : "DIFFERENT")} before Start and after Abort: {after}");
+            CheatOptions.InfinitePropellant = false;
+            Log($"step {step}: infinite propellant cheat back off: {!CheatOptions.InfinitePropellant}");
             step++;
             outcome.Ok = before == after;
             if (!outcome.Ok) Fail("step " + step, "MechJeb settings changed: before " + before);
@@ -169,6 +213,9 @@ namespace FlipAndBurn.TestHarness
             MechJebModuleFlipAndBurn module = f.Module;
             MechJebModuleFlipAndBurnAutopilot pilot = module.Autopilot;
             CheatOptions.InfinitePropellant = false;
+            // Back to the shipped warp limit (the flip run raised it with overheating ignored).
+            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 10;
+            if (TimeWarp.fetch != null) TimeWarp.fetch.physicsWarpRates[3] = 25;
             // No cheats: a real trip, so at an acceleration the Bebop can hold without overheating.
             module.AccelerationG.Val = CoastAcceleration;
             module.SelectTripType(TripType.CoastInTheMiddle);
@@ -255,7 +302,7 @@ namespace FlipAndBurn.TestHarness
                 $"pointing error {pilot.PointingError:F2} deg throttle {v.ctrlState.mainThrottle:F3} " +
                 $"warp {(TimeWarp.CurrentRate > 1.01f ? (TimeWarp.fetch.Mode == TimeWarp.Modes.HIGH ? "normal" : "physics") : "none")} x{TimeWarp.CurrentRate:0.##} " +
                 $"toFlip {c.TimeToFlip:F0} s toBurn {c.TimeToBurn:F0} s toArrival {c.TimeToArrival:F0} s speed vs {v.mainBody.bodyName} {v.obt_speed:F1} m/s " +
-                $"| {pilot.WarpStatus} | {DriveState(v)}");
+                $"| {pilot.WarpStatus} | {DriveState(v)}, hottest part {pilot.HottestPart} {pilot.HottestFraction * 100:F1}% of limit, parts {v.parts.Count}");
         }
 
         // KSP Interstellar fusion drive: how much of its power it gets (fusionRatio), its live maximum thrust, and how full the

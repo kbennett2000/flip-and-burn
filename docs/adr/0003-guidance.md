@@ -200,9 +200,21 @@ runs.
 - **Lead time:** the rate is capped so the next event (the flip, the braking burn, the arrival) is at least 30 real
   seconds away under physics warp and 60 under normal warp. Warp falls steadily as an event nears and is back to
   normal speed in time.
-- **Physics warp rates:** during a trip Flip and Burn sets its own (1, 4, 10 and the highest stable rate), and puts the
-  player's (BetterTimeWarp's) rates back afterwards. The highest stable rate was measured in the game: see the PR and
-  `MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate`.
+- **Physics warp rates:** during a trip Flip and Burn sets its own (1, 4, 10, 25), and puts the player's
+  (BetterTimeWarp's) rates back afterwards.
+- **Highest physics warp: 10x** (`MaxPhysicsRate`), measured on Kris's machine with the Bebop Refueller, 45 parts,
+  holding its acceleration:
+
+  | Rate | Ship cool (temperature cheat on) | Ship hot (waste heat at 93 %) |
+  |---|---|---|
+  | 10x | steady: acceleration within 0.1 %, pointing within 0.01°, full 10x speed-up | steady |
+  | 25x | steady: acceleration exact, pointing within 0.03°, full 25x speed-up | the Kerbstein drive overheated and exploded within 20 s (KSP's heating runs in coarse steps at high warp) |
+
+  So 10x is the limit.
+- **Hot parts:** physics warp is held to 4x when any part passes 60 % of its temperature limit, and to normal speed
+  past 75 %. Past 90 % the autopilot re-plans at 80 % of the acceleration to cool down, and says so.
+- **Losing the engine** (none running while thrust is wanted, for 5 s) stops the trip whatever the cheats, with a plain
+  reason.
 
 ### Next: carrying on after a reload
 
