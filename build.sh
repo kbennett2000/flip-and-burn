@@ -61,7 +61,7 @@ ksp_log="$ksp_dir/KSP.log"
 test_save="$ksp_dir/saves/FlipAndBurn-Test"
 mj_settings="$ksp_dir/GameData/MechJeb2/Plugins/PluginData/MechJeb2"
 shot_dir="$ksp_dir/FlipAndBurnTest"
-expected_shots=(planner-duna-full-burn.png planner-duna-coast.png planner-duna-infinite-propellant.png)
+expected_shots=(planner-bebop-duna.png planner-stock-duna.png planner-mixed-duna.png)
 evidence="$repo/docs/test-evidence"
 stall_seconds=120
 max_launches=4          # first launch plus up to 3 relaunches after a stall
@@ -251,7 +251,8 @@ summary="$evidence/test-run.log"
 {
     echo "# FlipAndBurn test run $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     grep -a -E "KSPAssembly '(FlipAndBurn|FlipAndBurn.TestHarness|MechJeb2)'|^MechJeb2 v|From LOADING to MAINMENU|\[FlipAndBurn\]|\[FlipAndBurn.Test\]" "$ksp_log" | grep -a -v 'NullReferenceException' || true
-    echo "# Exception lines mentioning FlipAndBurn or MechJeb: $(grep -a -i exception "$ksp_log" | grep -c -i -E 'flipandburn|mechjeb|mumech' || true)"
+    # (The harness's own [FlipAndBurn.Test] lines are left out: they may report another mod's failure by name.)
+    echo "# Exception lines mentioning FlipAndBurn or MechJeb: $(grep -a -i exception "$ksp_log" | grep -a -v '\[FlipAndBurn.Test\]' | grep -c -i -E 'flipandburn|mechjeb|mumech' || true)"
     echo "# Stack frames in FlipAndBurn or MechJeb code: $(grep -a -c -E '(at |\()(MuMech|FlipAndBurn|MechJebLib)[.:]' "$ksp_log" || true)"
 } > "$summary"
 cat "$summary"

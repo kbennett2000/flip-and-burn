@@ -1,0 +1,48 @@
+# Independent checks of the three screenshots (tools/verify), 2026-10-26T18:00:39Z
+
+## check_engines.py (stock and mixed ships)
+
+== CubeSat v3.2: 35 parts, current stage 6
+  mass: parts + resources in the save 21.4956 t; in flight (vessel.totalMass) 21.4956 t; difference 0.0000 t (module masses such as fairing panels)
+  LiquidEngineKE-1 (ModuleEngines): 1350.0 kN, Isp 305.0 s, mix [('LiquidFuel', 0.9), ('Oxidizer', 1.1)]; reaches Rockomax32.BW, sepMotor1, sepMotor1, sepMotor1: LiquidFuel 403.45, Oxidizer 493.11
+  phase 1: thrust 1350.0 kN, Isp 305.00 s, mass 21495.6 -> 17012.8 kg
+  max acceleration 62.8035 m/s^2 = 6.4020 g
+  delta-v at full thrust 699.5 m/s; at 1 g 699.5 m/s
+  stages below the current one, with engines or decouplers: 2 [1, 5]
+
+== CubeSat v4.2 MilSpec: 39 parts, current stage 6
+  mass: parts + resources in the save 39.0041 t; in flight (vessel.totalMass) 38.9366 t; difference -0.0675 t (module masses such as fairing panels)
+  LiquidEngineLV-TX87 (ModuleEngines): 400.0 kN, Isp 310.0 s, mix [('LiquidFuel', 0.9), ('Oxidizer', 1.1)]; reaches Rockomax16.BW, largeSolarPanel, largeSolarPanel, largeSolarPanel, largeSolarPanel: LiquidFuel 303.75, Oxidizer 371.25
+  ZPinchFusionAirospike (ModuleEnginesWarp): not a stock engine module; using its in-flight figures from the log
+  ZPinchFusionAirospike (ModuleEnginesWarp): 3.375 kN, Isp 1000000.0 s, mix [('FusionPellets', 1.0)]; reaches Rockomax8BW, ZPinchFusionAirospike: FusionPellets 99.92
+  phase 1: thrust 403.4 kN, Isp 312.61 s, mass 38936.6 -> 35561.6 kg
+  phase 2: thrust 3.4 kN, Isp 1000000.00 s, mass 35561.6 -> 35540.0 kg
+  max acceleration 10.3598 m/s^2 = 1.0560 g
+  delta-v at full thrust 6229.3 m/s; at 1 g 278.0 m/s
+  stages below the current one, with engines or decouplers: 2 [1, 5]
+
+## check_planner.py (trip numbers on all three ships; the Bebop's delta-v)
+Ship (from the save): dry 58.1427 t + LqdDeuterium 11.2201 t + MonoPropellant 83.2796 t = 152.6425 t
+Kerbstein drive at TweakScale 3.75 m (x0.75): thrust 4746.094 kN, Isp 281250.0 s
+  max acceleration 3.1695 g; delta-v at full thrust 210.576 km/s (211 km/s); at 1.00 g 116.051 km/s (116 km/s)
+
+Bebop Refueller: Duna at 1.0 g, parking 60 km, planned at UT 18377814386.131, trip FullBurn, infinite propellant False:
+  full burn: trip time   70913.0 s = 3d, 1h, 41m
+  full burn: flip in     35456.5 s = 1d, 3h, 50m
+  full burn: peak speed  347828.4 m/s = 348 km/s
+  full burn: delta-v     691633.7 m/s = 692 km/s (burn 690743.1 + parking orbit 890.5)
+  full burn: shortfall at 1.0 g: 575582.6 m/s = 576 km/s
+
+CubeSat v3.2: Duna at 1.0 g, parking 60 km, planned at UT 18377814401.411, trip FullBurn, infinite propellant False:
+  full burn: trip time   70568.9 s = 3d, 1h, 36m
+  full burn: flip in     35284.4 s = 1d, 3h, 48m
+  full burn: peak speed  346140.4 m/s = 346 km/s
+  full burn: delta-v     690492.5 m/s = 690 km/s (burn 689602.0 + parking orbit 890.5)
+  (ship delta-v for this ship: see check_engines.py)
+
+CubeSat v4.2 MilSpec: Duna at 1.0 g, parking 60 km, planned at UT 18377814403.432, trip FullBurn, infinite propellant False:
+  full burn: trip time   70671.9 s = 3d, 1h, 37m
+  full burn: flip in     35335.9 s = 1d, 3h, 48m
+  full burn: peak speed  346645.5 m/s = 347 km/s
+  full burn: delta-v     690781.6 m/s = 691 km/s (burn 689891.1 + parking orbit 890.5)
+  (ship delta-v for this ship: see check_engines.py)

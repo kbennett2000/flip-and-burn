@@ -337,17 +337,26 @@ def main():
     for m_ in re.finditer(pattern, log):
         ut, target, g, alt = float(m_.group(1)), m_.group(2), float(m_.group(3)), float(m_.group(4))
         trip, infinite = m_.group(5) or "FullBurn", m_.group(6) == "True"
+        # The ship this was planned on: the last "in flight on '...'" before it (the Bebop Refueller in older logs).
+        flown = re.findall(r"in flight on '([^']+)'", log[:m_.start()])
+        ship_name = flown[-1] if flown else SHIP
+        this_vessel = next(v for v in kids(fs, "VESSEL") if val(v, "name") == ship_name)
+        orb = kids(this_vessel, "ORBIT")[0]
+        assert val(orb, "REF") == "1", "expected the ship to orbit Kerbin"
         ship_rel = kepler_state(float(val(orb, "SMA")), float(val(orb, "ECC")), float(val(orb, "INC")), float(val(orb, "LAN")),
                                 float(val(orb, "LPE")), float(val(orb, "MNA")), float(val(orb, "EPH")), mu_kerbin, ut)
         k_pos, k_vel = kerbin(ut)
         r0, v0 = add(k_pos, ship_rel[0]), add(k_vel, ship_rel[1])
         b = planets[target]
         p = plan(r0, v0, ut, body_state(target), mu(b), b["Radius"], alt, g * ONE_G)
-        print(f"\n{target} at {g} g, parking {alt / 1000:.0f} km, planned at UT {ut:.3f}, trip {trip}, infinite propellant {infinite}:")
+        print(f"\n{ship_name}: {target} at {g} g, parking {alt / 1000:.0f} km, planned at UT {ut:.3f}, trip {trip}, infinite propellant {infinite}:")
         print(f"  full burn: trip time   {p['trip_time']:.1f} s = {ksp_compact(p['trip_time'])}")
         print(f"  full burn: flip in     {p['flip']:.1f} s = {ksp_compact(p['flip'])}")
         print(f"  full burn: peak speed  {p['peak']:.1f} m/s = {speed_text(p['peak'])}")
         print(f"  full burn: delta-v     {p['total_dv']:.1f} m/s = {speed_text(p['total_dv'])} (burn {p['burn_dv']:.1f} + parking orbit {p['parking_dv']:.1f})")
+        if ship_name != SHIP:
+            print("  (ship delta-v for this ship: see check_engines.py)")
+            continue
         if infinite:
             print("  infinite propellant on: no shortfall should be shown")
         else:
