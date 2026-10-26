@@ -1,6 +1,6 @@
 # FlipAndBurn
 
-FlipAndBurn is a Kerbal Space Program 1 plugin for Expanse-style travel between planets. You pick a target planet and an acceleration (1g by default). The ship burns at constant acceleration toward the target, flips at the midpoint, decelerates the rest of the way, and arrives matched to the planet's speed, then hands off to MechJeb for capture. Steering re-aims every physics tick and eases the throttle down as fuel burns so the acceleration holds steady. You choose the flip style: cut the drive, flip, and relight, or a skew flip under thrust. It is for interplanetary trips only, and long burns ride Time Control's hyper warp. The goal is for it to live inside MechJeb as a new autopilot and window.
+FlipAndBurn is a Kerbal Space Program 1 plugin for Expanse-style travel between planets. You pick a target planet and an acceleration (1g by default). The ship burns at constant acceleration toward the target, flips at the midpoint, decelerates the rest of the way, and arrives matched to the planet's speed, then hands off to MechJeb for capture. Steering re-aims every physics tick and eases the throttle down as fuel burns so the acceleration holds steady. You choose the flip style: cut the drive, flip, and relight, or a skew flip under thrust. It is for interplanetary trips only, and long burns speed up with BetterTimeWarp. The goal is for it to live inside MechJeb as a new autopilot and window.
 
 ## Status
 
@@ -11,11 +11,12 @@ MechJeb.
 ## Requirements
 
 - KSP 1.12.5
-- MechJeb2 (built and tested against 2.9.1)
+- MechJeb2 2.15.3.1 or newer (built and tested against 2.15.3.1)
+- BetterTimeWarp, for warping through long burns (used in a later cycle)
 
 ## Building
 
-You need the .NET SDK (6 or newer). It builds the .NET Framework 4.7.1 target on Linux through the
+You need the .NET SDK (6 or newer). It builds the .NET Framework 4.8 target on Linux through the
 `Microsoft.NETFramework.ReferenceAssemblies` package.
 
 1. Copy `local.props.example` to `local.props` and set `KSPDir` to your KSP install. For the Windows build of KSP, change

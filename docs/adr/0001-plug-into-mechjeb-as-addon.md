@@ -2,83 +2,110 @@
 
 - Status: Accepted
 - Date: 2026-10-26
+- Revised: 2026-10-26, re-verified against MechJeb2 2.15.3.1 (first written against 2.9.1)
 
 ## Context
 
 FlipAndBurn should live inside MechJeb as a new autopilot and window. We need to know if a separate DLL in its own
 GameData folder can add a MechJeb module without changing MechJeb.
 
-The installed MechJeb is `GameData/MechJeb2/Plugins/MechJeb2.dll`, file version 2.9.1.0 (KSPAssembly `MechJeb2` V2.5.0,
-dated 2019-11-15). There is no `v2.9.1` tag in MuMech/MechJeb2; the matching source is commit `579f1bd2` ("v2.9.1",
-2019-11-15), merged to master as `a899d181`. All line numbers below are from `579f1bd2`.
+The installed MechJeb is 2.15.3.1 (GitHub release `2.15.3.1`, 2026-09-29, KSPAssembly `MechJeb2` 2.15.3). The matching
+source is tag `2.15.3.1`, commit `28b49be3`. All line numbers below are from that tag and are relative to the
+`MechJeb2/` source folder.
 
 ## Evidence
 
 ### How MechJeb finds modules
 
-`MechJeb2/MechJebCore.cs`, `LoadComputerModules()`:
+`MechJebCore.cs`, `LoadComputerModules()` (line 677):
 
-- Lines 736-753: on first use it builds a static `moduleRegistry` by walking `AppDomain.CurrentDomain.GetAssemblies()`
-  (line 739) and keeping every type where `t.IsSubclassOf(typeof(ComputerModule)) && !t.IsAbstract` (line 743). It looks
-  at every loaded assembly, not just its own, so a type in `FlipAndBurn.dll` is picked up.
-- Lines 748-751: if one assembly's `GetTypes()` throws, MechJeb logs it and moves on to the next one.
-- Lines 777-786: for each registered type that is not on the `blacklist` (line 87) and whose short type name is not
-  already taken (`GetComputerModule(t.Name) == null`, line 781), it looks for a constructor taking `MechJebCore`
-  (line 783) and calls `AddComputerModule` on the new instance.
-- Line 841: `OnLoad` calls `LoadComputerModules()`. KSP has loaded every GameData DLL long before any vessel's MechJeb
+- Lines 679-697: on first use it builds a static `_moduleRegistry` (line 32) by walking
+  `AppDomain.CurrentDomain.GetAssemblies()` (line 682) and keeping every type where
+  `t.IsSubclassOf(typeof(ComputerModule)) && !t.IsAbstract` (line 686). It looks at every loaded assembly, not just its
+  own, so a type in `FlipAndBurn.dll` is picked up.
+- Lines 692-695: if one assembly's `GetTypes()` throws, MechJeb logs it and moves on.
+- Lines 719-729: for each registered type that is not on the `blacklist` (line 93) and whose short type name is not
+  already taken (`GetComputerModule(t.Name) == null`, line 723), it looks up a constructor taking `MechJebCore`
+  (line 725) and calls `AddComputerModule` (line 727). `Type.GetConstructor(Type[])` only finds public constructors,
+  so our module's constructor must be public.
+- Line 787: `OnLoad` calls `LoadComputerModules()`. KSP has loaded every GameData DLL long before any vessel's MechJeb
   part loads, so our assembly is in the AppDomain by then.
 
-`MechJeb2/ModExtensionDemo.cs` (whole file) is MechJeb's own sample of a module defined outside its core set, using
-only `ComputerModule` and the `(MechJebCore core)` constructor.
+`ModExtensionDemo.cs:9-11` is MechJeb's own sample of a module defined outside its core set: a `ComputerModule` with a
+public `(MechJebCore core)` constructor.
 
 ### How a window shows up
 
-- `MechJeb2/DisplayModule.cs:7` `DisplayModule : ComputerModule`; constructor at line 128.
-- `DisplayModule.cs:9` `hidden`, `:59` `showInFlight` (default true), `:74` `showInEditor`, `:123` `showInCurrentScene`.
-- `DisplayModule.cs:172` `protected virtual void WindowGUI(int windowID)` draws the window body; `:317`
-  `public virtual string GetName()` is the title.
-- `MechJeb2/MechJebModuleMenu.cs:193-208`: the MechJeb menu lists every display module with `!hidden &&
-  showInCurrentScene` and toggles it by `GetName()`. `:257-309` adds a toolbar button per display module. The icon is
-  looked up at `MechJeb2/Icons/<name>` (line 266); when missing it falls back to a question mark (lines 272-276).
-- `MechJeb2/ComputerModule.cs:22-24`, `:163-200`: `unlockParts` / `unlockTechs` gate a module in career. Both empty
-  means always unlocked.
+- `DisplayModule.cs:9` `DisplayModule : ComputerModule`; constructor at line 132 (now `protected`, fine for a
+  subclass).
+- `DisplayModule.cs:11` `Hidden`, `:63` `ShowInFlight`, `:81` `ShowInEditor`, `:127` `ShowInCurrentScene`.
+- `DisplayModule.cs:173` `protected virtual void WindowGUI(int windowID)` draws the window body; `:310`
+  `public virtual string GetName()` is the title; `:312` `public virtual string IconName()` names the toolbar icon.
+- `MechJebModuleMenu.cs:210-228`: the MechJeb menu lists every display module with `!Hidden && ShowInCurrentScene`
+  (line 219) and toggles it by `GetName()` (line 228).
+- `MechJebModuleMenu.cs:280-333` adds a toolbar button per display module. The icon is looked up at
+  `MechJeb2/Icons/<IconName()>` (lines 287-289); when missing it falls back to `MechJeb2/Icons/QMark` (lines 185,
+  295-298).
+- `ComputerModule.cs:32`, `:36`, `:189-244`: `unlockParts` / `unlockTechs` gate a module in career. Both empty means
+  always unlocked.
 
 ### How a module points the ship
 
-`MechJeb2/MechJebModuleAttitudeController.cs`:
+`MechJebModuleAttitudeController.cs`, reached from a module as `Core.Attitude` (`MechJebCore.cs:38`):
 
-- Line 274: `public bool attitudeTo(Vector3d direction, AttitudeReference reference, object controller)`. Passing
-  `AttitudeReference.INERTIAL` (enum at line 8, value at line 10) with a world-space direction points the ship there.
-  It adds `controller` to the attitude controller's `users` (line 267), which turns it on.
-- Line 265: `attitudeTo(Quaternion, AttitudeReference, object, ...)` for full orientation including roll.
-- Line 300: `attitudeDeactivate()` releases it.
-- Reached from a module as `core.attitude` (`MechJebCore.cs:35`).
+- Line 264: `public void attitudeTo(Vector3d direction, AttitudeReference reference, object controller,
+  bool killRollRotation = false)`. Passing `AttitudeReference.INERTIAL` (enum at line 10, value at line 12) with a
+  world-space direction points the ship there.
+- Line 254: `attitudeTo(QuaternionD attitude, AttitudeReference reference, object controller, ...)` for full
+  orientation including roll. It adds `controller` to the controller's `Users` (line 257), which turns it on.
+- Line 289: `attitudeDeactivate()` releases it.
 
 ### How a module sets throttle
 
-`MechJeb2/MechJebModuleThrustController.cs`, reached as `core.thrust` (`MechJebCore.cs:37`):
+`MechJebModuleThrustController.cs`, reached as `Core.Thrust` (`MechJebCore.cs:40`):
 
-- Line 231: `public float targetThrottle`.
-- Lines 441-443: `Drive()` writes `s.mainThrottle = targetThrottle` only when `users.Count > 1`. A module must call
-  `core.thrust.users.Add(this)` before `targetThrottle` takes effect, and remove itself when done.
-- Line 305: `ThrustForDV(double dV, double timeConstant)` sets `targetThrottle` for a burn with a given delta-v left.
-- A module can also override `ComputerModule.Drive(FlightCtrlState s)` (`ComputerModule.cs:92`) and write the controls
-  itself.
+- Line 232: `public float TargetThrottle`.
+- Lines 456-459: `Drive()` writes `s.mainThrottle = TargetThrottle` only when `Users.Count > 1`. A module must call
+  `Core.Thrust.Users.Add(this)` before `TargetThrottle` takes effect, and remove itself when done.
+- Line 313: `ThrustForDV(double dV, double timeConstant)` sets `TargetThrottle` for a burn with a given delta-v left.
+- A module can also override `ComputerModule.Drive(FlightCtrlState s)` (`ComputerModule.cs:100`) and write the
+  controls itself.
 
 ### Existing acceleration limit
 
 Yes. `MechJebModuleThrustController.cs`:
 
-- Lines 122-126: `public bool limitAcceleration` and `public EditableDouble maxAcceleration = 40` (m/s²), both
-  `[Persistent(pass = Pass.Global)]`.
-- Lines 484-489: in `Drive()`, when `limitAcceleration` is on, the throttle is capped at `AccelerationLimitedThrottle()`.
-- Lines 831-835: that cap is `(maxAcceleration - minThrustAccel) / (maxThrustAccel - minThrustAccel)`, recomputed every
-  tick from the current `vesselState`. As fuel burns and the ship gets lighter, `maxThrustAccel` rises and the cap
-  drops, which is the "ease the throttle down to hold 1g" behaviour we want.
+- Lines 126-131: `public bool LimitAcceleration` and `public readonly EditableDouble MaxAcceleration = 40` (m/s²), both
+  `[Persistent(pass = (int)Pass.GLOBAL)]`.
+- Lines 501-507: in `Drive()`, when `LimitAcceleration` is on, the throttle is capped at `AccelerationLimitedThrottle()`.
+- Lines 827-831: that cap is `(MaxAcceleration - minThrustAccel) / (maxThrustAccel - minThrustAccel)`, recomputed
+  every tick from the current `VesselState`. As fuel burns and the ship gets lighter, `maxThrustAccel` rises and the
+  cap drops, which is the "ease the throttle down to hold 1g" behaviour we want.
 
-Caveat: these two fields are global settings (`Pass.Global`) saved to `mechjeb_settings_global.cfg`. If FlipAndBurn
-drives them, it changes the player's own ascent setting. FlipAndBurn must save the old values when it takes over and
-put them back when it lets go, or compute its own throttle instead.
+Caveat: these are global settings (`Pass.GLOBAL`) saved to `mechjeb_settings_global.cfg`. If FlipAndBurn drives them,
+it changes the player's own setting. FlipAndBurn must save the old values when it takes over and put them back when
+it lets go, or compute its own throttle instead. `MaxAcceleration` is now `readonly`, so we set its value through
+`EditableDouble` rather than replacing the object.
+
+## Changes from 2.9.1 (commit `579f1bd2`)
+
+The add-on route works the same way. What changed for us:
+
+- MechJeb targets .NET Framework 4.8 (`MechJeb2.csproj:12`), up from 4.7. FlipAndBurn must target `net48` to compile
+  against it.
+- Public fields became PascalCase: `core` -> `Core`, `users` -> `Users`, `enabled` -> `Enabled`, `hidden` -> `Hidden`,
+  `showInCurrentScene` -> `ShowInCurrentScene`, `core.attitude` -> `Core.Attitude`, `core.thrust` -> `Core.Thrust`,
+  `targetThrottle` -> `TargetThrottle`, `limitAcceleration` -> `LimitAcceleration`, `maxAcceleration` ->
+  `MaxAcceleration`, `Pass.Global` -> `Pass.GLOBAL`.
+- `attitudeTo` returns `void` (was `bool`) and the quaternion overload takes `QuaternionD`. The direction overload gained
+  an optional `killRollRotation`. A new `AttitudeReference.INERTIAL_COT` sits next to `INERTIAL`.
+- `ComputerModule`, `DisplayModule` and `AutopilotModule` constructors are now `protected`. Subclasses still need a
+  public one for discovery.
+- Toolbar icons are keyed by the new `DisplayModule.IconName()` instead of `GetName()`.
+- Discovery also skips `MechJebModuleAscentBaseAutopilot` (line 722).
+- MechJeb now ships `MechJebLib.dll`, `MechJebLibBindings.dll` and `alglib.dll` next to `MechJeb2.dll`.
+- `KSPAssembly` is `MechJeb2` 2.15.3 (`Properties/AssemblyInfo.cs:31`), so we now declare
+  `[KSPAssemblyDependency("MechJeb2", 2, 15)]`.
 
 ## Decision
 
@@ -86,20 +113,18 @@ FlipAndBurn ships as its own DLL in `GameData/FlipAndBurn/Plugins/`, compiled ag
 and never modifying MechJeb. It defines:
 
 - A `DisplayModule` subclass for the window, with `GetName()` returning "Flip and Burn".
-- The autopilot as a `ComputerModule` (or `AutopilotModule`, `MechJeb2/AutopilotModule.cs:6`) subclass that commands
-  `core.attitude.attitudeTo(..., AttitudeReference.INERTIAL, this)` and registers as a `core.thrust` user.
+- The autopilot as a `ComputerModule` (or `AutopilotModule`, `AutopilotModule.cs:6`) subclass that commands
+  `Core.Attitude.attitudeTo(..., AttitudeReference.INERTIAL, this)` and registers as a `Core.Thrust` user.
 
-The assembly declares `[KSPAssemblyDependency("MechJeb2", 2, 5)]` so KSP loads MechJeb first and skips us if it is
-missing.
+The assembly declares `[KSPAssemblyDependency("MechJeb2", 2, 15)]` so KSP loads MechJeb first and skips us if it is
+missing or older.
 
 ## Consequences
 
 - No fork of MechJeb to maintain. Players install FlipAndBurn next to their existing MechJeb.
-- Type names must not collide with MechJeb's own, because MechJeb dedupes by short type name (`MechJebCore.cs:781`).
+- Type names must not collide with MechJeb's own, because MechJeb dedupes by short type name (`MechJebCore.cs:723`).
   Use names that start with `MechJebModuleFlipAndBurn`.
 - The toolbar icon has to live under `MechJeb2/Icons/`, which we will not touch. We accept the question-mark icon for
   now.
-- We compile against MechJeb's public fields and methods, which have no stability promise. A MechJeb upgrade can break
-  the build. We pin to the installed 2.9.1 and recheck on upgrade.
-- MechJeb 2.9.1 predates KSP 1.12.5 by three years. It loads today with no MechJeb exceptions in the existing KSP.log,
-  but a newer MechJeb (2.14+) may be worth a separate decision.
+- We compile against MechJeb's public fields and methods, which have no stability promise. The 2.9.1 -> 2.15.3.1 jump
+  renamed most of them. We pin to the installed version and recheck on every MechJeb upgrade.
