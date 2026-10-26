@@ -1,8 +1,6 @@
-# Infinite propellant cheat check 2026-10-26T17:57:36Z
+# Infinite propellant cheat check 2026-10-26T18:48:08Z
 ## The harness's own readings
-step 6: window shows (planned at UT 18377814386.131115, target Duna, acceleration 1 g, flip CutFlipRelight, parking 60000 m, trip FullBurn, infinite propellant False)
-step 11: window shows (planned at UT 18377814401.411465, target Duna, acceleration 1 g, flip CutFlipRelight, parking 60000 m, trip FullBurn, infinite propellant False)
-step 17: window shows (planned at UT 18377814403.431511, target Duna, acceleration 1 g, flip CutFlipRelight, parking 60000 m, trip FullBurn, infinite propellant False)
+step 7: (a) full burn to Duna, infinite propellant True, planner can start: True
 ## settings.cfg: lines mentioning a cheat or propellant, before and after the run
 before: 0
 after:  0

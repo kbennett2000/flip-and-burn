@@ -103,7 +103,9 @@ namespace FlipAndBurn
         public string PressStart()
         {
             if (!Planner.CanStart) return "The planner says this trip can't be flown as set up.";
-            return Autopilot?.StartTrip(Planner.BuildTripStart()) ?? "Flip and Burn's autopilot isn't loaded.";
+            MechJebModuleFlipAndBurnAutopilot pilot = Autopilot;
+            if (pilot == null) return "Flip and Burn's autopilot isn't loaded.";
+            return pilot.StartTrip(Planner.BuildTripStart());   // null when the trip started
         }
 
         /// <summary>The Abort button (and the test helper).</summary>

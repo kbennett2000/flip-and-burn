@@ -17,6 +17,15 @@ namespace FlipAndBurn.Core.Tests
         }
 
         [Fact]
+        public void NotYetPointed_NormalSpeedEvenWhileBurning()
+        {
+            // Found in the game: warping while the ship still turned to the burn direction left it 80 degrees off.
+            WarpDecision d = WarpPolicy.Decide(Cmd(GuidancePhase.Accelerate, toFlip: 35_000), pointed: false);
+            Assert.Equal(WarpMode.None, d.Mode);
+            Assert.Contains("turning", d.Reason);
+        }
+
+        [Fact]
         public void NearTheFlip_NormalSpeed()
         {
             WarpDecision d = WarpPolicy.Decide(Cmd(GuidancePhase.Accelerate, toFlip: 25), pointed: true);
