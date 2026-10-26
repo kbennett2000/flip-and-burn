@@ -1,0 +1,20 @@
+# Infinite propellant cheat check 2026-10-26T17:05:32Z
+## The harness's own readings
+step 8: infinite propellant cheat before the scenarios: False
+step 9: trip type FullBurn, infinite propellant False
+step 9: window shows (planned at UT 18377814386.071114, target Duna, acceleration 1 g, flip CutFlipRelight, parking 60000 m, trip FullBurn, infinite propellant False)
+step 10: trip type CoastInTheMiddle, infinite propellant False
+step 10: window shows (planned at UT 18377814389.8912, target Duna, acceleration 1 g, flip CutFlipRelight, parking 60000 m, trip CoastInTheMiddle, infinite propellant False)
+step 11: trip type FullBurn, infinite propellant True
+step 11: window shows (planned at UT 18377814393.891293, target Duna, acceleration 1 g, flip CutFlipRelight, parking 60000 m, trip FullBurn, infinite propellant True)
+step 12: infinite propellant cheat after the scenarios: False
+## settings.cfg: lines mentioning a cheat or propellant, before and after the run
+before: 0
+after:  0
+## settings.cfg: every line KSP changed during the run (diff before -> after)
+(no changes)
+## Every save except FlipAndBurn-Test: files changed during the run
+files fingerprinted: 5162
+(no changes)
+## Every save except FlipAndBurn-Test: lines mentioning InfinitePropellant
+0 files

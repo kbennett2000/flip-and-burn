@@ -1,14 +1,15 @@
 using System.Collections.Generic;
 using System.Linq;
 using JetBrains.Annotations;
+using FlipAndBurn.Core.Guidance;
 using MuMech;
 using UnityEngine;
 
 namespace FlipAndBurn
 {
     /// <summary>
-    /// The "Flip and Burn" window in MechJeb's menu: pick a planet, an acceleration, a flip style and a parking orbit,
-    /// and see what the trip takes and whether this ship can do it.
+    /// The "Flip and Burn" window in MechJeb's menu: pick a planet, an acceleration, a trip type, a flip style and a
+    /// parking orbit, and see what the trip takes and whether this ship can do it.
     /// </summary>
     /// <remarks>
     /// MechJeb finds this class on its own (MechJebCore.LoadComputerModules scans every loaded assembly; ADR 0001).
@@ -19,6 +20,7 @@ namespace FlipAndBurn
         public const string Title = "Flip and Burn";
 
         private static readonly string[] FlipStyleNames = { "Cut, flip, relight", "Skew flip" };
+        private static readonly string[] TripTypeNames = { "Full burn", "Coast in the middle" };
 
         // Remembered across ships and sessions, like MechJeb's own settings.
         [UsedImplicitly]
@@ -28,6 +30,10 @@ namespace FlipAndBurn
         [UsedImplicitly]
         [Persistent(pass = (int)Pass.GLOBAL)]
         public int FlipStyleIndex;
+
+        [UsedImplicitly]
+        [Persistent(pass = (int)Pass.GLOBAL)]
+        public int TripTypeIndex;
 
         private readonly EditableDoubleMult parkingAltitudeKm = new EditableDoubleMult(0, 1000);
         private string parkingAltitudeFor;
@@ -62,11 +68,20 @@ namespace FlipAndBurn
             return true;
         }
 
+        /// <summary>For the test harness: pick the trip type and plan right away.</summary>
+        public void SelectTripType(TripType trip)
+        {
+            TripTypeIndex = (int)trip;
+            SyncInputs();
+            Planner.Refresh(Vessel);
+        }
+
         // Copy the text boxes into the planner, and load the parking altitude box when the target changes.
         private void SyncInputs()
         {
             Planner.AccelerationG = AccelerationG.Val;
             Planner.Flip = (FlipStyle)Mathf.Clamp(FlipStyleIndex, 0, FlipStyleNames.Length - 1);
+            Planner.Trip = (TripType)Mathf.Clamp(TripTypeIndex, 0, TripTypeNames.Length - 1);
 
             CelestialBody target = Planner.Target;
             if (target == null) return;
@@ -133,9 +148,21 @@ namespace FlipAndBurn
             GUILayout.Space(4);
             GuiUtils.SimpleTextBox("Acceleration", AccelerationG, "g", 60);
             GUILayout.BeginHorizontal();
-            GUILayout.Label("Flip");
-            FlipStyleIndex = GUILayout.Toolbar(Mathf.Clamp(FlipStyleIndex, 0, FlipStyleNames.Length - 1), FlipStyleNames);
+            GUILayout.Label("Trip");
+            TripTypeIndex = GUILayout.Toolbar(Mathf.Clamp(TripTypeIndex, 0, TripTypeNames.Length - 1), TripTypeNames);
             GUILayout.EndHorizontal();
+            if (TripTypeIndex == (int)TripType.CoastInTheMiddle)
+            {
+                // The flip happens while coasting with the engine off, so there's nothing to choose.
+                GUILayout.Label("Flip: during the coast, engine off (the flip style doesn't matter on a coast trip).", wrapStyle);
+            }
+            else
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("Flip");
+                FlipStyleIndex = GUILayout.Toolbar(Mathf.Clamp(FlipStyleIndex, 0, FlipStyleNames.Length - 1), FlipStyleNames);
+                GUILayout.EndHorizontal();
+            }
             CelestialBody target = Planner.Target;
             if (target != null)
                 GuiUtils.SimpleTextBox($"Parking orbit at {Planner.BodyName(target)}", parkingAltitudeKm, "km", 60);
