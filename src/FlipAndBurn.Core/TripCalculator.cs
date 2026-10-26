@@ -11,6 +11,15 @@ namespace FlipAndBurn.Core
         public double GravParameter { get; }   // m^3/s^2
         public double Radius { get; }          // m
 
+        /// <summary>Sphere of influence radius (m); 0 if unknown. Guidance uses it to label the final approach.</summary>
+        public double SphereOfInfluence { get; set; }
+
+        /// <summary>
+        /// Closest the ship may pass (m from the centre) when leaving this planet: radius plus atmosphere plus margin.
+        /// 0 means the radius.
+        /// </summary>
+        public double SafeRadius { get; set; }
+
         public TargetPlanet(string name, IEphemeris ephemeris, double gravParameter, double radius)
         {
             Name = name;
