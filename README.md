@@ -27,8 +27,13 @@ planet's velocity and entering the parking orbit), and whether the path passes t
 Unity dependency, so it is fully unit-tested:
 
 ```sh
-dotnet test tests/FlipAndBurn.Core.Tests
+dotnet test tests/FlipAndBurn.Core.Tests                                   # everything, about 5 minutes
+dotnet test tests/FlipAndBurn.Core.Tests --filter "Category!=Simulation"   # the fast tests, a few seconds
 ```
+
+The steering for the autopilot (`src/FlipAndBurn.Core/Guidance`, [ADR 0003](docs/adr/0003-guidance.md)) is proven
+in a simulator in the test project: it flies full trips from a low Kerbin orbit under the Sun's and the planets'
+gravity, at KSP's 0.02 s physics step, and checks that each ends in the chosen parking orbit.
 
 The tests use KSP's real planet data, read from the install by the scripts in [tools/planet-data](tools/planet-data).
 How a trip behaves, and the assumptions behind the estimate, are in
