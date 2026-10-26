@@ -26,8 +26,8 @@ namespace FlipAndBurn.Core.Guidance
     /// How fast Flip and Burn may warp time during a trip (ADR 0003, "Time warp").
     /// </summary>
     /// <remarks>
-    /// Physics warp only while the engine is firing; normal warp only while coasting with the engine off and pointed
-    /// where the braking will go (the ship can't turn while on rails). The rate is capped so the next event (the flip,
+    /// Physics warp only while the engine is firing; normal warp only while coasting with the engine off. Either only once
+    /// the ship points where it should: it can't turn on rails, and turns badly in coarse physics-warp steps. The rate is capped so the next event (the flip,
     /// the braking burn, the arrival) is always at least a set number of real seconds away: warp falls steadily as an
     /// event nears, and is back to normal speed in time. Turning (the flip, a course correction) and the last
     /// circularizing burn run at normal speed.
@@ -53,10 +53,12 @@ namespace FlipAndBurn.Core.Guidance
             if (cmd.Circularizing) return Normal("final burn into the parking orbit");
             if (cmd.Correcting) return Normal("course correction");
 
+            // Turning needs normal speed: under physics warp the attitude control gets coarse steps and the ship falls behind.
+            if (!pointed) return Normal(cmd.Phase == GuidancePhase.Coast ? "turning to the braking direction" : "turning to the burn direction");
+
             switch (cmd.Phase)
             {
                 case GuidancePhase.Coast:
-                    if (!pointed) return Normal("turning to the braking direction");
                     return Capped(WarpMode.Rails, cmd.TimeToBurn, RailsLeadSeconds, "coasting, engine off", "braking burn");
                 case GuidancePhase.Accelerate:
                     return Capped(WarpMode.Physics, cmd.TimeToFlip, PhysicsLeadSeconds, "speeding up", "flip");
