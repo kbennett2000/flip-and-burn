@@ -174,8 +174,10 @@ namespace FlipAndBurn.Core.Tests
 
             Assert.True(plan.Feasible);
             Assert.True(plan.PassesNearSun);
-            Assert.True(plan.ClosestSunDistance < 1e3, $"closest approach {plan.ClosestSunDistance} m");
-            Assert.True(plan.ClosestSunDistance < KerbolSystem.SunRadius, "path goes through the Sun itself");
+            Assert.True(plan.StraightClosestSunDistance < 1e3, $"closest approach {plan.StraightClosestSunDistance} m");
+            Assert.True(plan.StraightClosestSunDistance < KerbolSystem.SunRadius, "straight path goes through the Sun itself");
+            Assert.True(plan.UsesSunDetour);
+            Assert.True(plan.ClosestSunDistance >= TripCalculator.DefaultSunSafetyDistance, "the detour clears the Sun");
         }
 
         [Fact]
@@ -200,7 +202,29 @@ namespace FlipAndBurn.Core.Tests
 
             Assert.True(plan.Feasible);
             Assert.True(plan.PassesNearSun);
-            Assert.True(plan.ClosestSunDistance < TripCalculator.DefaultSunSafetyDistance);
+            Assert.True(plan.StraightClosestSunDistance < TripCalculator.DefaultSunSafetyDistance);
+            Assert.True(plan.UsesSunDetour);
+            Assert.True(plan.ClosestSunDistance >= TripCalculator.DefaultSunSafetyDistance, "the detour clears the Sun");
+            Assert.True(plan.TripTime > plan.StraightTripTime && plan.TotalDeltaV > plan.StraightTotalDeltaV, "the detour costs more");
+        }
+
+        [Fact]
+        public void TargetGravity_RefusesTooLittleAcceleration()
+        {
+            // Jool at 100 km (this file's parking altitude) pulls 7.59 m/s^2; 0.25 g is 2.45 m/s^2.
+            TripPlan jool = TripCalculator.Plan(FromKerbin(KerbolSystem.Jool.AsTarget(), 0, accel: 0.25 * OneG));
+            output.WriteLine($"Jool at 0.25 g: {jool.Problem} {jool.ProblemDetail}");
+            double rp = KerbolSystem.Jool.Radius + ParkingAltitude, g = KerbolSystem.Jool.GravParameter / (rp * rp);
+            Assert.Equal(TripProblem.TargetGravityTooStrong, jool.Problem);
+            AssertRel(g, jool.TargetGravityAtParking, 1e-12, "gravity at the parking orbit");
+            AssertRel(1.1 * g, jool.MinimumAcceleration, 1e-12, "minimum acceleration");
+
+            // Duna at 60 km pulls 2.09 m/s^2: 0.25 g clears it by more than 10 %, and 1 g easily.
+            Assert.True(TripCalculator.Plan(FromKerbin(KerbolSystem.Duna.AsTarget(), 0, accel: 0.25 * OneG)).Feasible);
+            Assert.True(TripCalculator.Plan(FromKerbin(KerbolSystem.Jool.AsTarget(), 0, accel: OneG)).Feasible);
+            // Just under and just over the line.
+            Assert.Equal(TripProblem.TargetGravityTooStrong, TripCalculator.Plan(FromKerbin(KerbolSystem.Jool.AsTarget(), 0, accel: 0.999 * jool.MinimumAcceleration)).Problem);
+            Assert.True(TripCalculator.Plan(FromKerbin(KerbolSystem.Jool.AsTarget(), 0, accel: 1.001 * jool.MinimumAcceleration)).Feasible);
         }
 
         [Fact]
@@ -234,10 +258,13 @@ namespace FlipAndBurn.Core.Tests
 
         // ---------------------------------------------------------------- extremes: no crashes, sensible answers
 
+        // Jool's orbit with no gravity of its own, so the target-gravity refusal doesn't hide the trip maths.
+        private static TargetPlanet WeightlessJool() => new TargetPlanet("Jool (weightless)", KerbolSystem.Jool.Orbit, 1e-40, KerbolSystem.Jool.Radius);
+
         [Fact]
         public void LowAcceleration_StillPlans_AndWarnsThatGravityMatters()
         {
-            TripPlan plan = TripCalculator.Plan(FromKerbin(KerbolSystem.Jool.AsTarget(), 0, accel: 1e-4));
+            TripPlan plan = TripCalculator.Plan(FromKerbin(WeightlessJool(), 0, accel: 1e-4));
             Report("Kerbin -> Jool at 0.0001 m/s^2", plan);
             Assert.True(plan.Feasible);
             Assert.True(plan.ArrivalConverged);
@@ -251,7 +278,7 @@ namespace FlipAndBurn.Core.Tests
         [InlineData(1e-15)]
         public void AccelerationTooLowToMatter_ReportsNoSolution(double accel)
         {
-            TripPlan plan = TripCalculator.Plan(FromKerbin(KerbolSystem.Jool.AsTarget(), 0, accel));
+            TripPlan plan = TripCalculator.Plan(FromKerbin(WeightlessJool(), 0, accel));
             Report($"Kerbin -> Jool at {accel} m/s^2", plan);
             Assert.False(plan.Feasible);
             Assert.Equal(TripProblem.NoSolutionWithinMaxTripTime, plan.Problem);
@@ -261,7 +288,7 @@ namespace FlipAndBurn.Core.Tests
         public void DistanceTooLargeToMatter_ReportsNoSolution()
         {
             // At 1 g, 1e22 m takes 2*sqrt(1e22/9.81) = 6.4e10 s, past the 1e10 s limit.
-            var farAway = new TargetPlanet("Far", new FixedEphemeris(new Vec3(1e22, 0, 0)), 1e12, 1e5);
+            var farAway = new TargetPlanet("Far", new FixedEphemeris(new Vec3(1e22, 0, 0)), 1, 1e5);
             TripPlan plan = TripCalculator.Plan(new TripRequest { ShipPosition = new Vec3(1e11, 0, 0), Target = farAway, Acceleration = OneG });
             Report("1e22 m away at 1 g", plan);
             Assert.False(plan.Feasible);
@@ -281,7 +308,7 @@ namespace FlipAndBurn.Core.Tests
         public void AlreadyThere_IsAZeroLengthTrip()
         {
             var planet = new TargetPlanet("Here", new FixedEphemeris(new Vec3(1e10, 0, 0)), 1e12, 1e5);
-            var req = new TripRequest { ShipPosition = new Vec3(1e10 - 1e5, 0, 0), ShipVelocity = Vec3.Zero, Target = planet, ParkingAltitude = 0 };
+            var req = new TripRequest { ShipPosition = new Vec3(1e10 - 1e5, 0, 0), ShipVelocity = Vec3.Zero, Target = planet, ParkingAltitude = 0, CheckTargetGravity = false };
             TripPlan plan = TripCalculator.Plan(req);
             Assert.True(plan.Feasible);
             Assert.Equal(0, plan.TripTime);

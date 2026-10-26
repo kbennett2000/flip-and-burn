@@ -87,18 +87,65 @@ the plane of the start, the target and the Sun, perpendicular to the straight li
 keep 1.2 times the safety distance from the Sun. Stopping at the waypoint is simple and robust but costs extra delta-v
 and time; a smoother detour (passing the waypoint without stopping) can replace it later behind the same phases.
 
-### Room for a coast phase
+### The coast phase (coast trips)
 
-`TwoArcSolver` already takes a coast time between its arcs (the flip uses it). A burn-up, coast, burn-down profile
-would choose a longer coast and add a Coast phase between Accelerate and Flip; the steering laws don't change. It is
-not built.
+A coast trip ("Coast in the middle", ADR 0002 addendum) burns up, coasts with the engine off, and burns down. The
+planner (`CoastPlanner`) picks the shortest coast whose two burns fit the delta-v budget, using the same two-arc solver
+with a longer coast between the arcs. The arrival time is then fixed.
+
+- **Burn up:** the two-arc solver with the total time fixed (`SolveFixedTotal`): the coast takes whatever the burns
+  don't need. When the first arc runs out, the Coast phase starts.
+- **Coast:** each step works out the velocity the ship should have now so that coasting, then braking at the planned
+  acceleration, ends at the arrival point on time. With gravity's contribution G1 (velocity) and G2 (displacement) over
+  the rest of the trip, the braking acceleration A satisfies A (τ - tb/2) = (vF - G1) τ - (rF - r - G2), and |A| fixes
+  the braking time tb in closed form. When the ship's velocity is off by more than 1 m/s (and braking is more than ten
+  minutes away) it turns and makes a short course correction burn at the chosen acceleration. Otherwise the engine is
+  off and the ship points where the braking will go: the flip happens here, so the flip style doesn't matter.
+- **Burn down:** when braking is due, the arrival law below takes over with the same arrival point and time.
+
+Gravity over a coast of weeks needs care, because the Sun's pull differs between the ship and the target by up to a
+few mm/s^2 and the ship travels tens of billions of metres:
+
+- The expected path for the gravity integrals follows the burns, then the Sun-centred orbit the coasting ship will
+  really be on (`PathGravity.CoastPath`), then a smooth curve into the arrival state. A smooth curve over the whole trip
+  put the coasting ship billions of metres from where it would be; a straight line, about 10^8 m.
+- The coast is sampled with 128 Simpson intervals instead of 32 (the Sun term varies along the whole coast).
+- The plan is solved in the Sun's frame, so the allowance also includes the target's own curve around the Sun over
+  the rest of the trip (`PathGravity.FrameCurve`). Leaving it out left a coast trip 5 x 10^8 m off at arrival.
+- The planner allows for the departure planet's pull while the ship climbs out (`DepartureGravity`): a ship starting
+  in low orbit doesn't keep its orbital speed. Without it the first burn ran about 330 s longer than planned to Duna.
+
+Flying a coast trip still costs more than its two planned burns: 1.4 % to Duna and 4.4 % to Jool in the simulator
+(steering corrections, the braking law holding 98-100 % of the acceleration, the final circularizing burn, and the
+rough gravity model near the target). The planner therefore plans the burns 6 % under the budget
+(`CoastPlanner.GuidanceMargin`) and shows the delta-v needed with that margin, so the 10 % reserve is still there at
+arrival (13.9 % left at Duna, 11.4 % at Jool).
+
+### Known follow-up: coast accuracy
+
+Not done in this cycle; recorded so it isn't lost:
+
+- **Departure gravity in the guidance.** Only the planner allows for the departure planet's pull. The guidance
+  re-solves from the actual state and so absorbs it, but aims slightly off at first; the first burn still runs about
+  90 s (Duna) longer than planned. Feeding the same allowance to the guidance, cheaply enough to run every step, would
+  close that.
+- **Patched-conic coast near the target.** The expected coast path ignores the target's pull until braking. Near Jool
+  that pull bends the path enough to need several course corrections and a braking burn about 400 s longer than
+  planned. Switching the predicted coast to an orbit around the target once inside its sphere of influence (as KSP's
+  patched conics do) should fix it. A first attempt slowed the guidance too much and was set aside.
+- With both, the guidance margin could come down from 6 %.
 
 ## Consequences
 
 - Every step re-plans from the actual state, so the simulator's Sun gravity, planet motion, turn-rate limit and large
   warp steps are all absorbed without special cases.
-- Acceleration stays within 2 % of the chosen value outside the flip: exact before it, 98.2-100 % after it.
+- Acceleration stays within 2 % of the chosen value outside the flip (and the engine-off coast): exact before it,
+  98.2-100 % after it, and course corrections burn at the chosen acceleration.
 - **Limit:** the final approach needs the chosen acceleration to beat the target's gravity at the parking orbit. Jool's
   pull at 220 km is 7.3 m/s^2, more than 0.25 g (2.45 m/s^2), so a 0.25 g trip to Jool can't end in that orbit. The
-  planner should refuse such trips (a later cycle); the 0.25 g test flies to Duna (2.1 m/s^2 at 60 km).
+  planner refuses such trips (it asks for at least 1.1 times that gravity); the 0.25 g test flies to Duna (2.1 m/s^2 at
+  60 km).
+- The simulator moves a coasting ship (engine off, braking not yet due) along its orbit in big steps, as KSP's on-rails
+  warp does, and uses 2 s steps (physics warp x100) in a full burn's cruise away from the planets; 0.02 s steps
+  everywhere else. One Duna trip at 0.02 s throughout runs as a separate long test (`Category=LongRunning`).
 - The simulation results are in the test output and the PR.

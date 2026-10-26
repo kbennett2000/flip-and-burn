@@ -10,7 +10,23 @@ namespace FlipAndBurn.Core
         /// parameter <paramref name="mu"/>. Works for ellipses, parabolas and hyperbolas (universal-variable Kepler
         /// solution, Vallado's algorithm 8). With mu = 0 it is a straight line.
         /// </summary>
-        public static StateVector Propagate(Vec3 r0, Vec3 v0, double mu, double dt)
+        public static StateVector Propagate(Vec3 r0, Vec3 v0, double mu, double dt) => Propagate(r0, v0, mu, dt, 0);
+
+        // A very eccentric hyperbola (a fast flyby far out) can send the iteration astray. The answer must keep the
+        // orbit's energy; if it doesn't, take two half steps (each starts closer to the answer).
+        private static StateVector Propagate(Vec3 r0, Vec3 v0, double mu, double dt, int depth)
+        {
+            StateVector result = PropagateOnce(r0, v0, mu, dt);
+            if (mu <= 0 || depth >= 4) return result;
+            double e0 = v0.LengthSquared / 2 - mu / r0.Length;
+            double e1 = result.Velocity.LengthSquared / 2 - mu / result.Position.Length;
+            if (result.Position.IsFinite && result.Velocity.IsFinite &&
+                Math.Abs(e1 - e0) <= 1e-6 * Math.Max(Math.Abs(e0), v0.LengthSquared / 2)) return result;
+            StateVector half = Propagate(r0, v0, mu, dt / 2, depth + 1);
+            return Propagate(half.Position, half.Velocity, mu, dt / 2, depth + 1);
+        }
+
+        private static StateVector PropagateOnce(Vec3 r0, Vec3 v0, double mu, double dt)
         {
             if (dt == 0) return new StateVector(r0, v0);
             if (mu <= 0) return new StateVector(r0 + v0 * dt, v0);
@@ -39,16 +55,43 @@ namespace FlipAndBurn.Core
             }
             else x = sqrtMu * dt / rLen;
 
-            double c2 = 0.5, c3 = 1.0 / 6, psi = 0, r = rLen;
-            for (int i = 0; i < 100; i++)
+            // Time as a function of x rises steadily (its slope is the distance over sqrt(mu)), so keep a bracket
+            // around the answer and fall back to halving it whenever a Newton step would leave it. Plain Newton can
+            // run away on a near-straight hyperbola aimed at the body.
+            double TimeAt(double xx, out double rr)
             {
-                psi = x * x * alpha;
-                Stumpff(psi, out c2, out c3);
-                r = x * x * c2 + rv * x * (1 - psi * c3) + rLen * (1 - psi * c2);
-                double f = sqrtMu * dt - (x * x * x * c3 + rv * x * x * c2 + rLen * x * (1 - psi * c3));
-                double step = f / r;
-                x += step;
-                if (Math.Abs(step) <= 1e-12 * Math.Max(1, Math.Abs(x))) break;
+                double p = xx * xx * alpha;
+                Stumpff(p, out double cc2, out double cc3);
+                rr = xx * xx * cc2 + rv * xx * (1 - p * cc3) + rLen * (1 - p * cc2);
+                return (xx * xx * xx * cc3 + rv * xx * xx * cc2 + rLen * xx * (1 - p * cc3)) / sqrtMu;
+            }
+
+            double lo = Math.Min(0, x), hi = Math.Max(0, x);
+            if (dt > 0)
+            {
+                lo = 0;
+                hi = Math.Max(x, sqrtMu * dt / rLen);
+                for (int i = 0; i < 200 && TimeAt(hi, out _) < dt; i++) { lo = hi; hi *= 2; }
+            }
+            else
+            {
+                hi = 0;
+                lo = Math.Min(x, sqrtMu * dt / rLen);
+                for (int i = 0; i < 200 && TimeAt(lo, out _) > dt; i++) { hi = lo; lo *= 2; }
+            }
+
+            if (!(x > lo && x < hi)) x = 0.5 * (lo + hi);
+            double c2 = 0.5, c3 = 1.0 / 6, psi = 0, r = rLen;
+            for (int i = 0; i < 200; i++)
+            {
+                double t = TimeAt(x, out r);
+                double f = t - dt;
+                if (f > 0) hi = x; else lo = x;
+                double next = x - f * sqrtMu / r;
+                if (!(next > lo && next < hi) || double.IsNaN(next)) next = 0.5 * (lo + hi);
+                double step = next - x;
+                x = next;
+                if (Math.Abs(step) <= 1e-12 * Math.Max(1, Math.Abs(x)) || hi - lo <= 1e-14 * Math.Max(1, Math.Abs(x))) break;
             }
 
             psi = x * x * alpha;

@@ -41,6 +41,40 @@ namespace FlipAndBurn.Core.Tests
         }
 
         [Fact]
+        public void TwoBody_FastFlybyFarOut()
+        {
+            // A coasting ship entering Jool's sphere of influence at 55 km/s: a hyperbola with eccentricity in the
+            // thousands. Compare an hour's propagation with a finely stepped integration.
+            double mu = KerbolSystem.Jool.GravParameter;
+            foreach ((Vec3 r0, Vec3 v0) in new[]
+            {
+                (new Vec3(1.5e9, 2e7, 1e6), new Vec3(-55_600, -300, 20)),
+                // Aimed almost straight at Jool (from the simulator, where plain Newton ran away).
+                (new Vec3(-857941975.0636597, -973991422.2126846, -2823612.8127851486), new Vec3(36662.689142536234, 41811.18259189171, 122.33117572269087)),
+            })
+            foreach (double dt in new[] { 600.0, 3600, 7200 })
+            {
+                StateVector s = TwoBody.Propagate(r0, v0, mu, dt);
+                Vec3 r = r0, v = v0;
+                int n = (int)(dt / 0.5);
+                double h = dt / n;
+                for (int i = 0; i < n; i++)
+                {
+                    Vec3 Acc(Vec3 p) => p * (-mu / Math.Pow(p.Length, 3));
+                    Vec3 k1v = Acc(r), k1r = v;
+                    Vec3 k2v = Acc(r + k1r * (h / 2)), k2r = v + k1v * (h / 2);
+                    Vec3 k3v = Acc(r + k2r * (h / 2)), k3r = v + k2v * (h / 2);
+                    Vec3 k4v = Acc(r + k3r * h), k4r = v + k3v * h;
+                    r += (k1r + k2r * 2 + k3r * 2 + k4r) * (h / 6);
+                    v += (k1v + k2v * 2 + k3v * 2 + k4v) * (h / 6);
+                }
+
+                Assert.True((s.Position - r).Length < 1.0, $"position after {dt} s off by {(s.Position - r).Length} m");
+                Assert.True((s.Velocity - v).Length < 1e-3, $"velocity after {dt} s off by {(s.Velocity - v).Length} m/s");
+            }
+        }
+
+        [Fact]
         public void TwoBody_ShapeOfACircularOrbit()
         {
             double mu = KerbolSystem.Kerbin.GravParameter, r = 700_000;

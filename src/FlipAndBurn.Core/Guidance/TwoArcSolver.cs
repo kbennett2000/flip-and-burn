@@ -70,6 +70,80 @@ namespace FlipAndBurn.Core.Guidance
             return robust;
         }
 
+        /// <summary>
+        /// Solve with the arrival time fixed: t1 + coast + t2 = <paramref name="total"/>, the coast taking up whatever
+        /// the burns don't need (a coast trip). Warm-starts from the previous solution.
+        /// </summary>
+        public Arcs SolveFixedTotal(double ut, Vec3 r0, Vec3 v0, double total)
+        {
+            if (haveLast)
+            {
+                double elapsed = ut - lastUT;
+                Arcs warm = NewtonFixedTotal(ut, r0, v0, total, Math.Max(1e-3, last.T1 - elapsed), Math.Max(1e-3, last.T2));
+                if (warm.Valid)
+                {
+                    WarmSolves++;
+                    Remember(ut, warm);
+                    return warm;
+                }
+            }
+
+            RobustSolves++;
+            Arcs robust = RobustFixedTotal(ut, r0, v0, total);
+            if (robust.Valid) Remember(ut, robust);
+            return robust;
+        }
+
+        private Arcs NewtonFixedTotal(double ut, Vec3 r0, Vec3 v0, double total, double t1, double t2)
+        {
+            for (int iter = 0; iter < 10; iter++)
+            {
+                if (t1 + t2 >= total) return default;
+                Arcs arcs = Evaluate(ut, r0, v0, t1, t2, total - t1 - t2);
+                double f1 = arcs.A1.Length / accel1 - 1, f2 = arcs.A2.Length / accel2 - 1;
+                if (Math.Abs(f1) < 1e-11 && Math.Abs(f2) < 1e-11) return arcs;
+
+                double h1 = Math.Max(1e-4, 1e-7 * t1), h2 = Math.Max(1e-4, 1e-7 * t2);
+                Arcs d1 = Evaluate(ut, r0, v0, t1 + h1, t2, total - t1 - h1 - t2);
+                Arcs d2 = Evaluate(ut, r0, v0, t1, t2 + h2, total - t1 - t2 - h2);
+                double j11 = (d1.A1.Length / accel1 - 1 - f1) / h1, j21 = (d1.A2.Length / accel2 - 1 - f2) / h1;
+                double j12 = (d2.A1.Length / accel1 - 1 - f1) / h2, j22 = (d2.A2.Length / accel2 - 1 - f2) / h2;
+                double det = j11 * j22 - j12 * j21;
+                if (det == 0 || double.IsNaN(det)) break;
+                double s1 = (f1 * j22 - f2 * j12) / det, s2 = (j11 * f2 - j21 * f1) / det;
+                double scale = 1;
+                while ((t1 - scale * s1 <= 0 || t2 - scale * s2 <= 0 || t1 - scale * s1 + t2 - scale * s2 >= total) && scale > 1e-6) scale *= 0.5;
+                t1 -= scale * s1;
+                t2 -= scale * s2;
+            }
+
+            return default;
+        }
+
+        // For a fixed arrival time, more burn time means less acceleration needed: find the burn time B = t1 + t2 (split so
+        // |A1|/a1 = |A2|/a2) where that ratio is exactly 1.
+        private Arcs RobustFixedTotal(double ut, Vec3 r0, Vec3 v0, double total)
+        {
+            double lo = 0, hi = total * (1 - 1e-9);
+            Arcs best = default;
+            if (BalancedSplit(ut, r0, v0, hi, total - hi).A1.Length > accel1) return default; // can't make it even burning all the way
+            for (int i = 0; i < 100 && hi - lo > 1e-9 * total; i++)
+            {
+                double mid = 0.5 * (lo + hi);
+                Arcs s = BalancedSplit(ut, r0, v0, mid, total - mid);
+                if (s.A1.Length <= accel1)
+                {
+                    hi = mid;
+                    best = s;
+                }
+                else lo = mid;
+            }
+
+            if (!best.Valid) return default;
+            Arcs polished = NewtonFixedTotal(ut, r0, v0, total, best.T1, best.T2);
+            return polished.Valid ? polished : best;
+        }
+
         private void Remember(double ut, Arcs arcs)
         {
             last = arcs;

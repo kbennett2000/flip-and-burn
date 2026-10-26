@@ -6,8 +6,8 @@ namespace FlipAndBurn.Core.Guidance
     public enum GuidancePhase
     {
         Accelerate,
-        // A coast phase (burn up, coast, burn down) would slot in here: TwoArcSolver already takes a coast time
-        // between its arcs, so adding it means choosing that time and adding a state, not new math.
+        /// <summary>Coast trips only: engine off between the burns. The ship turns to its braking direction here.</summary>
+        Coast,
         Flip,
         Decelerate,
         FinalApproach,
@@ -22,6 +22,14 @@ namespace FlipAndBurn.Core.Guidance
         SkewFlip,
     }
 
+    public enum TripType
+    {
+        /// <summary>Burn the whole way: accelerate, flip, decelerate. The default (ADR 0002).</summary>
+        FullBurn,
+        /// <summary>Burn, coast weightless, burn to stop: the fastest trip a delta-v budget allows (ADR 0002 addendum).</summary>
+        CoastInTheMiddle,
+    }
+
     /// <summary>Everything that stays fixed for one trip.</summary>
     public sealed class GuidanceConfig
     {
@@ -29,6 +37,10 @@ namespace FlipAndBurn.Core.Guidance
         /// <summary>The planet the ship is leaving, if it starts inside one's sphere of influence. Optional.</summary>
         public TargetPlanet Departure { get; set; }
         public double Acceleration { get; set; } = TripCalculator.OneG;
+        public TripType Trip { get; set; } = TripType.FullBurn;
+        /// <summary>Coast trips: delta-v the burns may use (m/s), i.e. the ship's delta-v minus the reserve.</summary>
+        public double DeltaVBudget { get; set; }
+        /// <summary>Full-burn trips only; on a coast trip the flip happens with the engine off.</summary>
         public FlipManeuver Flip { get; set; } = FlipManeuver.CutFlipRelight;
         public double ParkingAltitude { get; set; }
         /// <summary>How fast the ship can turn, rad/s. In the game this will come from MechJeb.</summary>
@@ -36,19 +48,22 @@ namespace FlipAndBurn.Core.Guidance
         public double SunGravParameter { get; set; }
         public double SunSafetyDistance { get; set; } = TripCalculator.DefaultSunSafetyDistance;
         /// <summary>The target's rotation axis (its north). The parking orbit is equatorial and prograde about it.</summary>
-        public Vec3 EquatorNormal { get; set; } = new Vec3(0, 0, 1);
+        public Vec3 EquatorNormal { get; set; } = ParkingArrival.DefaultNorth;
         /// <summary>Cut, flip, relight: relight once the ship points within this many degrees of the new direction.</summary>
         public double RelightToleranceDeg { get; set; } = 5;
-        /// <summary>Stop steering when this little time is left (s); the remaining error is below what one step fixes.</summary>
+        /// <summary>Stop steering when this little time is left (s); the final circularising burn takes over.</summary>
         public double ArrivalCutoff { get; set; } = 1.0;
         /// <summary>A detour waypoint keeps both legs at least this factor times the Sun safety distance from the Sun.</summary>
-        public double DetourMargin { get; set; } = 1.2;
+        public double DetourMargin { get; set; } = SunDetour.DefaultMargin;
         /// <summary>
         /// The braking half is planned at this fraction of the chosen acceleration, and may use anything from
         /// <see cref="MinThrustFraction"/> to 100 %. That band is the only way to correct being a little ahead or
         /// behind while braking (ADR 0003).
         /// </summary>
-        public double BrakingFraction { get; set; } = 0.99;
+        public double BrakingFraction { get; set; } = CoastPlanner.BrakingFraction;
+
+        /// <summary>Coast trips: a velocity error (m/s) above which the ship makes a course correction burn.</summary>
+        public double CorrectionThreshold { get; set; } = 1.0;
         public double MinThrustFraction { get; set; } = 0.982;
     }
 
@@ -69,8 +84,10 @@ namespace FlipAndBurn.Core.Guidance
         /// <summary>Thrust acceleration to hold, m/s^2 (0 up to the chosen value).</summary>
         public double Acceleration;
         public GuidancePhase Phase;
-        /// <summary>Seconds until the flip starts (0 once it has).</summary>
+        /// <summary>Seconds until the flip starts (0 once it has). On a coast trip, until the coast starts.</summary>
         public double TimeToFlip;
+        /// <summary>Coast trips, while coasting: seconds until the braking burn is expected to start.</summary>
+        public double TimeToBurn;
         /// <summary>Seconds until the end of the current leg (the arrival, unless detouring around the Sun).</summary>
         public double TimeToArrival;
         /// <summary>1-based leg number and leg count; 2 legs when detouring around the Sun.</summary>
@@ -79,6 +96,12 @@ namespace FlipAndBurn.Core.Guidance
         public bool Departing;
         /// <summary>True during the last burn into the circular parking orbit.</summary>
         public bool Circularizing;
+
+        /// <summary>Coast trips: a course correction burn (turning for it, or burning).</summary>
+        public bool Correcting;
+
+        /// <summary>Coast trips, while coasting: how far the ship's velocity is from the one that arrives on time (m/s).</summary>
+        public double CourseError;
     }
 
     /// <summary>
@@ -86,6 +109,9 @@ namespace FlipAndBurn.Core.Guidance
     /// </summary>
     public sealed class FlipAndBurnGuidance
     {
+        /// <summary>Coast trips: no course corrections in the last this-many seconds before braking (the braking takes care of it).</summary>
+        public const double CorrectionCutoff = 600;
+
         private sealed class Leg
         {
             public bool IsWaypoint;
@@ -93,18 +119,24 @@ namespace FlipAndBurn.Core.Guidance
         }
 
         private readonly GuidanceConfig config;
+        private readonly PathGravity targetGravity;
         private readonly List<Leg> legs = new List<Leg>();
         private int legIndex;
         private GuidancePhase phase = GuidancePhase.Accelerate;
         private TwoArcSolver solver;
         private ArrivalLaw law;
-        private double flipTime;      // seconds the last plan expects the flip to take
-        // What the target's gravity will add over the braking half (velocity, position), from the last plan. The
-        // gravity-free two-arc solve aims short of the arrival state by this much, so the braking half is planned
-        // against the real gravity well rather than discovering it on the final approach.
+        private double flipTime;              // seconds the last full-burn plan expects the flip to take
+        private double coastArrivalUT = double.NaN;  // coast trips: the fixed arrival time
+        private double plannedBrakingTime;    // coast trips: the braking burn's length, for TimeToBurn
+        // What gravity (the target's well and the Sun) will add over the rest of the trip, from the last plan. The
+        // gravity-free two-arc solve aims off by this much, so the plan already allows for it.
         private Vec3 wellVelocity, wellPosition;
+        private StateVector coastEnd;         // coast trips: the arrival point (relative to the target), fixed at the coast's start
+        private bool correcting;              // coast trips: in a course correction burn
+        private bool correctionBurning;       // ... and the engine was on last step
+        private Vec3 correctionDirection;
         private bool circularizing;
-        private double circularizeSign;   // +1 braking along the orbit, -1 speeding up
+        private double circularizeSign;       // +1 braking along the orbit, -1 speeding up
         private double lastUT = double.NaN;
         private Vec3 currentPosition;
         private bool initialized;
@@ -115,17 +147,22 @@ namespace FlipAndBurn.Core.Guidance
             this.config = config ?? throw new ArgumentNullException(nameof(config));
             if (config.Target == null) throw new ArgumentException("no target", nameof(config));
             if (!(config.Acceleration > 0)) throw new ArgumentException("acceleration must be positive", nameof(config));
+            targetGravity = new PathGravity(config.Target.Ephemeris, config.Target.GravParameter, config.SunGravParameter, true);
         }
 
         public GuidancePhase Phase => phase;
 
-        /// <summary>Diagnostics for tests: solver counters as text.</summary>
-        public string SolverStats => $"two-arc warm {solver?.WarmSolves} robust {solver?.RobustSolves}; arrival nudged {law?.Nudged} carried {law?.Carried}";
-
         /// <summary>The Sun-detour waypoint, if this trip uses one.</summary>
         public Vec3? DetourWaypoint => legs.Count > 1 ? legs[0].Waypoint : (Vec3?)null;
 
+        /// <summary>Coast trips: the arrival time being flown to (NaN for a full burn).</summary>
+        public double CoastArrivalUT => coastArrivalUT;
+
+        /// <summary>Diagnostics for tests: solver counters as text.</summary>
+        public string SolverStats => $"two-arc warm {solver?.WarmSolves} robust {solver?.RobustSolves}; arrival nudged {law?.Nudged} carried {law?.Carried}";
+
         private double ParkingRadius => config.Target.Radius + config.ParkingAltitude;
+        private bool IsCoastTrip => !double.IsNaN(coastArrivalUT);
 
         public GuidanceCommand Update(GuidanceInput input)
         {
@@ -143,9 +180,9 @@ namespace FlipAndBurn.Core.Guidance
 
             if (phase == GuidancePhase.Accelerate)
             {
-                // The flip is planned as a coast lasting as long as the turn takes (from the last solution; a full
-                // half-turn to begin with), so turning doesn't leave the ship short of speed.
-                TwoArcSolver.Arcs arcs = solver.Solve(input.UT, input.Position, input.Velocity, flipTime);
+                TwoArcSolver.Arcs arcs = IsCoastTrip
+                    ? solver.SolveFixedTotal(input.UT, input.Position, input.Velocity, coastArrivalUT - input.UT)
+                    : solver.Solve(input.UT, input.Position, input.Velocity, flipTime);
                 if (!arcs.Valid)
                 {
                     // No solution this step (should not happen in practice): hold course, keep thrusting.
@@ -153,8 +190,11 @@ namespace FlipAndBurn.Core.Guidance
                     return cmd;
                 }
 
-                flipTime = Vec3.Angle(arcs.A1, arcs.A2) / config.TurnRate;
-                if (!leg.IsWaypoint) UpdateGravityWell(input, arcs);
+                // A full burn plans the flip as a coast lasting as long as the turn takes (from the last solution; a
+                // half-turn to begin with), so turning doesn't leave the ship short of speed.
+                if (!IsCoastTrip) flipTime = Vec3.Angle(arcs.A1, arcs.A2) / config.TurnRate;
+                if (!leg.IsWaypoint) UpdateGravityAllowance(input, arcs);
+
                 if (arcs.T1 > Math.Max(step, 1e-3))
                 {
                     cmd.Direction = arcs.A1.Normalized();
@@ -170,9 +210,31 @@ namespace FlipAndBurn.Core.Guidance
                     return cmd;
                 }
 
-                law = MakeArrivalLaw(leg, input.UT + arcs.Total);
-                law.Start(input.UT, arcs.Tc + arcs.T2);
-                phase = GuidancePhase.Flip;
+                if (IsCoastTrip && !leg.IsWaypoint)
+                {
+                    // Fix the arrival point now, so it doesn't slide around during the coast.
+                    coastEnd = ParkingArrival.Relative(config.Target, coastArrivalUT, currentPosition, ParkingRadius, config.EquatorNormal);
+                    plannedBrakingTime = arcs.T2;
+                    phase = GuidancePhase.Coast;
+                }
+                else
+                {
+                    law = MakeArrivalLaw(leg, input.UT + arcs.Total);
+                    law.Start(input.UT, arcs.Tc + arcs.T2);
+                    phase = GuidancePhase.Flip;
+                }
+            }
+
+            if (phase == GuidancePhase.Coast)
+            {
+                if (Coast(input, step, cmd)) return cmd;
+
+                // Time to brake: the arrival law takes over, with the same arrival point and time.
+                double a = config.Acceleration;
+                law = new ArrivalLaw(config.Target.Ephemeris, targetGravity, coastEnd.Position, coastEnd.Velocity,
+                    a * config.BrakingFraction, a * config.MinThrustFraction, a);
+                law.Start(input.UT, coastArrivalUT - input.UT);
+                phase = GuidancePhase.Decelerate;
             }
 
             Vec3 thrust = law.Solve(input.UT, input.Position, input.Velocity, out double timeToGo);
@@ -218,6 +280,88 @@ namespace FlipAndBurn.Core.Guidance
             cmd.Direction = want;
             cmd.Acceleration = thrust.Length;
             return cmd;
+        }
+
+        // ------------------------------------------------------------------ coasting
+
+        /// <summary>
+        /// Coast trips, between the burns: engine off, pointing where the braking will go (the flip happens here, so
+        /// its style doesn't matter). Returns false when it is time to start braking.
+        /// </summary>
+        /// <remarks>
+        /// Each step works out the velocity the ship should have now so that coasting, then braking at the planned
+        /// acceleration, ends at the arrival point on time. With gravity's contribution over the rest of the trip as
+        /// G1 (velocity) and G2 (displacement), coasting for τ - tb then braking for tb at a constant A gives
+        ///   r + v' τ + A tb^2 / 2 + G2 = rF  and  v' + A tb + G1 = vF,
+        /// so A (τ - tb/2) = (vF - G1) τ - (rF - r - G2), a known vector W. With |A| the braking acceleration a2,
+        /// tb = τ - sqrt(τ^2 - 2 |W| / a2), and v' = vF - G1 - A tb. (No real root: braking is already due.)
+        /// Over weeks small differences grow (the Sun pulls a little differently on the ship than predicted), so when
+        /// the ship's velocity is off by more than <see cref="GuidanceConfig.CorrectionThreshold"/> it turns and makes a short course
+        /// correction burn at the chosen acceleration, then turns back.
+        /// </remarks>
+        private bool Coast(GuidanceInput input, double step, GuidanceCommand cmd)
+        {
+            double tau = coastArrivalUT - input.UT;
+            StateVector planet = config.Target.Ephemeris.StateAt(input.UT);
+            Vec3 r = input.Position - planet.Position, v = input.Velocity - planet.Velocity;
+            double nominal = config.Acceleration * config.BrakingFraction;
+            double tb = Math.Min(plannedBrakingTime, tau);
+            Vec3 want = v, brake = Vec3.Zero;
+            bool tooLate = false;
+            for (int i = 0; i < 2; i++)
+            {
+                targetGravity.Integrate(input.UT,
+                    targetGravity.CoastPath(input.UT, r, want, 0, Vec3.Zero, tau - tb, tb, coastEnd.Position, coastEnd.Velocity),
+                    tau, out Vec3 g1, out Vec3 g2, PathGravity.CoastSamples);
+
+                // brake * (τ - tb/2) = W, a fixed vector, and |brake| = nominal tb: a quadratic in tb.
+                Vec3 p = coastEnd.Position - r - g2, q = coastEnd.Velocity - g1;
+                Vec3 w = q * tau - p;
+                double disc = tau * tau - 2 * w.Length / nominal;
+                tooLate = disc <= 0;
+                tb = tooLate ? tau : tau - Math.Sqrt(disc);
+                brake = w / (tau - 0.5 * tb);
+                want = q - brake;
+            }
+
+            plannedBrakingTime = tb;
+            double coastLeft = tau - tb;
+            // Due within half the last step (a physics step at most when not warping): start braking now.
+            if (tooLate || coastLeft <= Math.Max(0.5 * step, 1e-3)) return false;
+
+            cmd.Phase = GuidancePhase.Coast;
+            cmd.TimeToArrival = tau;
+            Vec3 dv = want - v;
+            cmd.CourseError = dv.Length;
+            if (!correcting && dv.Length > config.CorrectionThreshold && coastLeft > CorrectionCutoff)
+            {
+                correcting = true;
+                correctionDirection = dv.Normalized();
+            }
+
+            // Stop once what is left along the burn is less than half a burning step's worth (the next step would
+            // overshoot), or when braking is close (the braking takes care of what is left).
+            double left = Vec3.Dot(dv, correctionDirection);
+            if (correcting && (left <= Math.Max(0.01, correctionBurning ? 0.5 * config.Acceleration * step : 0) ||
+                               coastLeft <= CorrectionCutoff / 2))
+                correcting = false;
+
+            correctionBurning = false;
+            if (correcting)
+            {
+                double off = Vec3.Angle(input.Facing, correctionDirection) * 180 / Math.PI;
+                correctionBurning = off <= config.RelightToleranceDeg;
+                cmd.Correcting = true;
+                cmd.Direction = correctionDirection;
+                cmd.Acceleration = correctionBurning ? config.Acceleration : 0;
+                cmd.TimeToBurn = 0;
+                return true;
+            }
+
+            cmd.Acceleration = 0;
+            cmd.Direction = brake.Length > 0 ? brake.Normalized() : input.Facing;
+            cmd.TimeToBurn = coastLeft;
+            return true;
         }
 
         // ------------------------------------------------------------------ circularizing
@@ -276,8 +420,31 @@ namespace FlipAndBurn.Core.Guidance
             if (waypoint.HasValue) legs.Add(new Leg { IsWaypoint = true, Waypoint = waypoint.Value });
             legs.Add(new Leg());
             legIndex = 0;
+
+            // A coast trip flies to the arrival time the coast planner found. (Not with a Sun detour: the planner doesn't
+            // offer that combination, ADR 0002 addendum.)
+            if (config.Trip == TripType.CoastInTheMiddle && !waypoint.HasValue)
+            {
+                CoastPlan coast = CoastPlanner.Plan(Request(input), config.DeltaVBudget);
+                if (coast.Feasible && coast.CoastTime > 1) coastArrivalUT = coast.ArrivalUT;
+            }
+
             solver = MakeSolver(legs[0]);
         }
+
+        private TripRequest Request(GuidanceInput input) => new TripRequest
+        {
+            ShipPosition = input.Position,
+            ShipVelocity = input.Velocity,
+            StartTime = input.UT,
+            Target = config.Target,
+            Departure = config.Departure,
+            Acceleration = config.Acceleration,
+            ParkingAltitude = config.ParkingAltitude,
+            SunGravParameter = config.SunGravParameter,
+            SunSafetyDistance = config.SunSafetyDistance,
+            North = config.EquatorNormal,
+        };
 
         private TwoArcSolver MakeSolver(Leg leg)
         {
@@ -288,61 +455,53 @@ namespace FlipAndBurn.Core.Guidance
             return new TwoArcSolver(TargetEndState, config.Acceleration, braking);
         }
 
-        // The parking orbit point the trip ends at, for a given arrival time (ADR 0003): on the planet's equator, at the
-        // point where the prograde orbit runs in the ship's direction of travel. The braking then ends with the ship
-        // already moving along the orbit at orbital speed, instead of falling in and having to turn sideways at the end.
+        // The parking orbit point the trip ends at (ParkingArrival), less the gravity allowance.
         private StateVector TargetEndState(double arrivalUT)
         {
             StateVector planet = config.Target.Ephemeris.StateAt(arrivalUT);
-            Vec3 side = ArrivalSide(planet.Position - currentPosition);
-            return new StateVector(planet.Position + side * ParkingRadius - wellPosition, planet.Velocity + OrbitVelocity(side) - wellVelocity);
+            StateVector rel = ParkingArrival.Relative(config.Target, arrivalUT, currentPosition, ParkingRadius, config.EquatorNormal);
+            return new StateVector(planet.Position + rel.Position - wellPosition, planet.Velocity + rel.Velocity - wellVelocity);
         }
 
-        // Estimate the target's gravity over the braking half of the current plan: from the state after the flip to the
-        // arrival state, along the expected path, relative to the planet.
-        private void UpdateGravityWell(GuidanceInput input, TwoArcSolver.Arcs arcs)
+        // What gravity will add over the rest of the current plan, along the expected path: the target's well and the
+        // Sun's pull relative to it, plus the target's own curve around the Sun (the plan is solved in the Sun's frame).
+        // A full burn's path is close to a smooth curve; a coast trip's is not, so it follows the planned burns and
+        // the coast's orbit around the Sun.
+        private void UpdateGravityAllowance(GuidanceInput input, TwoArcSolver.Arcs arcs)
         {
-            double tFlipEnd = arcs.T1 + arcs.Tc;
-            Vec3 rFlip = input.Position + input.Velocity * tFlipEnd + arcs.A1 * (0.5 * arcs.T1 * arcs.T1 + arcs.T1 * arcs.Tc);
-            Vec3 vFlip = input.Velocity + arcs.A1 * arcs.T1;
-            StateVector planetAtFlip = config.Target.Ephemeris.StateAt(input.UT + tFlipEnd);
-            StateVector planetAtArrival = config.Target.Ephemeris.StateAt(input.UT + arcs.Total);
-            Vec3 side = ArrivalSide(planetAtArrival.Position - input.Position);
-            ArrivalLaw.GravityIntegrals(config.Target.GravParameter,
-                rFlip - planetAtFlip.Position, vFlip - planetAtFlip.Velocity,
-                side * ParkingRadius, OrbitVelocity(side), arcs.T2, out wellVelocity, out wellPosition);
-        }
+            double total = arcs.Total;
+            StateVector planet = config.Target.Ephemeris.StateAt(input.UT);
+            Vec3 r = input.Position - planet.Position, v = input.Velocity - planet.Velocity;
+            Vec3 g1, g2;
+            StateVector end = ParkingArrival.Relative(config.Target, input.UT + total, input.Position, ParkingRadius, config.EquatorNormal);
+            if (IsCoastTrip)
+            {
+                targetGravity.Integrate(input.UT,
+                    targetGravity.CoastPath(input.UT, r, v, arcs.T1, arcs.A1, arcs.Tc, arcs.T2, end.Position, end.Velocity),
+                    total, out g1, out g2, PathGravity.CoastSamples);
+            }
+            else
+            {
+                targetGravity.Integrate(input.UT, r, v, end.Position, end.Velocity, total, out g1, out g2);
+            }
 
-        /// <summary>
-        /// Arrival point direction (from the planet) for a ship travelling along <paramref name="towardPlanet"/>: the
-        /// travel direction flattened onto the equator, crossed with north. There the prograde orbit's velocity,
-        /// north x side, equals the travel direction.
-        /// </summary>
-        private Vec3 ArrivalSide(Vec3 towardPlanet)
-        {
-            Vec3 n = config.EquatorNormal.Normalized();
-            Vec3 travel = towardPlanet - n * Vec3.Dot(towardPlanet, n);
-            if (travel.Length < 1e-9 * Math.Max(1, towardPlanet.Length))
-                travel = Vec3.Cross(n, new Vec3(1, 0, 0)).Length > 0.1 ? Vec3.Cross(n, new Vec3(1, 0, 0)) : Vec3.Cross(n, new Vec3(0, 1, 0));
-            return Vec3.Cross(travel.Normalized(), n).Normalized();
-        }
-
-        private Vec3 OrbitVelocity(Vec3 side)
-        {
-            double speed = Math.Sqrt(config.Target.GravParameter / ParkingRadius);
-            return Vec3.Cross(config.EquatorNormal.Normalized(), side).Normalized() * speed;
+            targetGravity.FrameCurve(input.UT, total, out Vec3 curveP, out Vec3 curveV);
+            wellVelocity = g1 + curveV;
+            wellPosition = g2 + curveP;
         }
 
         private ArrivalLaw MakeArrivalLaw(Leg leg, double arrivalUT)
         {
             double a = config.Acceleration, nominal = a * config.BrakingFraction, min = a * config.MinThrustFraction;
             if (leg.IsWaypoint)
-                return new ArrivalLaw(new FixedEphemeris(leg.Waypoint), 0, Vec3.Zero, Vec3.Zero, nominal, min, a, config.SunGravParameter, frameFeelsSun: false);
+            {
+                var point = new FixedEphemeris(leg.Waypoint);
+                return new ArrivalLaw(point, new PathGravity(point, 0, config.SunGravParameter, false), Vec3.Zero, Vec3.Zero, nominal, min, a);
+            }
 
             // Fix the arrival point now, so the target doesn't slide around as the ship closes in.
-            Vec3 side = ArrivalSide(config.Target.Ephemeris.StateAt(arrivalUT).Position - currentPosition);
-            return new ArrivalLaw(config.Target.Ephemeris, config.Target.GravParameter, side * ParkingRadius, OrbitVelocity(side), nominal, min, a,
-                config.SunGravParameter);
+            StateVector rel = ParkingArrival.Relative(config.Target, arrivalUT, currentPosition, ParkingRadius, config.EquatorNormal);
+            return new ArrivalLaw(config.Target.Ephemeris, targetGravity, rel.Position, rel.Velocity, nominal, min, a);
         }
 
         // ------------------------------------------------------------------ leaving the departure planet
@@ -381,79 +540,16 @@ namespace FlipAndBurn.Core.Guidance
 
         // ------------------------------------------------------------------ the Sun in the way
 
-        /// <summary>
-        /// If the straight trip passes within the Sun safety distance, pick a waypoint beside the Sun so that both legs
-        /// (start to waypoint, waypoint to target) stay outside it with margin. The ship stops at the waypoint and then
-        /// flies a normal trip from there.
-        /// </summary>
+        /// <summary>If the straight trip passes within the Sun safety distance, the detour's waypoint (SunDetour).</summary>
         private Vec3? PlanDetour(GuidanceInput input)
         {
             if (!(config.SunSafetyDistance > 0)) return null;
-            TripPlan straight = TripCalculator.Plan(new TripRequest
-            {
-                ShipPosition = input.Position,
-                ShipVelocity = input.Velocity,
-                StartTime = input.UT,
-                Target = config.Target,
-                Acceleration = config.Acceleration,
-                ParkingAltitude = config.ParkingAltitude,
-                SunGravParameter = config.SunGravParameter,
-                SunSafetyDistance = config.SunSafetyDistance,
-            });
+            TripRequest request = Request(input);
+            request.PlanSunDetour = false;
+            request.CheckTargetGravity = false;
+            TripPlan straight = TripCalculator.Plan(request);
             if (!straight.Feasible || !straight.PassesNearSun) return null;
-
-            double clear = config.SunSafetyDistance * config.DetourMargin;
-            Vec3 start = input.Position;
-            double arrival = input.UT + straight.TripTime;
-            Vec3 waypoint = default;
-            for (int iteration = 0; iteration < 4; iteration++)
-            {
-                Vec3 end = config.Target.Ephemeris.StateAt(arrival).Position;
-                waypoint = Waypoint(start, end, clear);
-
-                // Re-estimate the arrival time with the detour, then place the waypoint again.
-                var dummy = new TargetPlanet("waypoint", new FixedEphemeris(waypoint), 1, 1);
-                TripPlan leg1 = TripCalculator.Plan(new TripRequest
-                {
-                    ShipPosition = input.Position, ShipVelocity = input.Velocity, StartTime = input.UT, Target = dummy,
-                    Acceleration = config.Acceleration, SunSafetyDistance = 0,
-                });
-                if (!leg1.Feasible) break;
-                TripPlan leg2 = TripCalculator.Plan(new TripRequest
-                {
-                    ShipPosition = waypoint, ShipVelocity = Vec3.Zero, StartTime = input.UT + leg1.TripTime, Target = config.Target,
-                    Acceleration = config.Acceleration, ParkingAltitude = config.ParkingAltitude, SunSafetyDistance = 0,
-                });
-                if (!leg2.Feasible) break;
-                arrival = input.UT + leg1.TripTime + leg2.TripTime;
-            }
-
-            return waypoint;
-        }
-
-        /// <summary>A point off to the side of the Sun such that both straight legs stay at least <paramref name="clear"/> from it.</summary>
-        private Vec3 Waypoint(Vec3 start, Vec3 end, double clear)
-        {
-            Vec3 line = (end - start).Normalized();
-            // The side to pass on: away from the Sun, perpendicular to the line, in the plane of start, end and Sun.
-            Vec3 closest = start + line * (-Vec3.Dot(start, line));
-            Vec3 side = closest.Length > 1e-6 * start.Length
-                ? closest.Normalized()
-                : Vec3.Cross(config.EquatorNormal.Normalized(), line).Normalized();
-
-            for (double distance = clear; ; distance *= 1.02)
-            {
-                Vec3 w = side * distance;
-                if (SegmentDistance(start, w) >= clear && SegmentDistance(w, end) >= clear) return w;
-                if (distance > 100 * clear) return w;
-            }
-        }
-
-        private static double SegmentDistance(Vec3 a, Vec3 b)
-        {
-            Vec3 d = b - a;
-            double t = Math.Max(0, Math.Min(1, -Vec3.Dot(a, d) / d.LengthSquared));
-            return (a + d * t).Length;
+            return SunDetour.Plan(request, straight.TripTime, config.DetourMargin, config.EquatorNormal, out _, out _);
         }
     }
 }

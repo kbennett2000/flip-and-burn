@@ -36,11 +36,19 @@ namespace FlipAndBurn.Core
         public Vec3 ShipVelocity { get; set; }
         public double StartTime { get; set; }                                       // UT, s
         public TargetPlanet Target { get; set; }
+        /// <summary>The planet the ship is leaving, if it is inside that planet's sphere of influence (coast plans allow for its pull).</summary>
+        public TargetPlanet Departure { get; set; }
         public double Acceleration { get; set; } = TripCalculator.OneG;           // m/s^2
         public double ParkingAltitude { get; set; }                                 // m above the target's surface
         public double SunGravParameter { get; set; }                                // m^3/s^2; 0 skips the gravity warning
         public double SunSafetyDistance { get; set; } = TripCalculator.DefaultSunSafetyDistance;  // m from the Sun's centre
         public double MaxTripTime { get; set; } = TripCalculator.DefaultMaxTripTime;             // s
+        /// <summary>The target's rotation axis; the parking orbit is equatorial and prograde about it.</summary>
+        public Vec3 North { get; set; } = ParkingArrival.DefaultNorth;
+        /// <summary>Refuse when the acceleration can't beat the target's gravity at the parking orbit (ADR 0002).</summary>
+        public bool CheckTargetGravity { get; set; } = true;
+        /// <summary>When the Sun is in the way, estimate the detour the autopilot will fly (ADR 0003).</summary>
+        public bool PlanSunDetour { get; set; } = true;
     }
 
     public enum TripProblem
@@ -48,6 +56,8 @@ namespace FlipAndBurn.Core
         None,
         InvalidInput,
         NoSolutionWithinMaxTripTime,
+        /// <summary>The acceleration can't beat the target's gravity at the parking orbit.</summary>
+        TargetGravityTooStrong,
     }
 
     /// <summary>The planned burn: a uniform velocity-matching push plus a flip-at-the-midpoint profile.</summary>
@@ -136,6 +146,21 @@ namespace FlipAndBurn.Core
 
         /// <summary>True when the acceleration is under 10 times the Sun's pull somewhere on the path.</summary>
         public bool GravityNotNegligible { get; internal set; }
+
+        /// <summary>
+        /// True when the straight path passed too near the Sun and the numbers above are for the detour instead: two
+        /// legs via <see cref="DetourWaypoint"/>, stopping there. <see cref="PassesNearSun"/> still describes the
+        /// straight path; <see cref="ClosestSunDistance"/> is the detour's.
+        /// </summary>
+        public bool UsesSunDetour { get; internal set; }
+        public Vec3 DetourWaypoint { get; internal set; }
+        public double StraightTripTime { get; internal set; }
+        public double StraightTotalDeltaV { get; internal set; }
+        public double StraightClosestSunDistance { get; internal set; }
+
+        /// <summary>The target's gravity at the parking orbit, and the least acceleration that beats it with margin.</summary>
+        public double TargetGravityAtParking { get; internal set; }
+        public double MinimumAcceleration { get; internal set; }
     }
 
     /// <summary>
@@ -171,6 +196,9 @@ namespace FlipAndBurn.Core
 
         public const double GravityWarningRatio = 10;
 
+        /// <summary>The acceleration must be at least this many times the target's gravity at the parking orbit.</summary>
+        public const double TargetGravityMargin = 1.1;
+
         private const int MaxArrivalIterations = 100;
         private const int PathSamples = 2000;
 
@@ -188,6 +216,16 @@ namespace FlipAndBurn.Core
             Vec3 r0 = request.ShipPosition, v0 = request.ShipVelocity;
             double t0 = request.StartTime, accel = request.Acceleration, maxT = request.MaxTripTime;
             double parkingRadius = request.Target.Radius + request.ParkingAltitude;
+
+            plan.TargetGravityAtParking = request.Target.GravParameter / (parkingRadius * parkingRadius);
+            plan.MinimumAcceleration = TargetGravityMargin * plan.TargetGravityAtParking;
+            if (request.CheckTargetGravity && accel < plan.MinimumAcceleration)
+            {
+                plan.Problem = TripProblem.TargetGravityTooStrong;
+                plan.ProblemDetail = $"{request.Target.Name}'s gravity at the parking orbit is {plan.TargetGravityAtParking:0.00} m/s^2; " +
+                                     $"the acceleration must be at least {plan.MinimumAcceleration:0.00} m/s^2.";
+                return plan;
+            }
 
             // Fixed-point iteration on the arrival time: aim at where the planet is at the guessed arrival, solve the
             // trip time for that fixed end point, repeat.
@@ -275,7 +313,31 @@ namespace FlipAndBurn.Core
             plan.PeakSpeed = Math.Max(((p.C + p.Ab * p.E) * half).Length, (p.C * tripTime).Length);
 
             CheckSun(request, p, plan);
+            plan.StraightTripTime = plan.TripTime;
+            plan.StraightTotalDeltaV = plan.TotalDeltaV;
+            plan.StraightClosestSunDistance = plan.ClosestSunDistance;
+            if (plan.PassesNearSun && request.PlanSunDetour) AddDetour(request, plan);
             return plan;
+        }
+
+        // Replace the straight trip's numbers with the detour's (ADR 0003): to a waypoint beside the Sun, stop, then on.
+        private static void AddDetour(TripRequest request, TripPlan plan)
+        {
+            Vec3? waypoint = SunDetour.Plan(request, plan.TripTime, SunDetour.DefaultMargin, request.North, out TripPlan leg1, out TripPlan leg2);
+            if (!waypoint.HasValue) return;
+            plan.UsesSunDetour = true;
+            plan.DetourWaypoint = waypoint.Value;
+            plan.TripTime = leg1.TripTime + leg2.TripTime;
+            plan.TimeToFlip = leg1.TimeToFlip;
+            plan.ArrivalTime = request.StartTime + plan.TripTime;
+            plan.PeakSpeed = Math.Max(leg1.PeakSpeed, leg2.PeakSpeed);
+            plan.BurnDeltaV = leg1.BurnDeltaV + leg2.BurnDeltaV;
+            plan.ParkingOrbitDeltaV = leg2.ParkingOrbitDeltaV;
+            plan.TotalDeltaV = plan.BurnDeltaV + plan.ParkingOrbitDeltaV;
+            plan.ClosestSunDistance = Math.Min(leg1.ClosestSunDistance, leg2.ClosestSunDistance);
+            plan.AimPoint = leg2.AimPoint;
+            plan.TargetPositionAtArrival = leg2.TargetPositionAtArrival;
+            plan.TargetVelocityAtArrival = leg2.TargetVelocityAtArrival;
         }
 
         private static string Validate(TripRequest r)
