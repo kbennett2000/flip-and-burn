@@ -56,6 +56,7 @@ namespace FlipAndBurn
         {
             if (!Enabled || Vessel == null) return;
             SyncInputs();
+            if (Autopilot != null && Autopilot.Running) return;   // the planner isn't shown while flying
             Planner.Update(Vessel);
         }
 
@@ -96,13 +97,30 @@ namespace FlipAndBurn
             }
         }
 
+        public MechJebModuleFlipAndBurnAutopilot Autopilot => Core.GetComputerModule<MechJebModuleFlipAndBurnAutopilot>();
+
+        /// <summary>The Start button (and the test helper): hand the ship to Flip and Burn. Returns a problem, or null.</summary>
+        public string PressStart()
+        {
+            if (!Planner.CanStart) return "The planner says this trip can't be flown as set up.";
+            return Autopilot?.StartTrip(Planner.BuildTripStart()) ?? "Flip and Burn's autopilot isn't loaded.";
+        }
+
+        /// <summary>The Abort button (and the test helper).</summary>
+        public void PressAbort() => Autopilot?.Stop("Aborted: you stopped the trip. The throttle is cut and your MechJeb settings are back.");
+
         protected override void WindowGUI(int windowID)
         {
             wrapStyle ??= new GUIStyle(GUI.skin.label) { wordWrap = true };
             noteStyle ??= new GUIStyle(GUI.skin.label) { wordWrap = true, normal = { textColor = new Color(1f, 0.85f, 0.35f) } };
 
             GUILayout.BeginVertical();
-            if (Planner.SituationMessage != null)
+            MechJebModuleFlipAndBurnAutopilot pilot = Autopilot;
+            if (pilot != null && pilot.Running)
+            {
+                DrawFlying(pilot);
+            }
+            else if (Planner.SituationMessage != null)
             {
                 GUILayout.Label(Planner.SituationMessage, wrapStyle);
             }
@@ -120,14 +138,61 @@ namespace FlipAndBurn
 
                 GUILayout.Space(6);
                 bool wasEnabled = GUI.enabled;
-                GUI.enabled = false; // ADR 0002 decision 3; and the autopilot isn't built yet.
-                GUILayout.Button("Start");
+                GUI.enabled = Planner.CanStart && pilot != null;   // ADR 0002 decision 3
+                if (GUILayout.Button("Start"))
+                {
+                    string problem = PressStart();
+                    if (problem != null) ScreenMessages.PostScreenMessage("Flip and Burn: " + problem, 5f);
+                }
+
                 GUI.enabled = wasEnabled;
-                GUILayout.Label("Autopilot coming soon.", wrapStyle);
+                if (pilot?.StopReason != null)
+                {
+                    GUILayout.Space(4);
+                    GUILayout.Label(pilot.StopReason, noteStyle);
+                    if (!string.IsNullOrEmpty(pilot.SettingsCheck)) GUILayout.Label(pilot.SettingsCheck, wrapStyle);
+                }
+
+                GUILayout.Label("No trip is running. A trip doesn't carry on after the game is saved and loaded: start it again here.", wrapStyle);
             }
 
             GUILayout.EndVertical();
             base.WindowGUI(windowID);
+        }
+
+        private void DrawFlying(MechJebModuleFlipAndBurnAutopilot pilot)
+        {
+            GuidanceCommand c = pilot.Last;
+            TripStart t = pilot.Trip;
+            GuiUtils.SimpleLabel("Flying to", $"{Planner.BodyName(t.Target)}, {(t.Trip == TripType.CoastInTheMiddle ? "coast in the middle" : "full burn")}");
+            GuiUtils.SimpleLabel("Phase", c == null ? "starting" : PhaseName(c));
+            if (c != null)
+            {
+                if (c.Phase == GuidancePhase.Accelerate)
+                    GuiUtils.SimpleLabel(t.Trip == TripType.CoastInTheMiddle ? "Coast starts in" : "Flip in", Planner.FormatTime(c.TimeToFlip));
+                if (c.Phase == GuidancePhase.Coast)
+                    GuiUtils.SimpleLabel("Braking starts in", Planner.FormatTime(c.TimeToBurn));
+                GuiUtils.SimpleLabel("Arrival in", Planner.FormatTime(c.TimeToArrival));
+                GuiUtils.SimpleLabel("Acceleration", $"{Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (target {Planner.FormatG(c.Acceleration / Planner.OneG)})");
+                GuiUtils.SimpleLabel("Pointing error", $"{pilot.PointingError:0.0}°");
+            }
+
+            GUILayout.Label("Warp: " + pilot.WarpStatus, wrapStyle);
+            GUILayout.Space(6);
+            if (GUILayout.Button("Abort")) PressAbort();
+        }
+
+        private static string PhaseName(GuidanceCommand c)
+        {
+            switch (c.Phase)
+            {
+                case GuidancePhase.Accelerate: return c.Departing ? "speeding up (climbing out)" : "speeding up";
+                case GuidancePhase.Flip: return "flip";
+                case GuidancePhase.Coast: return c.Correcting ? "coasting (course correction)" : "coasting, engine off";
+                case GuidancePhase.Decelerate: return "slowing down";
+                case GuidancePhase.FinalApproach: return c.Circularizing ? "final approach (settling into orbit)" : "final approach";
+                default: return "arrived";
+            }
         }
 
         private void DrawInputs()

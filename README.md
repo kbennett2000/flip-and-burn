@@ -29,8 +29,22 @@ window is a trip planner:
   would need to go around the Sun, each get a plain explanation. When the Sun is in the way of a full burn, the numbers
   include the detour around it.
 - **Infinite propellant:** with KSP's cheat on, the window says so in one line and shows no delta-v shortfall.
-- **Start** stays off when the ship can't hold the acceleration or lacks the delta-v, with the shortfall spelled out.
-  The autopilot isn't built yet, so Start is always off for now.
+- **Start** is on only when the planner says the trip can be flown (it stays off when the ship can't hold the
+  acceleration or lacks the delta-v, with the shortfall spelled out; infinite propellant counts as enough).
+
+Pressing **Start** hands the ship to Flip and Burn ([ADR 0003](docs/adr/0003-guidance.md), "Flying"):
+
+- It steers every physics step, pointing with MechJeb's attitude control and holding the acceleration with MechJeb's
+  throttle and acceleration limit as fuel burns off. Both flip styles work, and on a coast trip the engine is off for
+  the whole coast.
+- It runs time warp: physics warp while the engine fires, normal warp while coasting, back to normal speed in good time
+  before the flip, the braking burn and the arrival.
+- The window shows the phase (speeding up, flip, coasting, slowing down, final approach, arrived), time to the flip and
+  to arrival, the acceleration in g, the pointing error and what warp is doing.
+- **Abort** cuts the throttle, stops warp, releases control and puts the player's MechJeb settings back exactly.
+- Flip and Burn also stops by itself, and says why, if fuel runs out, the ship can't turn fast enough, or it drifts too
+  far off course.
+- A trip doesn't carry on after the game is saved and loaded yet; the window says so.
 
 See [docs/adr/0001-plug-into-mechjeb-as-addon.md](docs/adr/0001-plug-into-mechjeb-as-addon.md) for how it plugs into
 MechJeb.
@@ -85,12 +99,15 @@ When KSP reaches the main menu, `KSP.log` should contain `[FlipAndBurn] loaded`.
    `<KSPDir>/GameData/FlipAndBurnTestHarness/`.
 2. Resets the test save `saves/FlipAndBurn-Test/persistent.sfs` from that save's `quicksave.sfs`, so every run starts
    from the same state.
-3. Snapshots MechJeb's settings folder (`GameData/MechJeb2/Plugins/PluginData/MechJeb2`) and KSP's `settings.cfg`.
+3. Snapshots MechJeb's settings folder (`GameData/MechJeb2/Plugins/PluginData/MechJeb2`), KSP's `settings.cfg` and
+   BetterTimeWarp's settings file.
 4. Launches KSP with `-flipandburn-test`. The harness loads the test save, switches to the ship "Bebop Refueller" in
    Kerbin orbit, logs what stock, MechJeb and Flip and Burn each say about the ship's thrust and delta-v, opens the
-   Flip and Burn window and plans a trip to Duna, screenshotting it. It does the same on two more ships in the test
-   save: "CubeSat v3.2" (stock engines only, more stages below) and "CubeSat v4.2 MilSpec" (a KSP Interstellar Z-pinch
-   fusion engine plus a stock Bobcat the harness lights: two engine types at once). Then it quits KSP.
+   Flip and Burn window and flies two trips to Duna on the autopilot: (a) a full burn with infinite propellant, through
+   a warp-stability probe, the flip and a few minutes of braking, then Abort; (b) a coast trip from the same start,
+   through the burn into the coast under normal warp, then Abort. It screenshots each stage, logs the acceleration,
+   pointing error and warp every few seconds, and checks MechJeb's settings files are byte-identical before Start and
+   after Abort. Only the harness turns infinite propellant on, for (a) only. Then it quits KSP.
    It moves the Flip and Burn window to an empty part of the screen first, because MechJeb opens every window at
    the same spot. The harness reads the finished frame itself; if that comes out blank (it sometimes does on
    Linux/OpenGL), it asks this script to grab the KSP window from outside with `ffmpeg` (x11grab) instead.

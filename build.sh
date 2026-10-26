@@ -61,11 +61,11 @@ ksp_log="$ksp_dir/KSP.log"
 test_save="$ksp_dir/saves/FlipAndBurn-Test"
 mj_settings="$ksp_dir/GameData/MechJeb2/Plugins/PluginData/MechJeb2"
 shot_dir="$ksp_dir/FlipAndBurnTest"
-expected_shots=(planner-bebop-duna.png planner-stock-duna.png planner-mixed-duna.png)
+expected_shots=(a-1-before-flip.png a-2-during-flip.png a-3-after-flip.png a-4-after-abort.png b-1-coast.png b-2-after-abort.png)
 evidence="$repo/docs/test-evidence"
 stall_seconds=120
 max_launches=4          # first launch plus up to 3 relaunches after a stall
-overall_timeout=2400    # seconds
+overall_timeout=14400   # seconds (the autopilot proof warps to the flip of a 3-day trip)
 
 if pgrep -x KSP.x86_64 >/dev/null; then
     echo "KSP is already running. Close it first." >&2
@@ -88,6 +88,9 @@ cp -p "$test_save/quicksave.loadmeta" "$test_save/persistent.loadmeta"
 backup_dir="$(mktemp -d)"
 cp -a "$mj_settings" "$backup_dir/MechJeb2"
 cp -p "$ksp_dir/settings.cfg" "$backup_dir/settings.cfg"
+# BetterTimeWarp rewrites its own settings file whenever KSP runs.
+btw_settings="$ksp_dir/GameData/BetterTimeWarp/PluginData/BetterTimeWarp.cfg"
+[[ -f "$btw_settings" ]] && cp -p "$btw_settings" "$backup_dir/BetterTimeWarp.cfg"
 
 # The harness turns KSP's infinite propellant cheat on for one screenshot. Fingerprint Kris's settings and every save
 # except the test copy now, to show afterwards that the cheat left no trace.
@@ -108,6 +111,10 @@ cleanup() {
         rm -rf "$mj_settings"
         cp -a "$backup_dir/MechJeb2" "$mj_settings"
         echo "Restored MechJeb settings in $mj_settings"
+    fi
+    if [[ -f "$backup_dir/BetterTimeWarp.cfg" ]]; then
+        cp -p "$backup_dir/BetterTimeWarp.cfg" "$btw_settings"
+        echo "Restored $btw_settings"
     fi
     if [[ -f "$backup_dir/settings.cfg" ]]; then
         cp -p "$backup_dir/settings.cfg" "$ksp_dir/settings.cfg"

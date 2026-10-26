@@ -97,6 +97,9 @@ namespace FlipAndBurn.Core.Guidance
         /// <summary>True during the last burn into the circular parking orbit.</summary>
         public bool Circularizing;
 
+        /// <summary>The planner found no way to the target from here this step (the autopilot stops if it lasts).</summary>
+        public bool NoSolution;
+
         /// <summary>Coast trips: a course correction burn (turning for it, or burning).</summary>
         public bool Correcting;
 
@@ -187,6 +190,7 @@ namespace FlipAndBurn.Core.Guidance
                 {
                     // No solution this step (should not happen in practice): hold course, keep thrusting.
                     cmd.Acceleration = config.Acceleration;
+                    cmd.NoSolution = true;
                     return cmd;
                 }
 
