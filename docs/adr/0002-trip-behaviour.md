@@ -63,3 +63,32 @@ route around the Sun (for example, a waypoint off to one side, or a curved burn)
 - The estimate needs refining by real guidance in flight: gravity, the planet's pull on arrival and the exact capture
   are MechJeb's and the autopilot's job.
 - Trips that pass near the Sun are visible to the player but cannot fly safely until the detour exists.
+
+## Addendum (2026-10-26): default parking altitude
+
+The planner suggests a parking altitude for each target; the player can change it in the window. The suggestion comes
+from the planet's own data, read at runtime (`ParkingOrbit.DefaultAltitude` in `src/FlipAndBurn.Core`):
+
+- **With an atmosphere:** 10 % above the top of the atmosphere.
+- **Without one:** 10 km above the highest terrain (the PQS maximum radius minus the planet's radius), or 10 % of the
+  radius if the terrain height isn't known.
+- Then rounded up to the next 10 km, at least 10 km, and kept below half the distance from the surface to the edge of
+  the sphere of influence.
+
+What it gives in Kris's install (logged by the test harness on 2026-10-26, `docs/test-evidence/test-run.log`):
+
+| Planet | Atmosphere top | Highest terrain | Default parking altitude |
+|---|---|---|---|
+| Moho | none | 8.2 km | 20 km |
+| Eve | 90 km | | 100 km |
+| Kerbin | 70 km | | 80 km |
+| Duna | 50 km | | 60 km |
+| Dres | none | 7.1 km | 20 km |
+| Jool | 200 km | | 220 km |
+| Sarnus (OPM) | 580 km | | 640 km |
+| Urlum (OPM) | 325 km | | 360 km |
+| Neidon (OPM) | 260 km | | 290 km |
+| Plock (OPM) | none | 4.2 km | 20 km |
+
+The flip style is chosen in the window (cut, flip, relight by default; skew flip as the other choice) but doesn't change
+the estimate yet: the estimate treats the flip as instant.

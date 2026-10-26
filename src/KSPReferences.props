@@ -31,6 +31,10 @@
       <HintPath>$(KSPDir)/GameData/MechJeb2/Plugins/MechJeb2.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="MechJebLib">
+      <HintPath>$(KSPDir)/GameData/MechJeb2/Plugins/MechJebLib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <Target Name="CheckKSPDir" BeforeTargets="ResolveAssemblyReferences">

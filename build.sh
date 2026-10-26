@@ -36,8 +36,8 @@ remove_harness() {
 install_plugin() {
     dotnet build "$plugin_project" -c "$config" -nologo
     mkdir -p "$plugin_dest"
-    cp "src/FlipAndBurn/bin/$config/FlipAndBurn.dll" "$plugin_dest/"
-    echo "Installed FlipAndBurn.dll -> $plugin_dest/"
+    cp "src/FlipAndBurn/bin/$config/FlipAndBurn.dll" "src/FlipAndBurn/bin/$config/FlipAndBurn.Core.dll" "$plugin_dest/"
+    echo "Installed FlipAndBurn.dll and FlipAndBurn.Core.dll -> $plugin_dest/"
 }
 
 case "$mode" in
@@ -60,7 +60,8 @@ ksp_bin="$ksp_dir/KSP.x86_64"
 ksp_log="$ksp_dir/KSP.log"
 test_save="$ksp_dir/saves/FlipAndBurn-Test"
 mj_settings="$ksp_dir/GameData/MechJeb2/Plugins/PluginData/MechJeb2"
-shot="$ksp_dir/FlipAndBurnTest/flip-and-burn-window.png"
+shot_dir="$ksp_dir/FlipAndBurnTest"
+expected_shots=(planner-duna.png planner-jool.png)
 evidence="$repo/docs/test-evidence"
 stall_seconds=120
 max_launches=4          # first launch plus up to 3 relaunches after a stall
@@ -112,11 +113,13 @@ trap cleanup EXIT
 mkdir -p "$harness_dir/Plugins"
 cp "src/FlipAndBurn.TestHarness/bin/$config/FlipAndBurn.TestHarness.dll" "$harness_dir/Plugins/"
 echo "Installed test harness -> $harness_dir/Plugins/"
-rm -f "$shot"
+mkdir -p "$shot_dir"
+rm -f "$shot_dir"/*.png
 
 # Fallback screenshot from outside the game, used when the harness says its in-game capture came out blank.
-# KSP runs as an X11 window (XWayland on GNOME), which ffmpeg's x11grab can read.
+# KSP runs as an X11 window (XWayland on GNOME), which ffmpeg's x11grab can read. $1 is the file to write.
 external_capture() {
+    local shot="$1"
     if ! command -v ffmpeg >/dev/null || ! command -v xwininfo >/dev/null; then
         echo "External capture needs ffmpeg and xwininfo; skipping." >&2
         return
@@ -135,7 +138,7 @@ external_capture() {
         echo "External capture failed." >&2
     fi
 }
-external_done=0
+declare -A external_done=()
 
 launch() {
     (cd "$ksp_dir" && nohup "$ksp_bin" -flipandburn-test >/dev/null 2>&1 &)
@@ -157,7 +160,7 @@ while true; do
         break
     fi
 
-    if grep -a -q '\[FlipAndBurn.Test\] step 8: done' "$ksp_log" 2>/dev/null; then
+    if grep -a -q -E '\[FlipAndBurn.Test\] step [0-9]+: done' "$ksp_log" 2>/dev/null; then
         echo "$(date +%T) Harness finished; waiting for KSP to exit"
         for _ in $(seq 1 120); do pgrep -x KSP.x86_64 >/dev/null || break; sleep 1; done
         if pgrep -x KSP.x86_64 >/dev/null; then
@@ -169,10 +172,11 @@ while true; do
         break
     fi
 
-    if (( external_done == 0 )) && grep -a -q '\[FlipAndBurn.Test\] step 7: in-game capture blank; external capture requested' "$ksp_log"; then
-        external_capture
-        external_done=1
-    fi
+    while IFS= read -r request; do
+        [[ -n "$request" && -z "${external_done[$request]:-}" ]] || continue
+        external_capture "$request"
+        external_done[$request]=1
+    done < <(grep -a -o 'external capture requested: .*\.png' "$ksp_log" 2>/dev/null | sed 's/^external capture requested: //')
 
     if ! pgrep -x KSP.x86_64 >/dev/null; then
         echo "$(date +%T) KSP exited before the harness finished." >&2
@@ -214,32 +218,38 @@ done
 # ---------------------------------------------------------------- results
 
 mkdir -p "$evidence"
-summary="$evidence/flip-and-burn-window.log"
+summary="$evidence/test-run.log"
 {
     echo "# FlipAndBurn test run $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    grep -a -E "KSPAssembly '(FlipAndBurn|FlipAndBurn.TestHarness|MechJeb2)'|^MechJeb2 v|From LOADING to MAINMENU|\[FlipAndBurn\]|\[FlipAndBurn.Test\]" "$ksp_log" || true
+    grep -a -E "KSPAssembly '(FlipAndBurn|FlipAndBurn.TestHarness|MechJeb2)'|^MechJeb2 v|From LOADING to MAINMENU|\[FlipAndBurn\]|\[FlipAndBurn.Test\]" "$ksp_log" | grep -a -v 'NullReferenceException' || true
     echo "# Exception lines mentioning FlipAndBurn or MechJeb: $(grep -a -i exception "$ksp_log" | grep -c -i -E 'flipandburn|mechjeb|mumech' || true)"
     echo "# Stack frames in FlipAndBurn or MechJeb code: $(grep -a -c -E '(at |\()(MuMech|FlipAndBurn|MechJebLib)[.:]' "$ksp_log" || true)"
 } > "$summary"
 cat "$summary"
 
 ok=1
-grep -a -q '\[FlipAndBurn.Test\] step 7: screenshot saved' "$ksp_log" || ok=0
 grep -a -q '\[FlipAndBurn.Test\] FAILED' "$ksp_log" && ok=0
 if grep -q -E '^# (Exception lines|Stack frames).*: [1-9]' "$summary"; then ok=0; fi
 
-# Keep full resolution so small UI text stays readable, but as a JPEG (about 2.5 MB instead of 10 MB at 4K) so the
-# repo does not grow by 10 MB every time the evidence is refreshed.
-if [[ -f "$shot" ]]; then
-    rm -f "$evidence/flip-and-burn-window.png" "$evidence/flip-and-burn-window.jpg"
-    if command -v ffmpeg >/dev/null; then
-        ffmpeg -hide_banner -loglevel error -y -i "$shot" -q:v 2 "$evidence/flip-and-burn-window.jpg"
-        echo "Screenshot saved to $evidence/flip-and-burn-window.jpg"
-    else
-        cp "$shot" "$evidence/flip-and-burn-window.png"
-        echo "Screenshot copied to $evidence/flip-and-burn-window.png"
+# Keep full resolution so small UI text stays readable, but as JPEG (about 2.5 MB instead of 10 MB at 4K) so the repo
+# does not grow by 10 MB every time the evidence is refreshed.
+for name in "${expected_shots[@]}"; do
+    src="$shot_dir/$name"
+    if [[ ! -f "$src" ]]; then
+        echo "Missing screenshot: $src" >&2
+        ok=0
+        continue
     fi
-fi
+    base="${name%.png}"
+    rm -f "$evidence/$base.png" "$evidence/$base.jpg"
+    if command -v ffmpeg >/dev/null; then
+        ffmpeg -hide_banner -loglevel error -y -i "$src" -q:v 2 "$evidence/$base.jpg"
+        echo "Screenshot saved to $evidence/$base.jpg"
+    else
+        cp "$src" "$evidence/$name"
+        echo "Screenshot copied to $evidence/$name"
+    fi
+done
 
 if (( ok )); then
     echo "TEST PASSED"

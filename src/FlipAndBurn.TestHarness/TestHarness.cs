@@ -1,14 +1,19 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using FlipAndBurn.Core;
 using MuMech;
 using UnityEngine;
 
 namespace FlipAndBurn.TestHarness
 {
-    // Dev-only. Drives KSP from the main menu into flight on the test ship, opens the Flip and Burn window and takes a
-    // screenshot, logging each step with a "[FlipAndBurn.Test]" prefix, then quits KSP.
+    // Dev-only. Drives KSP from the main menu into flight on the test ship, logs what every delta-v source says about
+    // it, then plans trips in the Flip and Burn window and screenshots each one, logging each step with a
+    // "[FlipAndBurn.Test]" prefix, then quits KSP.
     //
     // It does nothing at all unless KSP was started with -flipandburn-test.
     [KSPAddon(KSPAddon.Startup.MainMenu, true)]
@@ -20,13 +25,15 @@ namespace FlipAndBurn.TestHarness
         private const string SaveFile = "persistent";
         private const string ShipName = "Bebop Refueller";
         private const string ScreenshotFolder = "FlipAndBurnTest";
-        private const string ScreenshotFile = "flip-and-burn-window.png";
-        private const float SettleSeconds = 5f;
+        private static readonly string[] PlannerTargets = { "Duna", "Jool" };
+        private const float SettleSeconds = 4f;
 
-        private static void Log(string message)
-        {
-            Debug.Log("[FlipAndBurn.Test] " + message);
-        }
+        private const float MinBrightness = 2f;
+        private const float ExternalCaptureTimeout = 60f;
+
+        private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+        private static void Log(string message) => Debug.Log("[FlipAndBurn.Test] " + message);
 
         private void Awake()
         {
@@ -40,18 +47,14 @@ namespace FlipAndBurn.TestHarness
             DontDestroyOnLoad(gameObject);
         }
 
-        private void Start()
-        {
-            StartCoroutine(Run());
-        }
+        private void Start() => StartCoroutine(Run());
 
         private IEnumerator Run()
         {
             Log("step 1: harness active (" + Flag + " given)");
-
-            // Let the main menu finish building before switching scenes.
             yield return new WaitForSecondsRealtime(3f);
 
+            // ---- load the test save and fly the test ship
             try
             {
                 // Same order as KSP's own MainMenu.OnLoadDialogPipelineFinished: the flight scene's Game.Load() reads
@@ -88,7 +91,6 @@ namespace FlipAndBurn.TestHarness
                 yield break;
             }
 
-            // Wait for the flight scene, the ship and its MechJeb.
             MechJebCore core = null;
             float deadline = Time.realtimeSinceStartup + 300f;
             while (true)
@@ -110,50 +112,33 @@ namespace FlipAndBurn.TestHarness
             }
 
             Vessel ship = FlightGlobals.ActiveVessel;
+            var module = core.GetComputerModule<MechJebModuleFlipAndBurn>();
             Log("step 4: in flight on '" + ship.vesselName + "', " + ship.situation + " " + ship.mainBody.bodyName +
                 ", MechJeb core on part '" + core.part.partInfo.name + "'");
 
-            try
+            bool listed = core.GetDisplayModules(MechJebModuleMenu.DisplayOrder.instance)
+                .Any(m => m == module && !m.Hidden && m.ShowInCurrentScene);
+            Log("step 5: MechJeb menu lists '" + module.GetName() + "': " + listed);
+            if (!listed)
             {
-                var module = core.GetComputerModule<MechJebModuleFlipAndBurn>();
-                bool listed = core.GetDisplayModules(MechJebModuleMenu.DisplayOrder.instance)
-                    .Any(m => m == module && !m.Hidden && m.ShowInCurrentScene);
-                Log("step 5: MechJeb menu lists '" + module.GetName() + "': " + listed + " (Hidden=" + module.Hidden +
-                    ", ShowInCurrentScene=" + module.ShowInCurrentScene + ")");
-                if (!listed)
-                {
-                    Fail("step 5", "Flip and Burn is not listed in MechJeb's menu");
-                    yield break;
-                }
-
-                // Open MechJeb's main menu too, so the screenshot shows the entry next to the window.
-                var menu = core.GetComputerModule<MechJebModuleMenu>();
-                if (menu != null && menu.windowStat == MechJebModuleMenu.WindowStat.HIDDEN) menu.ShowHideWindow();
-
-                // MechJeb opens every window at the same top-left spot, so other windows the player left open would sit
-                // on top of ours. Put ours in an empty area for the screenshot (MechJeb's settings are restored after
-                // the run). Coordinates are in MechJeb's scaled GUI units.
-                float scale = GuiUtils.Scale > 0 ? GuiUtils.Scale : 1f;
-                module.WindowVector = new Vector4(Screen.width / scale * 0.40f, Screen.height / scale * 0.30f, 0, 0);
-
-                module.Enabled = true;
-                Log("step 6: opened the '" + module.GetName() + "' window (Enabled=" + module.Enabled + ", at " +
-                    module.WindowVector.x.ToString("0") + "," + module.WindowVector.y.ToString("0") + ")");
-            }
-            catch (Exception e)
-            {
-                Fail("step 5-6", e.ToString());
+                Fail("step 5", "Flip and Burn is not listed in MechJeb's menu");
                 yield break;
             }
 
-            yield return new WaitForSecondsRealtime(SettleSeconds);
+            // ---- what each delta-v source says about the ship
+            yield return Diagnostics(ship, core, module);
 
-            string folder = Path.Combine(KSPUtil.ApplicationRootPath, ScreenshotFolder);
-            string path = Path.GetFullPath(Path.Combine(folder, ScreenshotFile));
+            // ---- open the planner
             try
             {
-                Directory.CreateDirectory(folder);
-                if (File.Exists(path)) File.Delete(path);
+                var menu = core.GetComputerModule<MechJebModuleMenu>();
+                if (menu != null && menu.windowStat == MechJebModuleMenu.WindowStat.HIDDEN) menu.ShowHideWindow();
+
+                // MechJeb opens every window at the same top-left spot; put ours in an empty area for the screenshot.
+                float scale = GuiUtils.Scale > 0 ? GuiUtils.Scale : 1f;
+                module.WindowVector = new Vector4(Screen.width / scale * 0.38f, Screen.height / scale * 0.18f, 0, 0);
+                module.Enabled = true;
+                Log("step 7: opened the '" + module.GetName() + "' window");
             }
             catch (Exception e)
             {
@@ -161,105 +146,300 @@ namespace FlipAndBurn.TestHarness
                 yield break;
             }
 
-            // The screenshot must include MechJeb's IMGUI windows, which are drawn straight to the screen after the
-            // cameras render, so it has to come from the finished frame. Reading the frame back can come out blank on
-            // some setups (an earlier run read all zeros with ScreenCapture and with ReadPixels on OpenGLCore + 8x
-            // MSAA), so try several ways and keep the first that is not blank. A blank result fails the run.
-            Log("step 7: capturing (" + Screen.width + "x" + Screen.height + ", focused=" + Application.isFocused +
-                ", mode=" + Screen.fullScreenMode + ", gfx=" + SystemInfo.graphicsDeviceType + ", msaa=" +
-                QualitySettings.antiAliasing + ")");
-            for (int round = 1; round <= CaptureRounds; round++)
+            int step = 8;
+            foreach (string target in PlannerTargets)
             {
-                foreach (string method in new[] { "readpixels", "screen-to-rendertexture", "readpixels-without-msaa" })
+                if (!module.SelectTarget(target))
                 {
-                    int savedMsaa = QualitySettings.antiAliasing;
-                    if (method == "readpixels-without-msaa")
-                    {
-                        QualitySettings.antiAliasing = 0;
-                        for (int i = 0; i < 5; i++) yield return null;
-                    }
-
-                    yield return new WaitForEndOfFrame();
-
-                    Texture2D tex = null;
-                    float brightness;
-                    try
-                    {
-                        tex = method == "screen-to-rendertexture" ? CaptureViaRenderTexture() : CaptureViaReadPixels();
-                        brightness = Brightness(tex);
-                        if (brightness >= MinBrightness) File.WriteAllBytes(path, tex.EncodeToPNG());
-                    }
-                    catch (Exception e)
-                    {
-                        Log("step 7: round " + round + " " + method + " threw " + e.GetType().Name + ": " + e.Message);
-                        brightness = -1f;
-                    }
-                    finally
-                    {
-                        if (tex != null) Destroy(tex);
-                        QualitySettings.antiAliasing = savedMsaa;
-                    }
-
-                    Log("step 7: round " + round + " " + method + ": mean brightness " + brightness.ToString("0.00") + "/255");
-                    if (brightness >= MinBrightness)
-                    {
-                        Log("step 7: screenshot saved to " + path + " (" + new FileInfo(path).Length + " bytes, method " +
-                            method + ")");
-                        Log("step 8: done, quitting KSP");
-                        Application.Quit();
-                        yield break;
-                    }
+                    Fail("step " + step, "could not select " + target);
+                    yield break;
                 }
 
-                yield return new WaitForSecondsRealtime(CaptureRetrySeconds);
+                Log("step " + step + ": selected " + target);
+                yield return new WaitForSecondsRealtime(SettleSeconds);
+
+                var result = new CaptureResult();
+                string file = "planner-" + target.ToLowerInvariant() + ".png";
+                yield return Capture(step, file, result, () => LogPlanner(step, module, ship));
+                if (!result.Ok)
+                {
+                    Fail("step " + step, result.Error);
+                    yield break;
+                }
+
+                step++;
             }
 
-            // In-game capture came out blank. Ask build.sh to grab the KSP window from outside (ffmpeg x11grab), which
-            // sees exactly what is on screen, then check that image too.
-            Log("step 7: in-game capture blank; external capture requested");
-            float deadline7 = Time.realtimeSinceStartup + ExternalCaptureTimeout;
-            while (Time.realtimeSinceStartup < deadline7)
-            {
-                yield return new WaitForSecondsRealtime(1f);
-                if (!File.Exists(path)) continue;
+            Log("step " + step + ": done, quitting KSP");
+            Application.Quit();
+        }
 
+        // ------------------------------------------------------------------ diagnostics
+
+        private static IEnumerator Diagnostics(Vessel ship, MechJebCore core, MechJebModuleFlipAndBurn module)
+        {
+            // Let KSPIE's engine controller run some physics ticks: it rewrites the engine's thrust and Isp each tick.
+            yield return new WaitForSecondsRealtime(3f);
+            Log("step 6: delta-v sources for '" + ship.vesselName + "' at UT " + F(Planetarium.GetUniversalTime()));
+
+            try
+            {
+                Log("diag mass: vessel.totalMass = " + F(ship.totalMass) + " t");
+                var totals = new Dictionary<string, double>();
+                foreach (Part p in ship.parts)
+                foreach (PartResource r in p.Resources)
+                    totals[r.resourceName] = (totals.TryGetValue(r.resourceName, out double a) ? a : 0) + r.amount;
+                foreach (KeyValuePair<string, double> kv in totals.OrderBy(k => k.Key))
+                {
+                    PartResourceDefinition def = PartResourceLibrary.Instance.GetDefinition(kv.Key);
+                    Log("diag resource: " + kv.Key + " = " + F(kv.Value) + " units, density " + F(def?.density ?? 0) +
+                        " t/unit, " + F(kv.Value * (def?.density ?? 0)) + " t");
+                }
+
+                foreach (ModuleEngines e in ship.FindPartModulesImplementing<ModuleEngines>())
+                {
+                    Log("diag engine: part=" + e.part.partInfo.name + " module=" + e.GetType().Name + " ignited=" + e.EngineIgnited +
+                        " operational=" + e.isOperational + " flameout=" + e.flameout + " maxThrust=" + F(e.maxThrust) + " kN" +
+                        " thrustPercentage=" + F(e.thrustPercentage) + " vacuumIsp=" + F(e.atmosphereCurve.Evaluate(0f)) + " s" +
+                        " maxFuelFlow=" + F(e.maxFuelFlow) + " includeinDVCalcs=" + e.includeinDVCalcs +
+                        " propellants=" + string.Join(",", e.propellants.Select(p => p.name + ":" + F(p.ratio))));
+                }
+
+                foreach (Part p in ship.parts)
+                foreach (PartModule m in p.Modules)
+                {
+                    if (!IsKspieFusion(m.GetType())) continue;
+                    var parts = new List<string>();
+                    foreach (string name in new[] { "thrustMultiplier", "ispMultiplier", "partMass", "massThrustExp", "massIspExp",
+                                 "ispThrottleExponent", "maxThrustMk7", "thrustIspMk7", "timeDilation", "effectiveMaxThrustInKiloNewton",
+                                 "maximizeThrust", "fuelLimit", "speedLimit" })
+                        parts.Add(name + "=" + Member(m, name));
+                    foreach (string name in new[] { "EngineGenerationType", "EngineIsp", "MaximumThrust", "RawEngineIsp" })
+                        parts.Add(name + "=" + Member(m, name));
+                    Log("diag KSPIE " + m.GetType().Name + " on " + p.partInfo.name + ": part.mass=" + F(p.mass) + " " + string.Join(" ", parts));
+                }
+            }
+            catch (Exception e)
+            {
+                Log("diag raw failed: " + e);
+            }
+
+            // Stock delta-v (computed in the background; wait for it).
+            VesselDeltaV dv = ship.VesselDeltaV;
+            float until = Time.realtimeSinceStartup + 15f;
+            if (dv != null) dv.SetCalcsDirty(true);
+            while (dv != null && !dv.IsReady && Time.realtimeSinceStartup < until) yield return new WaitForSecondsRealtime(0.5f);
+            yield return new WaitForSecondsRealtime(1f);
+            try
+            {
+                if (dv == null) Log("diag stock: no VesselDeltaV");
+                else
+                {
+                    Log("diag stock: ready=" + dv.IsReady + " TotalDeltaVVac=" + F(dv.TotalDeltaVVac) + " m/s TotalDeltaVActual=" + F(dv.TotalDeltaVActual) + " m/s");
+                    foreach (DeltaVStageInfo s in dv.OperatingStageInfo)
+                        Log("diag stock stage " + s.stage + ": deltaVinVac=" + F(s.deltaVinVac) + " m/s thrustVac=" + F(s.thrustVac) + " kN ispVac=" +
+                            F(s.ispVac) + " s startMass=" + F(s.startMass) + " t endMass=" + F(s.endMass) + " t fuelMass=" + F(s.fuelMass) + " t");
+                }
+            }
+            catch (Exception e)
+            {
+                Log("diag stock failed: " + e.Message);
+            }
+
+            // MechJeb's fuel flow simulation (also background).
+            MechJebModuleStageStats stats = core.StageStats;
+            until = Time.realtimeSinceStartup + 15f;
+            while (stats != null && Time.realtimeSinceStartup < until)
+            {
+                stats.RequestUpdate();
+                if (stats.VacStats.Count > 0) break;
+                yield return new WaitForSecondsRealtime(0.5f);
+            }
+
+            try
+            {
+                if (stats == null || stats.VacStats.Count == 0) Log("diag MechJeb: no stage stats");
+                else
+                {
+                    Log("diag MechJeb: total vacuum delta-v=" + F(stats.VacStats.Sum(s => s.DeltaV)) + " m/s");
+                    foreach (MechJebLib.FuelFlowSimulation.FuelStats s in stats.VacStats)
+                        Log("diag MechJeb stage " + s.KSPStage + ": DeltaV=" + F(s.DeltaV) + " m/s Thrust=" + F(s.Thrust) + " kN Isp=" + F(s.Isp) +
+                            " s StartMass=" + F(s.StartMass) + " t EndMass=" + F(s.EndMass) + " t");
+                }
+            }
+            catch (Exception e)
+            {
+                Log("diag MechJeb failed: " + e.Message);
+            }
+
+            // Flip and Burn's own reader.
+            try
+            {
+                module.Planner.Refresh(ship);
+                ShipPerformance perf = module.Planner.Ship;
+                Log("diag FlipAndBurn: FullThrust=" + F(perf.FullThrust) + " N VacuumIsp=" + F(perf.VacuumIsp) + " s IspThrottleExponent=" +
+                    F(perf.IspThrottleExponent) + " StartMass=" + F(perf.StartMass) + " kg EndMass=" + F(perf.EndMass) + " kg");
+                Log("diag FlipAndBurn: FullThrustDeltaV=" + F(perf.FullThrustDeltaV) + " m/s DeltaVAt1g=" + F(perf.DeltaVAtAcceleration(9.81)) +
+                    " m/s MaxAcceleration=" + F(perf.MaxAcceleration) + " m/s^2");
+
+                Orbit o = ship.orbit;
+                Log("diag ship orbit: ref=" + o.referenceBody.bodyName + " sma=" + F(o.semiMajorAxis) + " ecc=" + F(o.eccentricity) + " inc=" +
+                    F(o.inclination) + " LAN=" + F(o.LAN) + " argPe=" + F(o.argumentOfPeriapsis) + " meanAnomalyAtEpoch=" + F(o.meanAnomalyAtEpoch) +
+                    " epoch=" + F(o.epoch));
+                CelestialBody sun = Planetarium.fetch.Sun;
+                foreach (CelestialBody b in FlightGlobals.Bodies.Where(x => x != sun && x.referenceBody == sun).OrderBy(x => x.orbit.semiMajorAxis))
+                {
+                    string name = b.bodyName;
+                    Log("diag body " + name + ": Radius=" + F(b.Radius) + " gravParameter=" + F(b.gravParameter) + " atmosphere=" + b.atmosphere +
+                        " atmosphereDepth=" + F(b.atmosphereDepth) + " maxTerrain=" +
+                        F(b.pqsController != null ? b.pqsController.radiusMax - b.Radius : 0) + " SOI=" + F(b.sphereOfInfluence) +
+                        " defaultParking=" + F(Planner.DefaultParkingAltitude(b)));
+                }
+            }
+            catch (Exception e)
+            {
+                Log("diag FlipAndBurn failed: " + e);
+            }
+        }
+
+        private static bool IsKspieFusion(Type t)
+        {
+            for (; t != null; t = t.BaseType)
+                if (t.Name == "DaedalusEngineController") return true;
+            return false;
+        }
+
+        private static string Member(object o, string name)
+        {
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            for (Type t = o.GetType(); t != null; t = t.BaseType)
+            {
+                FieldInfo f = t.GetField(name, flags | BindingFlags.DeclaredOnly);
+                if (f != null) return Fmt(f.GetValue(o));
+                PropertyInfo p = t.GetProperty(name, flags | BindingFlags.DeclaredOnly);
+                if (p != null) return Fmt(p.GetValue(o, null));
+            }
+
+            return "?";
+        }
+
+        private static string Fmt(object v) => v is double d ? F(d) : v is float f ? F(f) : v?.ToString() ?? "null";
+
+        private static string F(double v) => v.ToString("R", Inv);
+
+        private static void LogPlanner(int step, MechJebModuleFlipAndBurn module, Vessel ship)
+        {
+            Planner p = module.Planner;
+            Log("step " + step + ": window shows (planned at UT " + F(p.PlannedAtUT) + ", target " + p.TargetName + ", acceleration " +
+                F(p.AccelerationG) + " g, flip " + p.Flip + ", parking " + F(p.Target != null ? p.ParkingAltitude(p.Target) : 0) + " m)");
+            if (p.SituationMessage != null) Log("  situation: " + p.SituationMessage);
+            foreach (KeyValuePair<string, string> row in p.TripRows.Concat(p.ShipRows)) Log("  " + row.Key + " | " + row.Value);
+            foreach (string note in p.Notes) Log("  note: " + note);
+            if (p.Plan != null && p.Plan.Feasible)
+                Log("  raw: TripTime=" + F(p.Plan.TripTime) + " s TimeToFlip=" + F(p.Plan.TimeToFlip) + " s PeakSpeed=" + F(p.Plan.PeakSpeed) +
+                    " m/s BurnDeltaV=" + F(p.Plan.BurnDeltaV) + " ParkingOrbitDeltaV=" + F(p.Plan.ParkingOrbitDeltaV) + " TotalDeltaV=" +
+                    F(p.Plan.TotalDeltaV) + " m/s ClosestSun=" + F(p.Plan.ClosestSunDistance) + " m iterations=" + p.Plan.ArrivalIterations);
+            if (p.Readiness != null)
+                Log("  readiness: ready=" + p.Readiness.Ready + " canHold=" + p.Readiness.CanHoldAcceleration + " enoughDeltaV=" +
+                    p.Readiness.HasEnoughDeltaV + " available=" + F(p.Readiness.DeltaVAvailable) + " m/s maxAccel=" + F(p.Readiness.MaxAcceleration) + " m/s^2");
+            Log("  Start button enabled: False (always, this cycle)");
+        }
+
+        // ------------------------------------------------------------------ screenshots
+
+        private sealed class CaptureResult
+        {
+            public bool Ok;
+            public string Error;
+        }
+
+        /// <summary>
+        /// Saves the finished frame (3D view plus MechJeb's IMGUI windows) to FlipAndBurnTest/<paramref name="file"/>.
+        /// <paramref name="onCaptured"/> runs in the same frame the pixels were read, so what it logs is what the image shows.
+        /// Falls back to asking build.sh for an external grab when the in-game read comes back blank.
+        /// </summary>
+        private IEnumerator Capture(int step, string file, CaptureResult result, Action onCaptured)
+        {
+            string folder = Path.Combine(KSPUtil.ApplicationRootPath, ScreenshotFolder);
+            string path = Path.GetFullPath(Path.Combine(folder, file));
+            Directory.CreateDirectory(folder);
+            if (File.Exists(path)) File.Delete(path);
+
+            foreach (string method in new[] { "readpixels", "screen-to-rendertexture", "readpixels-without-msaa" })
+            {
+                int savedMsaa = QualitySettings.antiAliasing;
+                if (method == "readpixels-without-msaa")
+                {
+                    QualitySettings.antiAliasing = 0;
+                    for (int i = 0; i < 5; i++) yield return null;
+                }
+
+                yield return new WaitForEndOfFrame();
+
+                Texture2D tex = null;
                 float brightness = -1f;
-                var tex = new Texture2D(2, 2);
                 try
                 {
-                    if (tex.LoadImage(File.ReadAllBytes(path))) brightness = Brightness(tex);
+                    tex = method == "screen-to-rendertexture" ? CaptureViaRenderTexture() : CaptureViaReadPixels();
+                    brightness = Brightness(tex);
+                    if (brightness >= MinBrightness)
+                    {
+                        onCaptured();
+                        File.WriteAllBytes(path, tex.EncodeToPNG());
+                    }
                 }
                 catch (Exception e)
                 {
-                    Log("step 7: could not read external capture yet: " + e.Message);
+                    Log("step " + step + ": " + method + " threw " + e.GetType().Name + ": " + e.Message);
+                }
+                finally
+                {
+                    if (tex != null) Destroy(tex);
+                    QualitySettings.antiAliasing = savedMsaa;
+                }
+
+                Log("step " + step + ": " + method + ": mean brightness " + brightness.ToString("0.00", Inv) + "/255");
+                if (brightness >= MinBrightness)
+                {
+                    Log("step " + step + ": screenshot saved to " + path + " (" + new FileInfo(path).Length + " bytes, method " + method + ")");
+                    result.Ok = true;
+                    yield break;
+                }
+            }
+
+            // Ask build.sh to grab the KSP window from outside (ffmpeg x11grab), then check that image.
+            onCaptured();
+            Log("step " + step + ": in-game capture blank; external capture requested: " + path);
+            float deadline = Time.realtimeSinceStartup + ExternalCaptureTimeout;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                yield return new WaitForSecondsRealtime(1f);
+                if (!File.Exists(path)) continue;
+                var tex = new Texture2D(2, 2);
+                float brightness = -1f;
+                try
+                {
+                    if (tex.LoadImage(File.ReadAllBytes(path))) brightness = Brightness(tex);
                 }
                 finally
                 {
                     Destroy(tex);
                 }
 
-                Log("step 7: external capture: mean brightness " + brightness.ToString("0.00") + "/255");
+                Log("step " + step + ": external capture: mean brightness " + brightness.ToString("0.00", Inv) + "/255");
                 if (brightness >= MinBrightness)
                 {
-                    Log("step 7: screenshot saved to " + path + " (" + new FileInfo(path).Length +
-                        " bytes, method external-x11grab)");
-                    Log("step 8: done, quitting KSP");
-                    Application.Quit();
+                    Log("step " + step + ": screenshot saved to " + path + " (" + new FileInfo(path).Length + " bytes, method external-x11grab)");
+                    result.Ok = true;
                     yield break;
                 }
 
                 break;
             }
 
-            Fail("step 7", "every capture was blank (mean brightness below " + MinBrightness + "/255)");
+            result.Error = "every capture was blank (mean brightness below " + MinBrightness + "/255)";
         }
 
-        private const float ExternalCaptureTimeout = 60f;
-        private const int CaptureRounds = 1;
-        private const float CaptureRetrySeconds = 5f;
-        private const float MinBrightness = 2f;
-
-        // Both must run after WaitForEndOfFrame.
         private static Texture2D CaptureViaReadPixels()
         {
             var tex = new Texture2D(Screen.width, Screen.height, TextureFormat.RGB24, false);
@@ -289,7 +469,6 @@ namespace FlipAndBurn.TestHarness
             }
         }
 
-        // Mean of R, G and B over a sample of pixels, 0-255.
         private static float Brightness(Texture2D tex)
         {
             Color32[] pixels = tex.GetPixels32();
@@ -307,7 +486,7 @@ namespace FlipAndBurn.TestHarness
         private static void Fail(string step, string why)
         {
             Debug.LogError("[FlipAndBurn.Test] FAILED at " + step + ": " + why);
-            Log("step 8: done (failed), quitting KSP");
+            Log("step 99: done (failed), quitting KSP");
             Application.Quit();
         }
     }
