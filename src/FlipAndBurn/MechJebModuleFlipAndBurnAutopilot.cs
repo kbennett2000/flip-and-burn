@@ -39,7 +39,16 @@ namespace FlipAndBurn
         public const double PointingTolerance = 5;
         /// <summary>Physics warp rates Flip and Burn uses while thrusting (x1 first), and the highest it will use.</summary>
         public static float[] PhysicsRates = { 1, 4, 10, 25 };
-        public static double MaxPhysicsRate = 25;
+        /// <summary>
+        /// Highest physics warp used, measured on Kris's machine with the Bebop Refueller (ADR 0003, "Time warp"): 25x was
+        /// steady while the ship was cool, but with the ship running hot its Kerbstein drive overheated and exploded at 25x
+        /// within 20 s. 10x was steady hot or cool.
+        /// </summary>
+        public static double MaxPhysicsRate = 10;
+        /// <summary>Hottest part, as a share of its temperature limit, above which physics warp is held to 4x / to 1x.</summary>
+        public const double WarmPart = 0.6, HotPart = 0.75;
+        /// <summary>Above this share of its temperature limit a part is about to fail: re-plan at 80 % of the acceleration.</summary>
+        public const double OverheatingPart = 0.9;
         private const double SecondsBetweenWarpChanges = 1.0;   // real seconds
 
         private FlipAndBurnGuidance guidance;
@@ -49,7 +58,7 @@ namespace FlipAndBurn
         private ConfigNode savedLocal, savedType, savedGlobal;
         private float[] savedPhysicsRates;
         private double startUT, plannedArrivalUT, flipStartUT = double.NaN, offCourseSince = double.NaN, mispointedSince = double.NaN,
-            noThrustSince = double.NaN, weakSince = double.NaN, lastWarpChange, bestPointing = double.MaxValue;
+            noThrustSince = double.NaN, weakSince = double.NaN, noEngineSince = double.NaN, cooldownUntil = double.NaN, lastWarpChange, bestPointing = double.MaxValue;
         private bool controlling;
 
         public MechJebModuleFlipAndBurnAutopilot(MechJebCore core) : base(core)
@@ -65,6 +74,9 @@ namespace FlipAndBurn
         /// <summary>Degrees between where the ship points and where the guidance wants it.</summary>
         public double PointingError { get; private set; }
         public string WarpStatus { get; private set; } = "";
+        /// <summary>The hottest part and its temperature as a share of its limit (0 to 1).</summary>
+        public string HottestPart { get; private set; } = "";
+        public double HottestFraction { get; private set; }
         public double TurnRate { get; private set; }
         /// <summary>Why the last trip stopped, in plain words (null while running or before any trip).</summary>
         public string StopReason { get; private set; }
@@ -117,7 +129,7 @@ namespace FlipAndBurn
             Arrived = false;
             Replans = 0;
             FlipSeconds = double.NaN;
-            flipStartUT = offCourseSince = mispointedSince = noThrustSince = weakSince = double.NaN;
+            flipStartUT = offCourseSince = mispointedSince = noThrustSince = weakSince = noEngineSince = cooldownUntil = double.NaN;
             bestPointing = double.MaxValue;
 
             SaveSettings();
@@ -268,6 +280,7 @@ namespace FlipAndBurn
 
             Last = cmd;
             MeasuredAcceleration = v.geeForce_immediate * PhysicsGlobals.GravitationalAcceleration;
+            MeasureHottestPart(v);
             Vector3d want = ToWorld(cmd.Direction);
             PointingError = Vector3d.Angle(facingWorld, want);
 
@@ -306,9 +319,32 @@ namespace FlipAndBurn
         // Stop with a plain reason when something goes wrong.
         private void Watchdog(GuidanceCommand cmd, double ut, bool thrustWanted, bool pointed, bool flipping)
         {
+            // No engine at all (one was destroyed, or shut down): stop, whatever the cheats.
+            bool enginesAlive = Vessel.FindPartModulesImplementing<ModuleEngines>().Any(e => e.EngineIgnited && !e.flameout);
+            if (thrustWanted && !enginesAlive)
+            {
+                if (double.IsNaN(noEngineSince)) noEngineSince = ut;
+                if (ut - noEngineSince > 5)
+                {
+                    Stop("Stopped: no engine is running. If an engine was destroyed (overheating?), check the ship before flying on.");
+                    return;
+                }
+            }
+            else noEngineSince = double.NaN;
+
+            // A part close to its temperature limit: ease off before it fails.
+            if (thrustWanted && !flipping && HottestFraction > OverheatingPart && double.IsNaN(cooldownUntil))
+            {
+                cooldownUntil = ut + 60;
+                ReplanAtLowerAcceleration(ut, 0.8 * CurrentAcceleration,
+                    $"{HottestPart} reached {HottestFraction * 100:N0}% of its temperature limit");
+                return;
+            }
+
+            if (!double.IsNaN(cooldownUntil) && ut > cooldownUntil) cooldownUntil = double.NaN;
+
             // Out of fuel: thrust wanted, ship pointed, throttle open, and the engines give almost nothing.
             bool infinite = CheatOptions.InfinitePropellant;
-            bool enginesAlive = Vessel.FindPartModulesImplementing<ModuleEngines>().Any(e => e.EngineIgnited && !e.flameout);
             if (thrustWanted && pointed && !flipping && (!enginesAlive || MeasuredAcceleration < 0.1 * cmd.Acceleration) && !infinite)
             {
                 if (double.IsNaN(noThrustSince)) noThrustSince = ut;
@@ -332,7 +368,10 @@ namespace FlipAndBurn
                 if (double.IsNaN(weakSince)) weakSince = ut;
                 if (ut - weakSince > 60)
                 {
-                    ReplanAtLowerAcceleration(ut);
+                    double heat = ResourceFill("WasteHeat");
+                    ReplanAtLowerAcceleration(ut, 0.95 * MeasuredAcceleration, heat > 0.9
+                        ? $"the ship is overheating (waste heat at {heat * 100:N0}%; KSP Interstellar drives lose thrust above 90%)"
+                        : "they give less thrust than expected");
                     return;
                 }
             }
@@ -399,14 +438,11 @@ namespace FlipAndBurn
         /// at full throttle, rounded down to 0.01 g), re-planned from here, and tell the player. Stops only if the trip can't
         /// be finished at that acceleration.
         /// </summary>
-        private void ReplanAtLowerAcceleration(double ut)
+        private void ReplanAtLowerAcceleration(double ut, double sustainable, string why)
         {
             double heat = ResourceFill("WasteHeat");
-            string why = heat > 0.9
-                ? $"the ship is overheating (waste heat at {heat * 100:N0}%; KSP Interstellar drives lose thrust above 90%)"
-                : "they give less thrust than expected";
             double was = CurrentAcceleration;
-            double now = Math.Floor(0.95 * MeasuredAcceleration / TripCalculator.OneG * 100) / 100 * TripCalculator.OneG;
+            double now = Math.Floor(sustainable / TripCalculator.OneG * 100) / 100 * TripCalculator.OneG;
             weakSince = double.NaN;
             if (!(now > 0))
             {
@@ -460,7 +496,7 @@ namespace FlipAndBurn
             CurrentAcceleration = now;
             plannedArrivalUT = newArrival;
             Replans++;
-            Notice = $"The engines couldn't hold {gWas} because {why}. Flip and Burn is now holding {g} and has re-planned the rest " +
+            Notice = $"The engines couldn't safely hold {gWas}: {why}. Flip and Burn is now holding {g} and has re-planned the rest " +
                      $"of the trip: arrival is {Planner.FormatTime(Math.Abs(change))} {(change >= 0 ? "later" : "earlier")} " +
                      $"({Planner.FormatTime(remaining)} from now).";
             ScreenMessages.PostScreenMessage("Flip and Burn: " + Notice, 15f, ScreenMessageStyle.UPPER_CENTER);
@@ -477,6 +513,24 @@ namespace FlipAndBurn
             ArrivalCutoff = c.ArrivalCutoff, DetourMargin = c.DetourMargin, BrakingFraction = c.BrakingFraction,
             CorrectionThreshold = c.CorrectionThreshold, MinThrustFraction = c.MinThrustFraction,
         };
+
+        private void MeasureHottestPart(Vessel v)
+        {
+            double hottest = 0;
+            string name = "";
+            foreach (Part p in v.parts)
+            {
+                double f = Math.Max(p.maxTemp > 0 ? p.temperature / p.maxTemp : 0, p.skinMaxTemp > 0 ? p.skinTemperature / p.skinMaxTemp : 0);
+                if (f > hottest)
+                {
+                    hottest = f;
+                    name = p.partInfo?.title ?? p.name;
+                }
+            }
+
+            HottestFraction = hottest;
+            HottestPart = name;
+        }
 
         /// <summary>How full the ship's store of a resource is, 0 to 1 (0 if it has none).</summary>
         private double ResourceFill(string resource)
@@ -503,7 +557,20 @@ namespace FlipAndBurn
             bool wantPhysics = d.Mode == WarpMode.Physics;
             bool wantRails = d.Mode == WarpMode.Rails;
             float[] rates = wantRails ? tw.warpRates : tw.physicsWarpRates;
-            int index = d.Mode == WarpMode.None ? 0 : WarpPolicy.PickIndex(rates, d.MaxRate, wantPhysics ? MaxPhysicsRate : double.MaxValue);
+            double cap = wantPhysics ? MaxPhysicsRate : double.MaxValue;
+            string heatNote = "";
+            if (wantPhysics && HottestFraction > HotPart)
+            {
+                cap = 1;
+                heatNote = $"; held at normal speed: {HottestPart} at {HottestFraction * 100:N0}% of its temperature limit";
+            }
+            else if (wantPhysics && HottestFraction > WarmPart)
+            {
+                cap = Math.Min(cap, 4);
+                heatNote = $"; held to x4: {HottestPart} at {HottestFraction * 100:N0}% of its temperature limit";
+            }
+
+            int index = d.Mode == WarpMode.None ? 0 : WarpPolicy.PickIndex(rates, d.MaxRate, cap);
             TimeWarp.Modes mode = wantRails ? TimeWarp.Modes.HIGH : TimeWarp.Modes.LOW;
 
             int current = TimeWarp.CurrentRateIndex;
@@ -528,8 +595,8 @@ namespace FlipAndBurn
             string kind = d.Mode == WarpMode.Physics ? "physics warp" : d.Mode == WarpMode.Rails ? "warp" : "no warp";
             float rate = TimeWarp.CurrentRate;
             WarpStatus = rate > 1.01f
-                ? $"{kind} x{rate:0.#} ({d.Reason})"
-                : $"normal speed ({d.Reason})";
+                ? $"{kind} x{rate:0.#} ({d.Reason}{heatNote})"
+                : $"normal speed ({d.Reason}{heatNote})";
         }
 
         // ------------------------------------------------------------------ frames

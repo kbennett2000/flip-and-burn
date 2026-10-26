@@ -58,11 +58,19 @@ namespace FlipAndBurn.TestHarness
             Log("step 1: harness active (" + Flag + " given)");
             yield return new WaitForSecondsRealtime(3f);
 
-            // (a) Full burn to Duna with infinite propellant: warp probe, the flip, a few minutes of braking, Abort.
+            // (a) Overheating: 1 g with infinite propellant only; the autopilot steps down, re-plans and says so; Abort.
             var flown = new Flown();
             yield return PlanOnShip("Bebop Refueller", null, null, flown, SaveFile);
             if (!flown.Ok) yield break;
             var ok = new CaptureResult();
+            yield return ProofOverheat(flown, ok);
+            if (!ok.Ok) yield break;
+
+            // (a) The flip, from the same start: 1 g with overheating ignored too; warp probe, the flip, braking, Abort.
+            flown = new Flown();
+            yield return PlanOnShip("Bebop Refueller", null, null, flown, "quicksave");
+            if (!flown.Ok) yield break;
+            ok = new CaptureResult();
             yield return ProofFullBurn(flown, ok);
             if (!ok.Ok) yield break;
 
