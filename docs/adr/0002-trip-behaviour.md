@@ -92,3 +92,33 @@ What it gives in Kris's install (logged by the test harness on 2026-10-26, `docs
 
 The flip style is chosen in the window (cut, flip, relight by default; skew flip as the other choice) but doesn't change
 the estimate yet: the estimate treats the flip as instant.
+
+## Addendum (2026-10-26): trip type, and infinite propellant
+
+Decided by Kris:
+
+1. **Trip type.** The planner offers "Full burn" (the default) or "Coast in the middle". Coast in the middle burns at
+   the chosen acceleration, coasts weightless, then burns to stop. It plans the fastest trip the ship's delta-v allows
+   while keeping 10 % of the ship's delta-v in reserve, and shows the burn time at each end, the coast time and the
+   total trip time. When a full burn is short on delta-v, the planner suggests the coast trip and says how long it
+   would take, instead of just refusing. It still refuses if even a coast trip can't be done.
+2. **Infinite propellant.** When KSP's infinite propellant cheat is on, the planner says so in a plain line and doesn't
+   report a delta-v shortfall. Only the test helper turns the cheat on, only during test runs on the FlipAndBurn-Test
+   copy, and the cheat must not stick in Kris's settings or his other saves.
+
+How these are read in the code:
+
+- **"The ship's delta-v"** is the delta-v while holding the chosen acceleration (the number the planner already shows,
+  which accounts for KSP Interstellar Extended's throttle rule). The reserve is 10 % of that; a coast trip may use the
+  other 90 %, burns, course corrections and final circularising included. Flying the trip costs a few percent more than
+  its two planned burns, so the burns are planned 6 % under that and the planner shows the delta-v needed with the
+  margin (ADR 0003, "The coast phase").
+- **The flip on a coast trip** happens during the coast, with the engine off, so the flip style doesn't matter; the
+  window says so instead of offering the choice.
+- **A coast trip that would need a Sun detour** isn't offered yet: the planner says so plainly. The detour stops beside
+  the Sun and doubles the burns, which the coast budget isn't built for.
+- **Gravity at the target.** A trip ends in the parking orbit only if the chosen acceleration beats the target's gravity
+  there (ADR 0003). The planner refuses unless the acceleration is at least 10 % more than that gravity, and says what
+  acceleration or parking altitude would work.
+- **The Sun detour** is now part of the estimate: when the Sun is in the way, the trip time and delta-v shown are for
+  the two legs the autopilot will fly (start to waypoint, waypoint to target).
