@@ -40,6 +40,8 @@ namespace FlipAndBurn
         public string DepartureName { get; private set; }
         public TripPlan Plan { get; private set; }
         public ShipPerformance Ship { get; private set; }
+        /// <summary>The engine reader's full result (engines, notes, stages below), as of the last refresh.</summary>
+        public ShipReading Reading { get; private set; }
         public TripReadiness Readiness { get; private set; }
         /// <summary>The coast trip: shown when Coast in the middle is chosen, suggested when a full burn is short.</summary>
         public CoastPlan Coast { get; private set; }
@@ -123,21 +125,30 @@ namespace FlipAndBurn
             if (Target == null)
                 TargetName = null;
 
-            Ship = ShipPerformanceReader.Read(vessel, out string engineProblem);
+            ShipReading reading = ShipPerformanceReader.Read(vessel, out string engineProblem);
+            Reading = reading;
+            Ship = reading.Report.Performance;
+            if (engineProblem == null && reading.Report.NoThrust)
+                engineProblem = "None of the active engines can push the ship in space.";
             double requested = AccelerationG * OneG;
             double available = 0;
+            string estimate = reading.Report.Estimated ? " (estimate)" : "";
             if (engineProblem == null)
             {
                 available = Ship.DeltaVAtAcceleration(requested);
                 ShipRows.Add(Row("Ship's delta-v", available > 0
-                    ? $"{FormatSpeed(available)} at {FormatG(AccelerationG)}"
+                    ? $"{FormatSpeed(available)} at {FormatG(AccelerationG)}{estimate}"
                     : "—"));
-                ShipRows.Add(Row("  at full thrust", FormatSpeed(Ship.FullThrustDeltaV)));
-                ShipRows.Add(Row("Ship's max acceleration", FormatG(Ship.MaxAcceleration / OneG)));
+                ShipRows.Add(Row("  at full thrust", FormatSpeed(Ship.FullThrustDeltaV) + estimate));
+                ShipRows.Add(Row("Ship's max acceleration", FormatG(Ship.MaxAcceleration / OneG) + estimate));
             }
-            else
+
+            Notes.AddRange(reading.Report.Notes);
+            if (engineProblem != null) Notes.Add(engineProblem);
+            if (reading.StagesBelow > 0)
             {
-                Notes.Add(engineProblem);
+                Notes.Add($"This ship has {reading.StagesBelow} more stage{(reading.StagesBelow == 1 ? "" : "s")} below the current one. " +
+                          "Flip and Burn plans with the engines firing now and the fuel they can reach; the stages below aren't counted.");
             }
 
             if (InfinitePropellant)

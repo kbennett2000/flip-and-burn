@@ -13,8 +13,14 @@ window is a trip planner:
   flip, relight or skew flip; a coast trip flips while coasting, so it shows a note instead) and the parking orbit
   altitude at the target (a sensible default per planet; see ADR 0002).
 - **Readouts, full burn:** trip time and time to the flip in KSP's own time format, peak speed, delta-v needed, and the
-  ship's own delta-v and maximum acceleration. The ship's numbers come from its active engines and understand KSP
-  Interstellar Extended's fusion drives, whose Isp drops when throttled down.
+  ship's own delta-v and maximum acceleration.
+- **Any engine:** the ship's numbers come from the engines firing now (the current stage) and the fuel they can reach:
+  stock engines including multi-mode, nuclear and electric ones, other mods' engines built on the stock engine modules
+  (Near Future, for example), and KSP Interstellar Extended's fusion drives, whose Isp drops when throttled down.
+  Several engine types at once are fine: when one runs dry the others carry on. Electric engines are limited to what
+  the ship's power supply can feed, and the window says so. An engine Flip and Burn doesn't know is read from KSP's own
+  figures and the window says the numbers are estimates. Stages below the current one aren't counted, and the window
+  says so ([ADR 0002](docs/adr/0002-trip-behaviour.md), "Engines and stages").
 - **Readouts, coast in the middle:** the fastest burn-coast-burn trip the ship's delta-v allows while keeping 10 % in
   reserve: burn time at each end, coast time, trip time, delta-v needed and the reserve kept.
 - **Short on delta-v:** a full burn spells out the shortfall and suggests the coast trip with its trip time; if even a
@@ -82,9 +88,9 @@ When KSP reaches the main menu, `KSP.log` should contain `[FlipAndBurn] loaded`.
 3. Snapshots MechJeb's settings folder (`GameData/MechJeb2/Plugins/PluginData/MechJeb2`) and KSP's `settings.cfg`.
 4. Launches KSP with `-flipandburn-test`. The harness loads the test save, switches to the ship "Bebop Refueller" in
    Kerbin orbit, logs what stock, MechJeb and Flip and Burn each say about the ship's thrust and delta-v, opens the
-   Flip and Burn window and plans a trip to Duna three times, screenshotting each: "Full burn" (short on delta-v, with
-   the coast suggestion), "Coast in the middle", and "Full burn" with KSP's infinite propellant cheat on. Only the
-   harness turns the cheat on, for that one screenshot, and turns it off straight after. Then it quits KSP.
+   Flip and Burn window and plans a trip to Duna, screenshotting it. It does the same on two more ships in the test
+   save: "CubeSat v3.2" (stock engines only, more stages below) and "CubeSat v4.2 MilSpec" (a KSP Interstellar Z-pinch
+   fusion engine plus a stock Bobcat the harness lights: two engine types at once). Then it quits KSP.
    It moves the Flip and Burn window to an empty part of the screen first, because MechJeb opens every window at
    the same spot. The harness reads the finished frame itself; if that comes out blank (it sometimes does on
    Linux/OpenGL), it asks this script to grab the KSP window from outside with `ffmpeg` (x11grab) instead.
@@ -97,8 +103,10 @@ When KSP reaches the main menu, `KSP.log` should contain `[FlipAndBurn] loaded`.
    left no trace (`cheat-check.log`: `settings.cfg` and every other save fingerprinted before and after) to
    `docs/test-evidence/` and prints `TEST PASSED` or `TEST FAILED`.
 
-`tools/verify/check_planner.py` recomputes the screenshots' numbers independently of the plugin: planets from the
-game's own data, the ship from the test save, the drive from its part config.
+`tools/verify/check_planner.py` recomputes the trip numbers independently of the plugin: planets from the game's own
+data, the ship from the test save, the drive from its part config. `tools/verify/check_engines.py` recomputes any test
+ship's thrust and delta-v from the save, the engines' part configs and the resource definitions, working out the fuel
+each engine can reach by walking the part tree.
 
 The harness never affects normal play:
 

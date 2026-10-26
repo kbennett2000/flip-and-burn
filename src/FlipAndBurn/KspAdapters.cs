@@ -44,55 +44,127 @@ namespace FlipAndBurn
         }
     }
 
+    /// <summary>What the reader found: the engines' combined performance, notes for the window, and the stages below.</summary>
+    public sealed class ShipReading
+    {
+        public ShipEngineReport Report;
+        /// <summary>Stages still to fire below the current one (with engines or decouplers in them).</summary>
+        public int StagesBelow;
+        public List<EngineReading> Engines = new List<EngineReading>();
+    }
+
     /// <summary>
-    /// Reads thrust, Isp and fuel straight from the ship's active engines, including KSP Interstellar Extended's fusion
-    /// drives.
+    /// Reads every active engine's thrust, Isp and propellants, the fuel they can reach and the ship's power supply,
+    /// and combines them (<see cref="ShipEngines"/>; ADR 0002, "Engines and stages").
     /// </summary>
     /// <remarks>
-    /// Why not stock's or MechJeb's delta-v: KSPIE's DaedalusEngineController (the Kerbstein drive's module) rewrites the
-    /// engine's maxThrust and Isp every physics tick from its upgrade level and TweakScale size, marks the engine
-    /// includeinDVCalcs = false so stock leaves it out, and lowers Isp at part throttle: Isp = Isp0 * throttle^0.5
-    /// (its ispThrottleExponent). Holding a set acceleration means throttling down, so the usable delta-v depends on the
-    /// acceleration chosen. Neither stock nor MechJeb knows that rule. See the PR for the numbers.
-    ///
-    /// Assumes all active engines burn together from one shared fuel supply (the usual torch-ship layout). Staging is
-    /// not modelled.
+    /// "Active" means ignited now: a trip burns on the current stage. Each engine is read from its own engine module,
+    /// which is what KSP's delta-v readout reads too, so for stock engines (multi-mode, nuclear and electric included)
+    /// and for other mods' engines built on the stock modules the numbers are KSP's. Two exceptions, both proven:
+    /// - KSP Interstellar Extended's fusion drives (DaedalusEngineController, the Kerbstein drive): stock leaves them out
+    ///   (includeinDVCalcs = false) and doesn't know their Isp falls at part throttle, Isp = Isp0 * throttle^0.5.
+    /// - Electric engines: stock assumes full thrust; here the power supply limits it.
+    /// An engine whose module Flip and Burn doesn't know (a subclass of the stock module, or a part with another mod's
+    /// engine controller) is read the same way, but flagged: the window says the figures are estimates.
+    /// includeinDVCalcs isn't used to decide: on Kris's install a mod turns it off even for stock engines.
     /// </remarks>
     internal static class ShipPerformanceReader
     {
-        public static ShipPerformance Read(Vessel vessel, out string problem)
+        // Modules that sit on engine parts without changing what the engine module reports.
+        private static readonly HashSet<string> HarmlessModules = new HashSet<string>
+        {
+            "TCAEngineInfo",          // Throttle Controlled Avionics: reads engines only
+            "DaedalusEngineController", // handled below (the Kerbstein drive)
+        };
+
+        public static ShipReading Read(Vessel vessel, out string problem)
         {
             problem = null;
+            var reading = new ShipReading { StagesBelow = StagesBelow(vessel) };
+            double shipMass = vessel.totalMass * 1000.0;   // t -> kg
             List<ModuleEngines> engines = vessel.FindPartModulesImplementing<ModuleEngines>()
                 .Where(e => e.EngineIgnited && e.isEnabled && !e.flameout)
                 .ToList();
             if (engines.Count == 0)
             {
                 problem = "No engine is active. Stage or activate your main engine so Flip and Burn can read its thrust.";
-                return new ShipPerformance(0, 0, 0, vessel.totalMass * 1000, vessel.totalMass * 1000);
+                reading.Report = ShipEngines.Combine(new List<EngineReading>(), null, shipMass);
+                return reading;
             }
 
-            double thrust = 0, thrustOverIsp = 0, exponentWeighted = 0;
+            var resources = new Dictionary<string, double>();
+            bool electric = false;
             foreach (ModuleEngines e in engines)
             {
-                double f = e.maxThrust * (e.thrustPercentage / 100.0) * 1000.0; // kN -> N
-                double isp = e.atmosphereCurve.Evaluate(0f);                     // vacuum
-                if (f <= 0 || isp <= 0) continue;
-                thrust += f;
-                thrustOverIsp += f / isp;
-                exponentWeighted += f * IspThrottleExponent(e.part);
+                var r = new EngineReading
+                {
+                    Name = EngineName(e),
+                    Thrust = e.maxThrust * (e.thrustPercentage / 100.0) * 1000.0,   // kN -> N
+                    VacuumIsp = e.atmosphereCurve.Evaluate(0f),
+                    IspThrottleExponent = IspThrottleExponent(e.part),
+                    Understood = Understood(e),
+                };
+                foreach (Propellant p in e.propellants)
+                {
+                    PartResourceDefinition def = PartResourceLibrary.Instance.GetDefinition(p.name);
+                    if (def == null || p.ratio <= 0) continue;
+                    // A propellant KSP leaves out of the Isp sum still gets drawn, but only a massless one (power) fits
+                    // the mix arithmetic; heavier ones aren't part of the engine's mass flow.
+                    if (p.ignoreForIsp && def.density > 0) continue;
+                    r.Propellants.Add(new PropellantUse(p.name, p.ratio, def.density));
+                    if (p.name == ShipEngines.ElectricCharge) { electric = true; continue; }
+                    if (def.density <= 0) continue;
+                    e.part.GetConnectedResourceTotals(def.id, p.GetFlowMode(), out double amount, out double _, true);
+                    // Engines sharing tanks see the same total; take the largest any engine can reach.
+                    resources[p.name] = Math.Max(resources.TryGetValue(p.name, out double seen) ? seen : 0, amount);
+                }
+
+                reading.Engines.Add(r);
             }
 
-            if (thrust <= 0)
-            {
+            double supply = 0, battery = 0;
+            if (electric) PowerSupply(vessel, out supply, out battery);
+            reading.Report = ShipEngines.Combine(reading.Engines, resources, shipMass, supply, battery);
+            if (reading.Report.NoThrust && reading.Report.Notes.Count == 0)
                 problem = "The active engines report no thrust.";
-                return new ShipPerformance(0, 0, 0, vessel.totalMass * 1000, vessel.totalMass * 1000);
+            return reading;
+        }
+
+        private static string EngineName(ModuleEngines e)
+        {
+            string title = e.part.partInfo?.title ?? e.part.name;
+            bool multiMode = e.part.Modules.OfType<MultiModeEngine>().Any();
+            return multiMode && !string.IsNullOrEmpty(e.engineID) ? $"{title} ({e.engineID} mode)" : title;
+        }
+
+        /// <summary>
+        /// True when the engine module is the stock one and nothing else on the part rewrites it (other than the
+        /// Kerbstein drive's controller, which is handled).
+        /// </summary>
+        private static bool Understood(ModuleEngines e)
+        {
+            Type t = e.GetType();
+            if (t != typeof(ModuleEngines) && t != typeof(ModuleEnginesFX)) return false;
+            // (includeinDVCalcs is no guide: on Kris's install a mod sets it false even on stock engines.)
+            foreach (PartModule m in e.part.Modules)
+            {
+                Type mt = m.GetType();
+                if (mt.Assembly == typeof(ModuleEngines).Assembly || HarmlessModules.Contains(mt.Name) || IsDaedalusType(mt)) continue;
+                // Another mod's module with an engine in its name on an engine part: it may be driving the engine.
+                string n = mt.Name;
+                if (n.IndexOf("Engine", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("Thrust", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    n.IndexOf("Nozzle", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return false;
             }
 
-            double startMass = vessel.totalMass * 1000.0;                       // t -> kg
-            double propellant = UsablePropellantMass(engines) * 1000.0;
-            double endMass = Math.Max(1e-6, startMass - propellant);
-            return new ShipPerformance(thrust, thrust / thrustOverIsp, exponentWeighted / thrust, startMass, endMass);
+            return true;
+        }
+
+        private static bool IsDaedalusType(Type t)
+        {
+            for (; t != null && t != typeof(PartModule); t = t.BaseType)
+                if (t.Name == "DaedalusEngineController") return true;
+            return false;
         }
 
         /// <summary>KSPIE fusion drives lower Isp at part throttle. Returns 0 for any other engine.</summary>
@@ -112,23 +184,56 @@ namespace FlipAndBurn
             return 0;
         }
 
-        /// <summary>Tonnes of propellant the active engines can draw, limited by whichever propellant runs out first.</summary>
-        private static double UsablePropellantMass(List<ModuleEngines> engines)
+        /// <summary>
+        /// ElectricCharge made per second right now by stock solar panels (and modules built on them), generators such as
+        /// RTGs, and running converters such as fuel cells; and the charge stored. Other mods' power plants aren't counted.
+        /// </summary>
+        private static void PowerSupply(Vessel vessel, out double supply, out double battery)
         {
-            // Use the first engine's propellant mix; with several engines on one fuel supply the mix is the same.
-            ModuleEngines engine = engines[0];
-            double limit = double.MaxValue, massPerUnitOfMix = 0;
-            foreach (Propellant p in engine.propellants)
+            supply = 0;
+            battery = 0;
+            foreach (Part part in vessel.parts)
             {
-                if (p.ignoreForIsp || p.ratio <= 0) continue;
-                PartResourceDefinition def = PartResourceLibrary.Instance.GetDefinition(p.name);
-                if (def == null || def.density <= 0) continue;
-                engine.part.GetConnectedResourceTotals(def.id, p.GetFlowMode(), out double amount, out double _, true);
-                limit = Math.Min(limit, amount / p.ratio);
-                massPerUnitOfMix += p.ratio * def.density;
+                PartResource ec = part.Resources.Get(ShipEngines.ElectricCharge);
+                if (ec != null) battery += ec.amount;
+                foreach (PartModule m in part.Modules)
+                {
+                    try
+                    {
+                        switch (m)
+                        {
+                            case ModuleDeployableSolarPanel panel when panel.resourceName == ShipEngines.ElectricCharge:
+                                supply += Math.Max(0, panel.flowRate);
+                                break;
+                            case ModuleGenerator gen when gen.generatorIsActive || gen.isAlwaysActive:
+                                foreach (ModuleResource r in gen.resHandler.outputResources)
+                                    if (r.name == ShipEngines.ElectricCharge) supply += r.rate;
+                                break;
+                            case ModuleResourceConverter conv when conv.IsActivated:
+                                foreach (ResourceRatio r in conv.outputList)
+                                    if (r.ResourceName == ShipEngines.ElectricCharge) supply += r.Ratio;
+                                break;
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // A module in an odd state: leave it out.
+                    }
+                }
             }
+        }
 
-            return limit == double.MaxValue ? 0 : limit * massPerUnitOfMix;
+        /// <summary>Stages below the current one that still have engines or decouplers in them.</summary>
+        private static int StagesBelow(Vessel vessel)
+        {
+            int current = vessel.currentStage;
+            return vessel.parts
+                .Where(p => p.inverseStage >= 0 && p.inverseStage < current &&
+                            (p.Modules.OfType<ModuleEngines>().Any() || p.Modules.OfType<ModuleDecouple>().Any() ||
+                             p.Modules.OfType<ModuleAnchoredDecoupler>().Any()))
+                .Select(p => p.inverseStage)
+                .Distinct()
+                .Count();
         }
     }
 }

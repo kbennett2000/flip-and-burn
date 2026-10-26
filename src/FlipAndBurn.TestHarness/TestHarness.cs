@@ -24,17 +24,21 @@ namespace FlipAndBurn.TestHarness
 
         private const string SaveFolder = "FlipAndBurn-Test";
         private const string SaveFile = "persistent";
-        private const string ShipName = "Bebop Refueller";
         private const string ScreenshotFolder = "FlipAndBurnTest";
         private const string PlannerTarget = "Duna";
 
-        // The three planner screenshots: (file, trip type, infinite propellant on).
-        private static readonly (string File, TripType Trip, bool Infinite)[] Scenarios =
+        // The planner on three ships, each targeting Duna: (ship, screenshot, an engine part to ignite as well, or null).
+        //   Bebop Refueller: the KSPIE Kerbstein drive (its numbers must not change).
+        //   CubeSat v3.2: stock engines only (a KE-1 Mastodon running, more stages below). From Kris's "CCCP Roscosmos" save.
+        //   CubeSat v4.2 MilSpec: a KSPIE Z-pinch fusion engine running, plus its stock LV-TX87 Bobcat lit by the harness:
+        //   two engine types at once, one of them an engine Flip and Burn doesn't know. Also from "CCCP Roscosmos".
+        private static readonly (string Ship, string File, string AlsoIgnite)[] Ships =
         {
-            ("planner-duna-full-burn.png", TripType.FullBurn, false),
-            ("planner-duna-coast.png", TripType.CoastInTheMiddle, false),
-            ("planner-duna-infinite-propellant.png", TripType.FullBurn, true),
+            ("Bebop Refueller", "planner-bebop-duna.png", null),
+            ("CubeSat v3.2", "planner-stock-duna.png", null),
+            ("CubeSat v4.2 MilSpec", "planner-mixed-duna.png", "LiquidEngineLV-TX87"),
         };
+
         private const float SettleSeconds = 4f;
 
         private const float MinBrightness = 2f;
@@ -58,12 +62,28 @@ namespace FlipAndBurn.TestHarness
 
         private void Start() => StartCoroutine(Run());
 
+        private int step = 2;
+
         private IEnumerator Run()
         {
             Log("step 1: harness active (" + Flag + " given)");
             yield return new WaitForSecondsRealtime(3f);
 
-            // ---- load the test save and fly the test ship
+            foreach ((string shipName, string file, string alsoIgnite) in Ships)
+            {
+                var ok = new CaptureResult();
+                yield return PlanOnShip(shipName, file, alsoIgnite, ok);
+                if (!ok.Ok) yield break;   // PlanOnShip has logged the failure
+            }
+
+            Log("step " + step + ": done, quitting KSP");
+            Application.Quit();
+        }
+
+        /// <summary>Fly <paramref name="shipName"/> from the test save, log its delta-v sources, plan a trip to Duna, screenshot it.</summary>
+        private IEnumerator PlanOnShip(string shipName, string file, string alsoIgnite, CaptureResult outcome)
+        {
+            // ---- load the test save and fly the ship
             try
             {
                 // Same order as KSP's own MainMenu.OnLoadDialogPipelineFinished: the flight scene's Game.Load() reads
@@ -72,7 +92,7 @@ namespace FlipAndBurn.TestHarness
                 Game game = node == null ? null : GamePersistence.LoadGameCfg(node, SaveFolder, true, false);
                 if (game == null || game.flightState == null)
                 {
-                    Fail("step 2", "could not load saves/" + SaveFolder + "/" + SaveFile + ".sfs");
+                    Fail("step " + step, "could not load saves/" + SaveFolder + "/" + SaveFile + ".sfs");
                     yield break;
                 }
 
@@ -81,37 +101,38 @@ namespace FlipAndBurn.TestHarness
                 GameEvents.onGameStatePostLoad.Fire(node);
                 HighLogic.SaveFolder = SaveFolder;
 
-                int shipIndex = game.flightState.protoVessels.FindIndex(v => v.vesselName == ShipName);
-                Log("step 2: loaded save '" + SaveFolder + "/" + SaveFile + "' (" + game.flightState.protoVessels.Count +
+                int shipIndex = game.flightState.protoVessels.FindIndex(v => v.vesselName == shipName);
+                Log("step " + step + ": loaded save '" + SaveFolder + "/" + SaveFile + "' (" + game.flightState.protoVessels.Count +
                     " vessels, mode " + game.Mode + ")");
                 if (shipIndex < 0)
                 {
-                    Fail("step 3", "ship '" + ShipName + "' not found in the save");
+                    Fail("step " + step, "ship '" + shipName + "' not found in the save");
                     yield break;
                 }
 
                 // Same call the Tracking Station's "Fly" button makes.
-                Log("step 3: switching to flight on '" + ShipName + "' (vessel index " + shipIndex + ")");
+                Log("step " + step + ": switching to flight on '" + shipName + "' (vessel index " + shipIndex + ")");
                 FlightDriver.StartAndFocusVessel(SaveFile, shipIndex);
             }
             catch (Exception e)
             {
-                Fail("step 2-3", e.ToString());
+                Fail("step " + step, e.ToString());
                 yield break;
             }
 
+            step++;
             MechJebCore core = null;
             float deadline = Time.realtimeSinceStartup + 300f;
             while (true)
             {
                 if (Time.realtimeSinceStartup > deadline)
                 {
-                    Fail("step 4", "timed out waiting for flight scene with MechJeb");
+                    Fail("step " + step, "timed out waiting for flight scene with MechJeb on '" + shipName + "'");
                     yield break;
                 }
 
                 Vessel active = HighLogic.LoadedSceneIsFlight && FlightGlobals.ready ? FlightGlobals.ActiveVessel : null;
-                if (active != null && active.vesselName == ShipName && !active.packed)
+                if (active != null && active.vesselName == shipName && !active.packed)
                 {
                     core = active.GetMasterMechJeb();
                     if (core != null && core.GetComputerModule<MechJebModuleFlipAndBurn>() != null) break;
@@ -122,20 +143,37 @@ namespace FlipAndBurn.TestHarness
 
             Vessel ship = FlightGlobals.ActiveVessel;
             var module = core.GetComputerModule<MechJebModuleFlipAndBurn>();
-            Log("step 4: in flight on '" + ship.vesselName + "', " + ship.situation + " " + ship.mainBody.bodyName +
-                ", MechJeb core on part '" + core.part.partInfo.name + "'");
-
+            Log("step " + step + ": in flight on '" + ship.vesselName + "', " + ship.situation + " " + ship.mainBody.bodyName +
+                ", MechJeb core on part '" + core.part.partInfo.name + "', current stage " + ship.currentStage);
             bool listed = core.GetDisplayModules(MechJebModuleMenu.DisplayOrder.instance)
                 .Any(m => m == module && !m.Hidden && m.ShowInCurrentScene);
-            Log("step 5: MechJeb menu lists '" + module.GetName() + "': " + listed);
+            Log("step " + step + ": MechJeb menu lists '" + module.GetName() + "': " + listed);
             if (!listed)
             {
-                Fail("step 5", "Flip and Burn is not listed in MechJeb's menu");
+                Fail("step " + step, "Flip and Burn is not listed in MechJeb's menu");
                 yield break;
+            }
+
+            step++;
+            if (alsoIgnite != null)
+            {
+                // A second engine type: ignite it alongside the one already running (in memory only; nothing is saved).
+                int lit = 0;
+                foreach (Part p in ship.parts.Where(p => p.partInfo.name == alsoIgnite))
+                foreach (ModuleEngines e in p.Modules.OfType<ModuleEngines>())
+                {
+                    e.Activate();
+                    lit++;
+                }
+
+                Log("step " + step + ": ignited " + lit + " engine module(s) on '" + alsoIgnite + "' so two engine types are active");
+                yield return new WaitForSecondsRealtime(2f);
+                step++;
             }
 
             // ---- what each delta-v source says about the ship
             yield return Diagnostics(ship, core, module);
+            step++;
 
             // ---- open the planner
             try
@@ -147,16 +185,16 @@ namespace FlipAndBurn.TestHarness
                 float scale = GuiUtils.Scale > 0 ? GuiUtils.Scale : 1f;
                 module.WindowVector = new Vector4(Screen.width / scale * 0.38f, Screen.height / scale * 0.18f, 0, 0);
                 module.Enabled = true;
-                Log("step 7: opened the '" + module.GetName() + "' window");
+                module.SelectTripType(TripType.FullBurn);
+                Log("step " + step + ": opened the '" + module.GetName() + "' window");
             }
             catch (Exception e)
             {
-                Fail("step 7", e.ToString());
+                Fail("step " + step, e.ToString());
                 yield break;
             }
 
-            int step = 8;
-            Log("step " + step + ": infinite propellant cheat before the scenarios: " + CheatOptions.InfinitePropellant);
+            step++;
             if (!module.SelectTarget(PlannerTarget))
             {
                 Fail("step " + step, "could not select " + PlannerTarget);
@@ -164,35 +202,18 @@ namespace FlipAndBurn.TestHarness
             }
 
             Log("step " + step + ": selected " + PlannerTarget);
-            step++;
-            foreach ((string file, TripType trip, bool infinite) in Scenarios)
+            yield return new WaitForSecondsRealtime(SettleSeconds);
+            var result = new CaptureResult();
+            int shotStep = step;
+            yield return Capture(step, file, result, () => LogPlanner(shotStep, module, ship));
+            if (!result.Ok)
             {
-                // Only this harness turns the cheat on, only here, and turns it off again straight after the screenshot.
-                // KSP keeps it in memory only (CheatOptions); it is not written to settings.cfg or to any save.
-                CheatOptions.InfinitePropellant = infinite;
-                module.SelectTripType(trip);
-                Log("step " + step + ": trip type " + trip + ", infinite propellant " + CheatOptions.InfinitePropellant);
-                yield return new WaitForSecondsRealtime(SettleSeconds);
-
-                var result = new CaptureResult();
-                int shotStep = step;
-                yield return Capture(step, file, result, () => LogPlanner(shotStep, module, ship));
-                CheatOptions.InfinitePropellant = false;
-                if (!result.Ok)
-                {
-                    Fail("step " + step, result.Error);
-                    yield break;
-                }
-
-                step++;
+                Fail("step " + step, result.Error);
+                yield break;
             }
 
-            module.SelectTripType(TripType.FullBurn);
-            Log("step " + step + ": infinite propellant cheat after the scenarios: " + CheatOptions.InfinitePropellant);
             step++;
-
-            Log("step " + step + ": done, quitting KSP");
-            Application.Quit();
+            outcome.Ok = true;
         }
 
         // ------------------------------------------------------------------ diagnostics
@@ -201,7 +222,7 @@ namespace FlipAndBurn.TestHarness
         {
             // Let KSPIE's engine controller run some physics ticks: it rewrites the engine's thrust and Isp each tick.
             yield return new WaitForSecondsRealtime(3f);
-            Log("step 6: delta-v sources for '" + ship.vesselName + "' at UT " + F(Planetarium.GetUniversalTime()));
+            Log("diag: delta-v sources for '" + ship.vesselName + "' at UT " + F(Planetarium.GetUniversalTime()) + ", current stage " + ship.currentStage);
 
             try
             {
@@ -248,7 +269,15 @@ namespace FlipAndBurn.TestHarness
             // Stock delta-v (computed in the background; wait for it).
             VesselDeltaV dv = ship.VesselDeltaV;
             float until = Time.realtimeSinceStartup + 15f;
-            if (dv != null) dv.SetCalcsDirty(true);
+            try
+            {
+                if (dv != null) dv.SetCalcsDirty(true);
+            }
+            catch (Exception e)
+            {
+                Log("diag stock: SetCalcsDirty failed: " + e.Message);
+            }
+
             while (dv != null && !dv.IsReady && Time.realtimeSinceStartup < until) yield return new WaitForSecondsRealtime(0.5f);
             yield return new WaitForSecondsRealtime(1f);
             try
@@ -272,7 +301,19 @@ namespace FlipAndBurn.TestHarness
             until = Time.realtimeSinceStartup + 15f;
             while (stats != null && Time.realtimeSinceStartup < until)
             {
-                stats.RequestUpdate();
+                try
+                {
+                    stats.RequestUpdate();
+                }
+                catch (Exception e)
+                {
+                    // MechJeb's own simulation can fail on a ship (it does on one of the test CubeSats); that's MechJeb's
+                    // business, and it mustn't stop the test.
+                    Log("diag MechJeb: its stage simulation failed on this ship (" + e.GetType().Name.Replace("Exception", "") + ": " + e.Message + ")");
+                    stats = null;
+                    break;
+                }
+
                 if (stats.VacStats.Count > 0) break;
                 yield return new WaitForSecondsRealtime(0.5f);
             }
@@ -302,6 +343,22 @@ namespace FlipAndBurn.TestHarness
                     F(perf.IspThrottleExponent) + " StartMass=" + F(perf.StartMass) + " kg EndMass=" + F(perf.EndMass) + " kg");
                 Log("diag FlipAndBurn: FullThrustDeltaV=" + F(perf.FullThrustDeltaV) + " m/s DeltaVAt1g=" + F(perf.DeltaVAtAcceleration(9.81)) +
                     " m/s MaxAcceleration=" + F(perf.MaxAcceleration) + " m/s^2");
+                ShipReading reading = module.Planner.Reading;
+                if (reading != null)
+                {
+                    foreach (EngineReading e in reading.Engines)
+                        Log("diag FlipAndBurn engine: " + e.Name + " Thrust=" + F(e.Thrust) + " N VacuumIsp=" + F(e.VacuumIsp) + " s k=" + F(e.IspThrottleExponent) +
+                            " understood=" + e.Understood + " propellants=" + string.Join(",", e.Propellants.Select(p => p.Resource + ":" + F(p.Ratio) + "@" + F(p.Density))));
+                    for (int i = 0; i < perf.Phases.Count; i++)
+                    {
+                        BurnPhase ph = perf.Phases[i];
+                        Log("diag FlipAndBurn phase " + (i + 1) + ": Thrust=" + F(ph.Thrust) + " N Isp=" + F(ph.VacuumIsp) + " s StartMass=" + F(ph.StartMass) +
+                            " kg EndMass=" + F(ph.EndMass) + " kg");
+                    }
+
+                    Log("diag FlipAndBurn: estimated=" + reading.Report.Estimated + " stagesBelow=" + reading.StagesBelow + " electricDemand=" +
+                        F(reading.Report.ElectricDemand) + " powerSupply=" + F(reading.Report.PowerSupply) + " notes=" + string.Join(" | ", reading.Report.Notes));
+                }
 
                 Orbit o = ship.orbit;
                 Log("diag ship orbit: ref=" + o.referenceBody.bodyName + " sma=" + F(o.semiMajorAxis) + " ecc=" + F(o.eccentricity) + " inc=" +

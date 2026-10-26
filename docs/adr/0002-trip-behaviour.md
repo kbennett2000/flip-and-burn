@@ -122,3 +122,35 @@ How these are read in the code:
   acceleration or parking altitude would work.
 - **The Sun detour** is now part of the estimate: when the Sun is in the way, the trip time and delta-v shown are for
   the two legs the autopilot will fly (start to waypoint, waypoint to target).
+
+## Addendum (2026-10-26): engines and stages
+
+Kris: the mod must work with any engine type, not just the Epstein drive.
+
+**Stages (decided this cycle).** A trip burns on the engines that are active now, the current stage, and the fuel
+those engines can reach. If the ship has more stages below the current one (stages with engines or decouplers still to
+fire), the window says so plainly and says the planner counts only the current stage. Staging during a trip isn't
+planned: a torch ship is usually one stage, and planning drops would mean guessing when the player stages.
+
+**How the engines are read** (`ShipPerformanceReader` in the plugin, `ShipEngines` in the core library):
+
+- Every active engine is read from its own engine module: vacuum thrust (after the thrust limiter), vacuum Isp, and
+  its propellant mix. That is what KSP's own delta-v readout reads, so for stock engines (multi-mode, nuclear and
+  electric included) and other mods' engines built on the stock engine modules (Near Future Launch Vehicles, for
+  example) the figures are KSP's.
+- All active engines burn together. When one propellant runs out, the engines that need it stop and the rest carry on
+  with less thrust: each stretch is a burn phase. Delta-v while holding an acceleration counts a phase only if its
+  engines can hold that acceleration.
+- **Overridden where KSP is proven wrong:**
+  - KSP Interstellar Extended's fusion drives (the Kerbstein drive): stock leaves them out, and doesn't know their Isp
+    falls at part throttle (ADR 0002 planner work, unchanged).
+  - Electric engines: stock assumes full thrust. Here the ship's power supply limits it. Stock solar panels, generators
+    (RTGs) and running converters (fuel cells) count; other mods' power plants don't. If the supply can't keep up, the
+    window says so and the planner uses the share of full thrust it allows. Batteries are mentioned but not counted:
+    they last minutes against a burn of days.
+- **Air-breathing modes** (a RAPIER on air) don't work in space: left out, with a note to switch modes.
+- **Engines Flip and Burn doesn't know** are read the same way, from their engine module, and flagged; the window says
+  the figures are estimates. "Doesn't know" means a subclass of the stock engine module, or a part carrying another
+  mod's engine controller. (Whether KSP includes the engine in its own delta-v, includeinDVCalcs, is no guide: on
+  Kris's install a mod turns it off even for stock engines.)
+- **Stages below** means stages with engines or decouplers still to fire.
