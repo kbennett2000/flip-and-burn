@@ -47,7 +47,7 @@ namespace FlipAndBurn
         private ConfigNode savedLocal, savedType, savedGlobal;
         private float[] savedPhysicsRates;
         private double startUT, plannedArrivalUT, flipStartUT = double.NaN, offCourseSince = double.NaN, mispointedSince = double.NaN,
-            noThrustSince = double.NaN, trim = 1, lastWarpChange;
+            noThrustSince = double.NaN, weakSince = double.NaN, lastWarpChange, bestPointing = double.MaxValue;
         private bool controlling;
 
         public MechJebModuleFlipAndBurnAutopilot(MechJebCore core) : base(core)
@@ -104,8 +104,8 @@ namespace FlipAndBurn
             StopReason = null;
             Arrived = false;
             FlipSeconds = double.NaN;
-            flipStartUT = offCourseSince = mispointedSince = noThrustSince = double.NaN;
-            trim = 1;
+            flipStartUT = offCourseSince = mispointedSince = noThrustSince = weakSince = double.NaN;
+            bestPointing = double.MaxValue;
 
             SaveSettings();
             savedPhysicsRates = TimeWarp.fetch != null ? (float[])TimeWarp.fetch.physicsWarpRates.Clone() : null;
@@ -267,8 +267,8 @@ namespace FlipAndBurn
             // Point.
             Core.Attitude.attitudeTo(want, AttitudeReference.INERTIAL, this);
 
-            // Thrust: MechJeb's acceleration limit holds the acceleration; a slow trim makes up for engines whose thrust
-            // isn't proportional to throttle.
+            // Thrust: MechJeb's acceleration limit holds the acceleration. It reads each engine's live maximum thrust, which
+            // KSP Interstellar lowers when power or cooling falls short, so the throttle follows without any extra trim.
             bool flipping = cmd.Phase == GuidancePhase.Flip;
             bool thrustWanted = cmd.Acceleration > 0;
             bool pointed = flipping || PointingError <= PointingTolerance;
@@ -276,14 +276,8 @@ namespace FlipAndBurn
             if (thrustWanted && pointed)
             {
                 thrust.LimitAcceleration = true;
-                thrust.MaxAcceleration.Val = cmd.Acceleration * trim;
+                thrust.MaxAcceleration.Val = cmd.Acceleration;
                 thrust.TargetThrottle = 1f;
-                if (!flipping && MeasuredAcceleration > 0.2 * cmd.Acceleration)
-                {
-                    double dt = TimeWarp.fixedDeltaTime;
-                    double error = (cmd.Acceleration - MeasuredAcceleration) / cmd.Acceleration;
-                    trim = Math.Max(0.7, Math.Min(1.5, trim * (1 + Math.Max(-0.01, Math.Min(0.01, 0.2 * dt * error)))));
-                }
             }
             else
             {
@@ -314,6 +308,26 @@ namespace FlipAndBurn
             }
             else noThrustSince = double.NaN;
 
+            // Can't hold the acceleration: at full throttle the engines give clearly less than asked, for a minute. (KSP
+            // Interstellar drives lose thrust when the ship overheats; found on the Bebop Refueller, which settles at 0.80 g.)
+            bool fullThrottle = Vessel.ctrlState.mainThrottle >= 0.99f;
+            if (thrustWanted && pointed && !flipping && fullThrottle && MeasuredAcceleration < 0.95 * cmd.Acceleration &&
+                MeasuredAcceleration >= 0.1 * cmd.Acceleration)
+            {
+                if (double.IsNaN(weakSince)) weakSince = ut;
+                if (ut - weakSince > 60)
+                {
+                    double heat = ResourceFill("WasteHeat");
+                    string why = heat > 0.9
+                        ? $" because the ship is overheating (waste heat at {heat * 100:N0}%; KSP Interstellar drives lose thrust above 90%)"
+                        : "";
+                    Stop($"Stopped: the engines can't hold {Planner.FormatG(cmd.Acceleration / Planner.OneG)}; at full throttle they give only " +
+                         $"{Planner.FormatG(MeasuredAcceleration / Planner.OneG)}{why}. Choose a lower acceleration.");
+                    return;
+                }
+            }
+            else weakSince = double.NaN;
+
             // Turning: the flip, or holding the direction, takes far longer than the ship's turn rate allows.
             double halfTurn = Math.PI / Math.Max(1e-3, TurnRate);
             if (flipping)
@@ -334,14 +348,24 @@ namespace FlipAndBurn
 
             if (thrustWanted && !flipping && PointingError > 2 * PointingTolerance)
             {
-                if (double.IsNaN(mispointedSince)) mispointedSince = ut;
+                // Only while it isn't getting any closer: a heavy ship turning slowly but steadily is fine.
+                if (double.IsNaN(mispointedSince) || PointingError < bestPointing - 1)
+                {
+                    mispointedSince = ut;
+                    bestPointing = PointingError;
+                }
+
                 if (ut - mispointedSince > Math.Max(60, 3 * halfTurn))
                 {
-                    Stop($"Stopped: the ship can't hold its direction (still {PointingError:N0} degrees off after {ut - mispointedSince:N0} s).");
+                    Stop($"Stopped: the ship can't hold its direction (still {PointingError:N0} degrees off, no closer for {ut - mispointedSince:N0} s).");
                     return;
                 }
             }
-            else mispointedSince = double.NaN;
+            else
+            {
+                mispointedSince = double.NaN;
+                bestPointing = double.MaxValue;
+            }
 
             // Off course: no way to the target from here, or the arrival keeps slipping.
             double arrival = ut + cmd.TimeToArrival;
@@ -358,6 +382,21 @@ namespace FlipAndBurn
                 }
             }
             else offCourseSince = double.NaN;
+        }
+
+        /// <summary>How full the ship's store of a resource is, 0 to 1 (0 if it has none).</summary>
+        private double ResourceFill(string resource)
+        {
+            double amount = 0, max = 0;
+            foreach (Part p in Vessel.parts)
+            {
+                PartResource r = p.Resources.Get(resource);
+                if (r == null) continue;
+                amount += r.amount;
+                max += r.maxAmount;
+            }
+
+            return max > 0 ? amount / max : 0;
         }
 
         // ------------------------------------------------------------------ time warp
