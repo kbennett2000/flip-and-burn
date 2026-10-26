@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Dev-only test harness. Never shipped. ./build.sh test installs it for one KSP run and removes it afterwards.
+    Even if left installed, it does nothing unless KSP is started with -flipandburn-test.
+  -->
+  <Import Project="../KSPReferences.props" />
+
+  <PropertyGroup>
+    <AssemblyName>FlipAndBurn.TestHarness</AssemblyName>
+    <RootNamespace>FlipAndBurn.TestHarness</RootNamespace>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../FlipAndBurn/FlipAndBurn.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+</Project>

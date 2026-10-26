@@ -4,7 +4,8 @@ FlipAndBurn is a Kerbal Space Program 1 plugin for Expanse-style travel between 
 
 ## Status
 
-Early skeleton. The DLL loads in KSP and defines an empty "Flip and Burn" MechJeb module. No flight logic yet.
+Early skeleton. In flight, MechJeb's menu lists "Flip and Burn" on any ship with MechJeb (sandbox and career, no tech
+needed). It opens a window that says "Planner coming next." No flight logic yet.
 See [docs/adr/0001-plug-into-mechjeb-as-addon.md](docs/adr/0001-plug-into-mechjeb-as-addon.md) for how it plugs into
 MechJeb.
 
@@ -27,3 +28,35 @@ The build references `Assembly-CSharp`, the UnityEngine DLLs and `MechJeb2.dll` 
 copied into this repo.
 
 When KSP reaches the main menu, `KSP.log` should contain `[FlipAndBurn] loaded`.
+
+## In-flight test harness (dev only)
+
+`./build.sh test` proves in-flight behaviour without anyone at the keyboard. It:
+
+1. Builds and installs FlipAndBurn, then installs the test harness (`src/FlipAndBurn.TestHarness`) to
+   `<KSPDir>/GameData/FlipAndBurnTestHarness/`.
+2. Resets the test save `saves/FlipAndBurn-Test/persistent.sfs` from that save's `quicksave.sfs`, so every run starts
+   from the same state.
+3. Snapshots MechJeb's settings folder (`GameData/MechJeb2/Plugins/PluginData/MechJeb2`) and KSP's `settings.cfg`.
+4. Launches KSP with `-flipandburn-test`. The harness loads the test save, switches to the ship "Bebop Refueller" in
+   Kerbin orbit, opens MechJeb's menu and the Flip and Burn window, waits 5 seconds, saves a screenshot, and quits KSP.
+   It moves the Flip and Burn window to an empty part of the screen first, because MechJeb opens every window at
+   the same spot. The harness reads the finished frame itself; if that comes out blank (it sometimes does on
+   Linux/OpenGL), it asks this script to grab the KSP window from outside with `ffmpeg` (x11grab) instead.
+   A blank (black) screenshot fails the run.
+   It logs each step to `KSP.log` with the prefix `[FlipAndBurn.Test]`. If `KSP.log` stops growing for 2 minutes
+   before the harness starts (the known startup lock-up), the script kills KSP and relaunches it (up to 3 times).
+   A stall after the harness starts fails the run instead, since relaunching would only repeat it.
+5. Removes the harness from GameData and restores both snapshots, even if the run fails or is interrupted.
+6. Writes the screenshot (full-resolution JPEG) and the harness log lines to `docs/test-evidence/` and prints
+   `TEST PASSED` or `TEST FAILED`.
+
+The harness never affects normal play:
+
+- Plain `./build.sh` never installs it, and it removes any copy an interrupted test run left behind.
+- Even if it were installed, it does nothing unless KSP was started with `-flipandburn-test`. Without that argument it
+  destroys itself as soon as the main menu loads, before doing or logging anything.
+
+The test save `saves/FlipAndBurn-Test` is a copy of the "North Kerbia" save whose `persistent.sfs` was replaced by
+its quicksave (the original `persistent.sfs` is kept beside it as `persistent.sfs.original-from-north-kerbia`). The
+original "North Kerbia" save is never touched.
