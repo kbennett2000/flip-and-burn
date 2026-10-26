@@ -18,7 +18,7 @@ namespace FlipAndBurn.TestHarness
     //
     // It does nothing at all unless KSP was started with -flipandburn-test.
     [KSPAddon(KSPAddon.Startup.MainMenu, true)]
-    public class TestHarness : MonoBehaviour
+    public partial class TestHarness : MonoBehaviour
     {
         public const string Flag = "-flipandburn-test";
 
@@ -27,17 +27,6 @@ namespace FlipAndBurn.TestHarness
         private const string ScreenshotFolder = "FlipAndBurnTest";
         private const string PlannerTarget = "Duna";
 
-        // The planner on three ships, each targeting Duna: (ship, screenshot, an engine part to ignite as well, or null).
-        //   Bebop Refueller: the KSPIE Kerbstein drive (its numbers must not change).
-        //   CubeSat v3.2: stock engines only (a KE-1 Mastodon running, more stages below). From Kris's "CCCP Roscosmos" save.
-        //   CubeSat v4.2 MilSpec: a KSPIE Z-pinch fusion engine running, plus its stock LV-TX87 Bobcat lit by the harness:
-        //   two engine types at once, one of them an engine Flip and Burn doesn't know. Also from "CCCP Roscosmos".
-        private static readonly (string Ship, string File, string AlsoIgnite)[] Ships =
-        {
-            ("Bebop Refueller", "planner-bebop-duna.png", null),
-            ("CubeSat v3.2", "planner-stock-duna.png", null),
-            ("CubeSat v4.2 MilSpec", "planner-mixed-duna.png", "LiquidEngineLV-TX87"),
-        };
 
         private const float SettleSeconds = 4f;
 
@@ -69,26 +58,35 @@ namespace FlipAndBurn.TestHarness
             Log("step 1: harness active (" + Flag + " given)");
             yield return new WaitForSecondsRealtime(3f);
 
-            foreach ((string shipName, string file, string alsoIgnite) in Ships)
-            {
-                var ok = new CaptureResult();
-                yield return PlanOnShip(shipName, file, alsoIgnite, ok);
-                if (!ok.Ok) yield break;   // PlanOnShip has logged the failure
-            }
+            // (a) Full burn to Duna with infinite propellant: warp probe, the flip, a few minutes of braking, Abort.
+            var flown = new Flown();
+            yield return PlanOnShip("Bebop Refueller", null, null, flown, SaveFile);
+            if (!flown.Ok) yield break;
+            var ok = new CaptureResult();
+            yield return ProofFullBurn(flown, ok);
+            if (!ok.Ok) yield break;
+
+            // (b) Coast trip to Duna without the cheat, from the same starting point: burn, coast under warp, Abort.
+            flown = new Flown();
+            yield return PlanOnShip("Bebop Refueller", null, null, flown, "quicksave");
+            if (!flown.Ok) yield break;
+            ok = new CaptureResult();
+            yield return ProofCoast(flown, ok);
+            if (!ok.Ok) yield break;
 
             Log("step " + step + ": done, quitting KSP");
             Application.Quit();
         }
 
         /// <summary>Fly <paramref name="shipName"/> from the test save, log its delta-v sources, plan a trip to Duna, screenshot it.</summary>
-        private IEnumerator PlanOnShip(string shipName, string file, string alsoIgnite, CaptureResult outcome)
+        private IEnumerator PlanOnShip(string shipName, string file, string alsoIgnite, CaptureResult outcome, string saveName = SaveFile)
         {
             // ---- load the test save and fly the ship
             try
             {
                 // Same order as KSP's own MainMenu.OnLoadDialogPipelineFinished: the flight scene's Game.Load() reads
                 // HighLogic.CurrentGame, so it must be set before switching scenes.
-                ConfigNode node = GamePersistence.LoadSFSFile(SaveFile, SaveFolder);
+                ConfigNode node = GamePersistence.LoadSFSFile(saveName, SaveFolder);
                 Game game = node == null ? null : GamePersistence.LoadGameCfg(node, SaveFolder, true, false);
                 if (game == null || game.flightState == null)
                 {
@@ -102,7 +100,7 @@ namespace FlipAndBurn.TestHarness
                 HighLogic.SaveFolder = SaveFolder;
 
                 int shipIndex = game.flightState.protoVessels.FindIndex(v => v.vesselName == shipName);
-                Log("step " + step + ": loaded save '" + SaveFolder + "/" + SaveFile + "' (" + game.flightState.protoVessels.Count +
+                Log("step " + step + ": loaded save '" + SaveFolder + "/" + saveName + "' (" + game.flightState.protoVessels.Count +
                     " vessels, mode " + game.Mode + ")");
                 if (shipIndex < 0)
                 {
@@ -112,7 +110,7 @@ namespace FlipAndBurn.TestHarness
 
                 // Same call the Tracking Station's "Fly" button makes.
                 Log("step " + step + ": switching to flight on '" + shipName + "' (vessel index " + shipIndex + ")");
-                FlightDriver.StartAndFocusVessel(SaveFile, shipIndex);
+                FlightDriver.StartAndFocusVessel(saveName, shipIndex);
             }
             catch (Exception e)
             {
@@ -203,6 +201,20 @@ namespace FlipAndBurn.TestHarness
 
             Log("step " + step + ": selected " + PlannerTarget);
             yield return new WaitForSecondsRealtime(SettleSeconds);
+            if (outcome is Flown f)
+            {
+                f.Core = core;
+                f.Module = module;
+                f.Ship = ship;
+            }
+
+            if (file == null)
+            {
+                step++;
+                outcome.Ok = true;
+                yield break;
+            }
+
             var result = new CaptureResult();
             int shotStep = step;
             yield return Capture(step, file, result, () => LogPlanner(shotStep, module, ship));
@@ -435,7 +447,7 @@ namespace FlipAndBurn.TestHarness
 
         // ------------------------------------------------------------------ screenshots
 
-        private sealed class CaptureResult
+        private class CaptureResult
         {
             public bool Ok;
             public string Error;

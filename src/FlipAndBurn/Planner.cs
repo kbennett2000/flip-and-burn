@@ -56,6 +56,24 @@ namespace FlipAndBurn
         public List<string> Notes { get; } = new List<string>();
         public bool HasShortfall { get; private set; }
 
+        /// <summary>The trip can be flown as planned: Start is enabled (infinite propellant counts as enough delta-v).</summary>
+        public bool CanStart => SituationMessage == null && Plan != null && Plan.Feasible && !HasShortfall &&
+                                (Trip == TripType.FullBurn || (Coast != null && Coast.Feasible));
+
+        private double lastAvailable;
+
+        /// <summary>What the autopilot needs to fly the trip shown.</summary>
+        public TripStart BuildTripStart() => new TripStart
+        {
+            Target = Target,
+            Acceleration = AccelerationG * OneG,
+            Flip = Flip == FlipStyle.SkewFlip ? FlipManeuver.SkewFlip : FlipManeuver.CutFlipRelight,
+            Trip = Trip,
+            ParkingAltitude = ParkingAltitude(Target),
+            DeltaVBudget = (1 - Reserve) * lastAvailable,
+            PlannedTripTime = Trip == TripType.CoastInTheMiddle && Coast != null ? Coast.TripTime : Plan?.TripTime ?? 0,
+        };
+
         private double nextRefresh;
         private string lastKey = "";
 
@@ -190,6 +208,7 @@ namespace FlipAndBurn
                 return;
             }
 
+            lastAvailable = available;
             bool canHold = engineProblem == null && Ship.HasThrust && requested <= Ship.MaxAcceleration;
             if (engineProblem == null && !canHold)
             {
@@ -311,7 +330,7 @@ namespace FlipAndBurn
             }
         }
 
-        private static TargetPlanet AsPlanet(CelestialBody body) =>
+        internal static TargetPlanet AsPlanet(CelestialBody body) =>
             new TargetPlanet(body.bodyName, new KspOrbitEphemeris(body.orbit), body.gravParameter, body.Radius)
             {
                 SphereOfInfluence = body.sphereOfInfluence,

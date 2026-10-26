@@ -149,3 +149,56 @@ Not done in this cycle; recorded so it isn't lost:
   warp does, and uses 2 s steps (physics warp x100) in a full burn's cruise away from the planets; 0.02 s steps
   everywhere else. One Duna trip at 0.02 s throughout runs as a separate long test (`Category=LongRunning`).
 - The simulation results are in the test output and the PR.
+
+## Flying (2026-10-26)
+
+`MechJebModuleFlipAndBurnAutopilot` flies the trip. MechJeb finds it like the window; it is enabled only while a trip
+runs.
+
+- **Start** is enabled only when the planner says the trip can be flown (infinite propellant counts as enough delta-v).
+- **Every physics step** it calls the guidance with the ship's state relative to the Sun (KSP's orbit frame; Y and Z
+  swap to get world space).
+- **Pointing:** MechJeb's attitude controller, `attitudeTo(direction, INERTIAL)`.
+- **Thrust:** MechJeb's thrust controller. Flip and Burn joins its users, sets the target throttle to full, and sets
+  MechJeb's acceleration limit to the commanded acceleration, so the throttle falls as fuel burns off. A slow trim
+  (within 0.7-1.5) on that limit corrects engines whose thrust isn't proportional to throttle. Outside the flip the
+  engine fires only when the ship points within 5 degrees of the commanded direction. MechJeb's delta-v simulation
+  isn't used (it crashed on two of the test ships).
+- **The player's MechJeb settings:** the thrust and attitude controllers' settings are saved with MechJeb's own save
+  routine when the trip starts and loaded back the same way when it ends or is aborted. A second save afterwards is
+  compared with the first, and the window says whether they match.
+- **Flip styles:** cut, flip, relight (engine off while turning, relight within 5 degrees) and skew flip (thrust while
+  turning) come from the guidance. On a coast trip the flip is the turn to the braking direction during the coast,
+  with the engine off.
+- **Stopping by itself**, with the reason in plain words:
+  - out of fuel: thrust wanted but the engines give less than 10 % of it for 10 s, unless infinite propellant is on;
+  - can't turn: the flip takes more than 4 half-turns at the estimated turn rate (at least 2 minutes), or the ship
+    stays more than 10 degrees off the commanded direction for 3 half-turns (at least 1 minute) while it should be
+    thrusting;
+  - off course: the guidance finds no way to the target for 10 s, or the arrival slips by more than 10 % of the trip
+    (at least an hour).
+- **Turn rate** (for the flip timing and the checks above) comes from MechJeb's torque and moment of inertia: a
+  bang-bang half turn takes 2 sqrt(pi / alpha), giving an average rate of sqrt(pi alpha) / 2, capped at 10 deg/s.
+
+### Time warp
+
+`WarpPolicy`, run by Flip and Burn:
+
+- **Engine firing:** physics warp only. KSP Interstellar drives fire at full thrust in normal warp, and stock engines
+  can't fire in normal warp at all.
+- **Coasting with the engine off:** normal (on-rails) warp, but only once the ship points where the braking will go,
+  since it can't turn while on rails.
+- **Turning** (the flip, a course correction) and the final circularizing burn run at normal speed.
+- **Lead time:** the rate is capped so the next event (the flip, the braking burn, the arrival) is at least 30 real
+  seconds away under physics warp and 60 under normal warp. Warp falls steadily as an event nears and is back to
+  normal speed in time.
+- **Physics warp rates:** during a trip Flip and Burn sets its own (1, 4, 10 and the highest stable rate), and puts the
+  player's (BetterTimeWarp's) rates back afterwards. The highest stable rate was measured in the game: see the PR and
+  `MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate`.
+
+### Next: carrying on after a reload
+
+A trip doesn't survive the game being saved and loaded: MechJeb doesn't save the autopilot's enabled state, and the
+guidance's plan lives only in memory. After a reload the window shows that no trip is running and says a trip must be
+started again. Saving the trip (target, settings, the fixed arrival time of a coast trip) with the vessel and resuming
+it is the next item.
