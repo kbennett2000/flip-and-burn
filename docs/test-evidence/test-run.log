@@ -1,0 +1,77 @@
+# FlipAndBurn test run 2026-10-26T13:58:21Z
+[LOG 07:50:04.564] AssemblyLoader: KSPAssembly 'FlipAndBurn' V0.1.0
+[LOG 07:50:04.564] AssemblyLoader: KSPAssembly 'FlipAndBurn.TestHarness' V0.1.0
+[LOG 07:50:04.584] AssemblyLoader: KSPAssembly 'MechJeb2' V2.15.3
+MechJeb2 v2.15.0.0 / v / v2.15.3.1
+[LOG 07:57:20.411] [HighLogic]: =========================== Scene Change : From LOADING to MAINMENU =====================
+[LOG 07:57:25.678] [FlipAndBurn] loaded
+[LOG 07:57:25.679] [FlipAndBurn.Test] step 1: harness active (-flipandburn-test given)
+[LOG 07:57:32.258] [FlipAndBurn.Test] step 2: loaded save 'FlipAndBurn-Test/persistent' (150 vessels, mode SANDBOX)
+[LOG 07:57:32.258] [FlipAndBurn.Test] step 3: switching to flight on 'Bebop Refueller' (vessel index 138)
+[LOG 07:58:01.640] [FlipAndBurn.Test] step 4: in flight on 'Bebop Refueller', ORBITING Kerbin, MechJeb core on part 'probeStackTorque'
+[LOG 07:58:01.642] [FlipAndBurn.Test] step 5: MechJeb menu lists 'Flip and Burn': True
+[LOG 07:58:04.649] [FlipAndBurn.Test] step 6: delta-v sources for 'Bebop Refueller' at UT 18377814381.851017
+[LOG 07:58:04.649] [FlipAndBurn.Test] diag mass: vessel.totalMass = 152.64251278340816 t
+[LOG 07:58:04.651] [FlipAndBurn.Test] diag resource: ElectricCharge = 1279675.4478297494 units, density 0 t/unit, 0 t
+[LOG 07:58:04.651] [FlipAndBurn.Test] diag resource: LqdDeuterium = 69089.4716558799 units, density 0.00016239999968092889 t/unit, 11.220130174870441 t
+[LOG 07:58:04.651] [FlipAndBurn.Test] diag resource: Megajoules = 416.30419457139635 units, density 0 t/unit, 0 t
+[LOG 07:58:04.651] [FlipAndBurn.Test] diag resource: MonoPropellant = 20819.910751808282 units, density 0.0040000001899898052 t/unit, 83.279646962803909 t
+[LOG 07:58:04.651] [FlipAndBurn.Test] diag resource: WasteHeat = 11025.427262382393 units, density 0 t/unit, 0 t
+[LOG 07:58:04.651] [FlipAndBurn.Test] diag engine: part=KspiEpsteinUDD module=ModuleEnginesFX ignited=True operational=True flameout=False maxThrust=4746.09326171875 kN thrustPercentage=100 vacuumIsp=281249.96875 s maxFuelFlow=0.0017207709606736898 includeinDVCalcs=False propellants=LqdDeuterium:1
+[LOG 07:58:04.653] [FlipAndBurn.Test] diag KSPIE FusionEngineController on KspiEpsteinUDD: part.mass=17.212501525878906 thrustMultiplier=0.31640625 ispMultiplier=0.5625 partMass=17.212499618530273 massThrustExp=0 massIspExp=0 ispThrottleExponent=0.5 maxThrustMk7=15000 thrustIspMk7=500000 timeDilation=0.9999999349744 effectiveMaxThrustInKiloNewton=4746.0931327648323 maximizeThrust=True fuelLimit=100 speedLimit=1 EngineGenerationType=Mk7 EngineIsp=281250 MaximumThrust=4746.09375 RawEngineIsp=500000
+[LOG 07:58:05.667] [FlipAndBurn.Test] diag stock: ready=True TotalDeltaVVac=172910.453125 m/s TotalDeltaVActual=172910.453125 m/s
+[LOG 07:58:05.667] [FlipAndBurn.Test] diag stock stage 2: deltaVinVac=172910.453125 m/s thrustVac=4746.0927734375 kN ispVac=281249.96875 s startMass=184.64251708984375 t endMass=173.42239379882813 t fuelMass=126.49977874755859 t
+[LOG 07:58:05.667] [FlipAndBurn.Test] diag stock stage 1: deltaVinVac=0 m/s thrustVac=4746.0927734375 kN ispVac=281249.96875 s startMass=173.42239379882813 t endMass=173.42239379882813 t fuelMass=115.27964782714844 t
+[LOG 07:58:05.667] [FlipAndBurn.Test] diag stock stage 0: deltaVinVac=0 m/s thrustVac=4746.0927734375 kN ispVac=281249.96875 s startMass=173.42239379882813 t endMass=173.42239379882813 t fuelMass=115.27964782714844 t
+[LOG 07:58:06.188] [FlipAndBurn.Test] diag MechJeb: total vacuum delta-v=210575.97858021423 m/s
+[LOG 07:58:06.188] [FlipAndBurn.Test] diag MechJeb stage 0: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=141.42238208736956 t EndMass=141.42238208736956 t
+[LOG 07:58:06.188] [FlipAndBurn.Test] diag MechJeb stage 1: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=141.42238208736956 t EndMass=141.42238208736956 t
+[LOG 07:58:06.188] [FlipAndBurn.Test] diag MechJeb stage 2: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=141.42238208736956 t EndMass=141.42238208736956 t
+[LOG 07:58:06.188] [FlipAndBurn.Test] diag MechJeb stage 3: DeltaV=210575.97858021423 m/s Thrust=4746.0935118850393 kN Isp=281250.01184568496 s StartMass=152.64251226224002 t EndMass=141.42238208736956 t
+[LOG 07:58:06.191] [FlipAndBurn.Test] diag FlipAndBurn: FullThrust=4746093.26171875 N VacuumIsp=281249.96875 s IspThrottleExponent=0.5 StartMass=152642.51278340816 kg EndMass=141422.38260853774 kg
+[LOG 07:58:06.192] [FlipAndBurn.Test] diag FlipAndBurn: FullThrustDeltaV=210575.94209364502 m/s DeltaVAt1g=116051.27214230002 m/s MaxAcceleration=31.092866431340862 m/s^2
+[LOG 07:58:06.192] [FlipAndBurn.Test] diag ship orbit: ref=Kerbin sma=1356450.0068891679 ecc=0.0047827739701566977 inc=0.0026560497365859408 LAN=34.783657759591051 argPe=48.244832644748229 meanAnomalyAtEpoch=0.18457775839144444 epoch=18377814383.371052
+[LOG 07:58:06.192] [FlipAndBurn.Test] diag body Moho: Radius=250000 gravParameter=168609378654.50949 atmosphere=False atmosphereDepth=0 maxTerrain=8200 SOI=9646663.023328105 defaultParking=20000
+[LOG 07:58:06.192] [FlipAndBurn.Test] diag body Eve: Radius=700000 gravParameter=8171730229210.8721 atmosphere=True atmosphereDepth=90000 maxTerrain=9000 SOI=85109364.738244072 defaultParking=100000
+[LOG 07:58:06.192] [FlipAndBurn.Test] diag body Kerbin: Radius=600000 gravParameter=3531599999999.9995 atmosphere=True atmosphereDepth=70000 maxTerrain=8735 SOI=84159286.479630485 defaultParking=80000
+[LOG 07:58:06.192] [FlipAndBurn.Test] diag body Duna: Radius=320000 gravParameter=301363211975.09772 atmosphere=True atmosphereDepth=50000 maxTerrain=10500 SOI=47921949.369738035 defaultParking=60000
+[LOG 07:58:06.192] [FlipAndBurn.Test] diag body Dres: Radius=138000 gravParameter=21484488600 atmosphere=False atmosphereDepth=0 maxTerrain=7100 SOI=32832839.576776203 defaultParking=20000
+[LOG 07:58:06.192] [FlipAndBurn.Test] diag body Jool: Radius=6000000 gravParameter=282528004209995.25 atmosphere=True atmosphereDepth=200000 maxTerrain=0 SOI=2455985185.4234691 defaultParking=220000
+[LOG 07:58:06.192] [FlipAndBurn.Test] diag body Sarnus: Radius=5300000 gravParameter=82089701953000.016 atmosphere=True atmosphereDepth=580000 maxTerrain=0 SOI=2740126708.1575294 defaultParking=640000
+[LOG 07:58:06.192] [FlipAndBurn.Test] diag body Urlum: Radius=2177000 gravParameter=11944573769627.449 atmosphere=True atmosphereDepth=325000 maxTerrain=0 SOI=2562260673.0775681 defaultParking=360000
+[LOG 07:58:06.192] [FlipAndBurn.Test] diag body Neidon: Radius=2145000 gravParameter=14167881530302.5 atmosphere=True atmosphereDepth=260000 maxTerrain=0 SOI=4415723830.4910727 defaultParking=290000
+[LOG 07:58:06.192] [FlipAndBurn.Test] diag body Plock: Radius=189000 gravParameter=51844895008.2 atmosphere=False atmosphereDepth=0 maxTerrain=4200 SOI=612762335.91870821 defaultParking=20000
+[LOG 07:58:06.192] [FlipAndBurn.Test] step 7: opened the 'Flip and Burn' window
+[LOG 07:58:06.196] [FlipAndBurn.Test] step 8: selected Duna
+[LOG 07:58:10.250] [FlipAndBurn.Test] step 8: window shows (planned at UT 18377814386.37112, target Duna, acceleration 1 g, flip CutFlipRelight, parking 60000 m)
+[LOG 07:58:10.251] [FlipAndBurn.Test]   Trip time | 3d, 1h, 41m
+[LOG 07:58:10.251] [FlipAndBurn.Test]   Flip in | 1d, 3h, 50m
+[LOG 07:58:10.251] [FlipAndBurn.Test]   Peak speed (vs. Kerbin) | 348 km/s
+[LOG 07:58:10.251] [FlipAndBurn.Test]   Delta-v needed | 692 km/s
+[LOG 07:58:10.251] [FlipAndBurn.Test]   Ship's delta-v | 116 km/s at 1.00 g
+[LOG 07:58:10.251] [FlipAndBurn.Test]     at full thrust | 211 km/s
+[LOG 07:58:10.251] [FlipAndBurn.Test]   Ship's max acceleration | 3.17 g
+[LOG 07:58:10.251] [FlipAndBurn.Test]   note: Not enough delta-v: the trip needs 692 km/s, but at 1.00 g this ship has 116 km/s. Short by 576 km/s.
+[LOG 07:58:10.251] [FlipAndBurn.Test]   raw: TripTime=70913.07248197525 s TimeToFlip=35456.536240987625 s PeakSpeed=347828.62052407512 m/s BurnDeltaV=690743.29895677418 ParkingOrbitDeltaV=890.53977123146728 TotalDeltaV=691633.83872800565 m/s ClosestSun=13601101506.850765 m iterations=8
+[LOG 07:58:10.251] [FlipAndBurn.Test]   readiness: ready=False canHold=True enoughDeltaV=False available=116051.27214230002 m/s maxAccel=31.092866431340862 m/s^2
+[LOG 07:58:10.251] [FlipAndBurn.Test]   Start button enabled: False (always, this cycle)
+[LOG 07:58:10.703] [FlipAndBurn.Test] step 8: readpixels: mean brightness 16.80/255
+[LOG 07:58:10.703] [FlipAndBurn.Test] step 8: screenshot saved to /run/media/kb/2TB 02/SteamLibrary/steamapps/common/Kerbal Space Program/FlipAndBurnTest/planner-duna.png (9987882 bytes, method readpixels)
+[LOG 07:58:10.703] [FlipAndBurn.Test] step 9: selected Jool
+[LOG 07:58:14.765] [FlipAndBurn.Test] step 9: window shows (planned at UT 18377814390.371212, target Jool, acceleration 1 g, flip CutFlipRelight, parking 220000 m)
+[LOG 07:58:14.765] [FlipAndBurn.Test]   Trip time | 8d, 3h, 18m
+[LOG 07:58:14.765] [FlipAndBurn.Test]   Flip in | 4d, 1h, 39m
+[LOG 07:58:14.765] [FlipAndBurn.Test]   Peak speed (vs. Kerbin) | 903 km/s
+[LOG 07:58:14.765] [FlipAndBurn.Test]   Delta-v needed | 1,815 km/s
+[LOG 07:58:14.765] [FlipAndBurn.Test]   Ship's delta-v | 116 km/s at 1.00 g
+[LOG 07:58:14.765] [FlipAndBurn.Test]     at full thrust | 211 km/s
+[LOG 07:58:14.765] [FlipAndBurn.Test]   Ship's max acceleration | 3.17 g
+[LOG 07:58:14.765] [FlipAndBurn.Test]   note: Not enough delta-v: the trip needs 1,815 km/s, but at 1.00 g this ship has 116 km/s. Short by 1,699 km/s.
+[LOG 07:58:14.765] [FlipAndBurn.Test]   raw: TripTime=184716.45784260123 s TimeToFlip=92358.228921300615 s PeakSpeed=902722.54150423675 m/s BurnDeltaV=1808756.7672221896 ParkingOrbitDeltaV=6739.6222976835525 TotalDeltaV=1815496.3895198731 m/s ClosestSun=5500214543.8972387 m iterations=5
+[LOG 07:58:14.765] [FlipAndBurn.Test]   readiness: ready=False canHold=True enoughDeltaV=False available=116051.27214230002 m/s maxAccel=31.092866431340862 m/s^2
+[LOG 07:58:14.765] [FlipAndBurn.Test]   Start button enabled: False (always, this cycle)
+[LOG 07:58:15.214] [FlipAndBurn.Test] step 9: readpixels: mean brightness 16.77/255
+[LOG 07:58:15.214] [FlipAndBurn.Test] step 9: screenshot saved to /run/media/kb/2TB 02/SteamLibrary/steamapps/common/Kerbal Space Program/FlipAndBurnTest/planner-jool.png (9970358 bytes, method readpixels)
+[LOG 07:58:15.214] [FlipAndBurn.Test] step 10: done, quitting KSP
+# Exception lines mentioning FlipAndBurn or MechJeb: 0
+# Stack frames in FlipAndBurn or MechJeb code: 0

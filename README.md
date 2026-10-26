@@ -4,8 +4,19 @@ FlipAndBurn is a Kerbal Space Program 1 plugin for Expanse-style travel between 
 
 ## Status
 
-Early skeleton. In flight, MechJeb's menu lists "Flip and Burn" on any ship with MechJeb (sandbox and career, no tech
-needed). It opens a window that says "Planner coming next." No flight logic yet.
+In flight, MechJeb's menu lists "Flip and Burn" on any ship with MechJeb (sandbox and career, no tech needed). The
+window is a trip planner:
+
+- **Fly to:** every planet that orbits the Sun, read from the game (Outer Planets Mod's planets appear on their own),
+  minus the one you're at. Around a moon, landed or still climbing, the window says what to do instead.
+- **Inputs:** acceleration in g (default 1.0), flip style (cut, flip, relight or skew flip) and the parking orbit
+  altitude at the target (a sensible default per planet; see ADR 0002).
+- **Readouts:** trip time and time to the flip in KSP's own time format, peak speed, delta-v needed, and the ship's own
+  delta-v and maximum acceleration. The ship's numbers come from its active engines and understand KSP Interstellar
+  Extended's fusion drives, whose Isp drops when throttled down.
+- **Start** stays off when the ship can't hold the acceleration or lacks the delta-v, with the shortfall spelled out.
+  The autopilot isn't built yet, so Start is always off for now.
+
 See [docs/adr/0001-plug-into-mechjeb-as-addon.md](docs/adr/0001-plug-into-mechjeb-as-addon.md) for how it plugs into
 MechJeb.
 
@@ -36,7 +47,8 @@ You need the .NET SDK (6 or newer). It builds the .NET Framework 4.8 target on L
 
 1. Copy `local.props.example` to `local.props` and set `KSPDir` to your KSP install. For the Windows build of KSP, change
    `KSPManagedDir` to `$(KSPDir)/KSP_x64_Data/Managed`.
-2. Run `./build.sh`. It compiles the DLL and copies it to `<KSPDir>/GameData/FlipAndBurn/Plugins/`.
+2. Run `./build.sh`. It compiles `FlipAndBurn.dll` and `FlipAndBurn.Core.dll` and copies both to
+   `<KSPDir>/GameData/FlipAndBurn/Plugins/`.
 
 The build references `Assembly-CSharp`, the UnityEngine DLLs and `MechJeb2.dll` from your install. None of them are
 copied into this repo.
@@ -53,7 +65,8 @@ When KSP reaches the main menu, `KSP.log` should contain `[FlipAndBurn] loaded`.
    from the same state.
 3. Snapshots MechJeb's settings folder (`GameData/MechJeb2/Plugins/PluginData/MechJeb2`) and KSP's `settings.cfg`.
 4. Launches KSP with `-flipandburn-test`. The harness loads the test save, switches to the ship "Bebop Refueller" in
-   Kerbin orbit, opens MechJeb's menu and the Flip and Burn window, waits 5 seconds, saves a screenshot, and quits KSP.
+   Kerbin orbit, logs what stock, MechJeb and Flip and Burn each say about the ship's thrust and delta-v, opens the
+   Flip and Burn window, plans a trip to Duna and screenshots it, does the same for Jool, and quits KSP.
    It moves the Flip and Burn window to an empty part of the screen first, because MechJeb opens every window at
    the same spot. The harness reads the finished frame itself; if that comes out blank (it sometimes does on
    Linux/OpenGL), it asks this script to grab the KSP window from outside with `ffmpeg` (x11grab) instead.
@@ -62,8 +75,11 @@ When KSP reaches the main menu, `KSP.log` should contain `[FlipAndBurn] loaded`.
    before the harness starts (the known startup lock-up), the script kills KSP and relaunches it (up to 3 times).
    A stall after the harness starts fails the run instead, since relaunching would only repeat it.
 5. Removes the harness from GameData and restores both snapshots, even if the run fails or is interrupted.
-6. Writes the screenshot (full-resolution JPEG) and the harness log lines to `docs/test-evidence/` and prints
-   `TEST PASSED` or `TEST FAILED`.
+6. Writes the screenshots (full-resolution JPEG) and the harness log lines (`test-run.log`) to
+   `docs/test-evidence/` and prints `TEST PASSED` or `TEST FAILED`.
+
+`tools/verify/check_planner.py` recomputes the screenshots' numbers independently of the plugin: planets from the
+game's own data, the ship from the test save, the drive from its part config.
 
 The harness never affects normal play:
 
@@ -74,3 +90,7 @@ The harness never affects normal play:
 The test save `saves/FlipAndBurn-Test` is a copy of the "North Kerbia" save whose `persistent.sfs` was replaced by
 its quicksave (the original `persistent.sfs` is kept beside it as `persistent.sfs.original-from-north-kerbia`). The
 original "North Kerbia" save is never touched.
+
+## License
+
+Released into the public domain under the [Unlicense](LICENSE).

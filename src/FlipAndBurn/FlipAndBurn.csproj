@@ -8,4 +8,9 @@
     <Version>0.1.0</Version>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Ships next to FlipAndBurn.dll in GameData/FlipAndBurn/Plugins (build.sh copies it). -->
+    <ProjectReference Include="../FlipAndBurn.Core/FlipAndBurn.Core.csproj" />
+  </ItemGroup>
+
 </Project>
