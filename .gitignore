@@ -4,3 +4,6 @@ obj/
 
 # Machine-specific paths (copy local.props.example to local.props)
 local.props
+
+# Python bytecode from tools/
+__pycache__/
