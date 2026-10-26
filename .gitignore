@@ -1,0 +1,6 @@
+# Build output
+bin/
+obj/
+
+# Machine-specific paths (copy local.props.example to local.props)
+local.props

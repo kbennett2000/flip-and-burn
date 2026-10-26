@@ -1,0 +1,12 @@
+<Project>
+  <!--
+    Copy this file to local.props (gitignored) and set KSPDir to your KSP install.
+    The build references Assembly-CSharp, the UnityEngine DLLs and MechJeb2.dll straight from there.
+    No game or MechJeb DLL is ever copied into this repo.
+  -->
+  <PropertyGroup>
+    <KSPDir>/path/to/SteamLibrary/steamapps/common/Kerbal Space Program</KSPDir>
+    <!-- Native Linux build. Use KSP_x64_Data/Managed for the Windows build. -->
+    <KSPManagedDir>$(KSPDir)/KSP_Data/Managed</KSPManagedDir>
+  </PropertyGroup>
+</Project>
