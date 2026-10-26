@@ -9,6 +9,20 @@ needed). It opens a window that says "Planner coming next." No flight logic yet.
 See [docs/adr/0001-plug-into-mechjeb-as-addon.md](docs/adr/0001-plug-into-mechjeb-as-addon.md) for how it plugs into
 MechJeb.
 
+## Trip math
+
+`src/FlipAndBurn.Core` estimates a trip: trip time, time to the flip, peak speed, total delta-v (including matching the
+planet's velocity and entering the parking orbit), and whether the path passes too close to the Sun. It has no KSP or
+Unity dependency, so it is fully unit-tested:
+
+```sh
+dotnet test tests/FlipAndBurn.Core.Tests
+```
+
+The tests use KSP's real planet data, read from the install by the scripts in [tools/planet-data](tools/planet-data).
+How a trip behaves, and the assumptions behind the estimate, are in
+[docs/adr/0002-trip-behaviour.md](docs/adr/0002-trip-behaviour.md).
+
 ## Requirements
 
 - KSP 1.12.5
