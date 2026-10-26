@@ -4,7 +4,7 @@
 #                       Also removes the test harness if an earlier test run left it behind.
 #   ./build.sh test     Build, install, then run the in-flight test: install the dev-only test harness, launch KSP
 #                       with -flipandburn-test, wait for the harness to finish, and remove the harness again.
-#                       Writes the screenshot and harness log to docs/test-evidence/.
+#                       Writes the screenshots, the harness log and the cheat check to docs/test-evidence/.
 #
 # KSPDir comes from local.props (copy local.props.example to start).
 set -euo pipefail
@@ -61,7 +61,7 @@ ksp_log="$ksp_dir/KSP.log"
 test_save="$ksp_dir/saves/FlipAndBurn-Test"
 mj_settings="$ksp_dir/GameData/MechJeb2/Plugins/PluginData/MechJeb2"
 shot_dir="$ksp_dir/FlipAndBurnTest"
-expected_shots=(planner-duna.png planner-jool.png)
+expected_shots=(planner-duna-full-burn.png planner-duna-coast.png planner-duna-infinite-propellant.png)
 evidence="$repo/docs/test-evidence"
 stall_seconds=120
 max_launches=4          # first launch plus up to 3 relaunches after a stall
@@ -88,6 +88,13 @@ cp -p "$test_save/quicksave.loadmeta" "$test_save/persistent.loadmeta"
 backup_dir="$(mktemp -d)"
 cp -a "$mj_settings" "$backup_dir/MechJeb2"
 cp -p "$ksp_dir/settings.cfg" "$backup_dir/settings.cfg"
+
+# The harness turns KSP's infinite propellant cheat on for one screenshot. Fingerprint Kris's settings and every save
+# except the test copy now, to show afterwards that the cheat left no trace.
+fingerprint_saves() {
+    (cd "$ksp_dir/saves" && find . -path ./FlipAndBurn-Test -prune -o -type f -print0 | sort -z | xargs -0 sha256sum)
+}
+fingerprint_saves > "$backup_dir/saves-before.sha256"
 
 cleanup() {
     if pgrep -x KSP.x86_64 >/dev/null; then
@@ -218,6 +225,28 @@ done
 # ---------------------------------------------------------------- results
 
 mkdir -p "$evidence"
+
+# Did the cheat stick? Checked before cleanup restores settings.cfg, so this is what KSP left behind.
+cheat_log="$evidence/cheat-check.log"
+{
+    echo "# Infinite propellant cheat check $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "## The harness's own readings"
+    grep -a -E '\[FlipAndBurn.Test\].*(infinite propellant|InfinitePropellant)' "$ksp_log" | sed 's/^.*\[FlipAndBurn.Test\] //' || true
+    echo "## settings.cfg: lines mentioning a cheat or propellant, before and after the run"
+    echo "before: $(grep -c -i -E 'cheat|propellant' "$backup_dir/settings.cfg" || true)"
+    echo "after:  $(grep -c -i -E 'cheat|propellant' "$ksp_dir/settings.cfg" || true)"
+    echo "## settings.cfg: every line KSP changed during the run (diff before -> after)"
+    diff "$backup_dir/settings.cfg" "$ksp_dir/settings.cfg" && echo "(no changes)"
+    echo "## Every save except FlipAndBurn-Test: files changed during the run"
+    fingerprint_saves > "$backup_dir/saves-after.sha256"
+    echo "files fingerprinted: $(wc -l < "$backup_dir/saves-after.sha256")"
+    diff "$backup_dir/saves-before.sha256" "$backup_dir/saves-after.sha256" && echo "(no changes)"
+    echo "## Every save except FlipAndBurn-Test: lines mentioning InfinitePropellant"
+    echo "$(grep -r -i -l 'InfinitePropellant' --exclude-dir=FlipAndBurn-Test "$ksp_dir/saves" | wc -l) files"
+} > "$cheat_log" 2>&1
+cat "$cheat_log"
+grep -q -E '^after:  0$' "$cheat_log" || { echo "settings.cfg mentions a cheat after the run" >&2; }
+
 summary="$evidence/test-run.log"
 {
     echo "# FlipAndBurn test run $(date -u +%Y-%m-%dT%H:%M:%SZ)"

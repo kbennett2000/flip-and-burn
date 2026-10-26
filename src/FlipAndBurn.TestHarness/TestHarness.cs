@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using FlipAndBurn.Core;
+using FlipAndBurn.Core.Guidance;
 using MuMech;
 using UnityEngine;
 
@@ -25,7 +26,15 @@ namespace FlipAndBurn.TestHarness
         private const string SaveFile = "persistent";
         private const string ShipName = "Bebop Refueller";
         private const string ScreenshotFolder = "FlipAndBurnTest";
-        private static readonly string[] PlannerTargets = { "Duna", "Jool" };
+        private const string PlannerTarget = "Duna";
+
+        // The three planner screenshots: (file, trip type, infinite propellant on).
+        private static readonly (string File, TripType Trip, bool Infinite)[] Scenarios =
+        {
+            ("planner-duna-full-burn.png", TripType.FullBurn, false),
+            ("planner-duna-coast.png", TripType.CoastInTheMiddle, false),
+            ("planner-duna-infinite-propellant.png", TripType.FullBurn, true),
+        };
         private const float SettleSeconds = 4f;
 
         private const float MinBrightness = 2f;
@@ -147,20 +156,28 @@ namespace FlipAndBurn.TestHarness
             }
 
             int step = 8;
-            foreach (string target in PlannerTargets)
+            Log("step " + step + ": infinite propellant cheat before the scenarios: " + CheatOptions.InfinitePropellant);
+            if (!module.SelectTarget(PlannerTarget))
             {
-                if (!module.SelectTarget(target))
-                {
-                    Fail("step " + step, "could not select " + target);
-                    yield break;
-                }
+                Fail("step " + step, "could not select " + PlannerTarget);
+                yield break;
+            }
 
-                Log("step " + step + ": selected " + target);
+            Log("step " + step + ": selected " + PlannerTarget);
+            step++;
+            foreach ((string file, TripType trip, bool infinite) in Scenarios)
+            {
+                // Only this harness turns the cheat on, only here, and turns it off again straight after the screenshot.
+                // KSP keeps it in memory only (CheatOptions); it is not written to settings.cfg or to any save.
+                CheatOptions.InfinitePropellant = infinite;
+                module.SelectTripType(trip);
+                Log("step " + step + ": trip type " + trip + ", infinite propellant " + CheatOptions.InfinitePropellant);
                 yield return new WaitForSecondsRealtime(SettleSeconds);
 
                 var result = new CaptureResult();
-                string file = "planner-" + target.ToLowerInvariant() + ".png";
-                yield return Capture(step, file, result, () => LogPlanner(step, module, ship));
+                int shotStep = step;
+                yield return Capture(step, file, result, () => LogPlanner(shotStep, module, ship));
+                CheatOptions.InfinitePropellant = false;
                 if (!result.Ok)
                 {
                     Fail("step " + step, result.Error);
@@ -169,6 +186,10 @@ namespace FlipAndBurn.TestHarness
 
                 step++;
             }
+
+            module.SelectTripType(TripType.FullBurn);
+            Log("step " + step + ": infinite propellant cheat after the scenarios: " + CheatOptions.InfinitePropellant);
+            step++;
 
             Log("step " + step + ": done, quitting KSP");
             Application.Quit();
@@ -331,7 +352,8 @@ namespace FlipAndBurn.TestHarness
         {
             Planner p = module.Planner;
             Log("step " + step + ": window shows (planned at UT " + F(p.PlannedAtUT) + ", target " + p.TargetName + ", acceleration " +
-                F(p.AccelerationG) + " g, flip " + p.Flip + ", parking " + F(p.Target != null ? p.ParkingAltitude(p.Target) : 0) + " m)");
+                F(p.AccelerationG) + " g, flip " + p.Flip + ", parking " + F(p.Target != null ? p.ParkingAltitude(p.Target) : 0) + " m, trip " +
+                p.Trip + ", infinite propellant " + p.InfinitePropellant + ")");
             if (p.SituationMessage != null) Log("  situation: " + p.SituationMessage);
             foreach (KeyValuePair<string, string> row in p.TripRows.Concat(p.ShipRows)) Log("  " + row.Key + " | " + row.Value);
             foreach (string note in p.Notes) Log("  note: " + note);
@@ -339,6 +361,15 @@ namespace FlipAndBurn.TestHarness
                 Log("  raw: TripTime=" + F(p.Plan.TripTime) + " s TimeToFlip=" + F(p.Plan.TimeToFlip) + " s PeakSpeed=" + F(p.Plan.PeakSpeed) +
                     " m/s BurnDeltaV=" + F(p.Plan.BurnDeltaV) + " ParkingOrbitDeltaV=" + F(p.Plan.ParkingOrbitDeltaV) + " TotalDeltaV=" +
                     F(p.Plan.TotalDeltaV) + " m/s ClosestSun=" + F(p.Plan.ClosestSunDistance) + " m iterations=" + p.Plan.ArrivalIterations);
+            if (p.Coast != null)
+                Log("  coast raw: Feasible=" + p.Coast.Feasible + " BurnUp=" + F(p.Coast.BurnUpTime) + " s Coast=" + F(p.Coast.CoastTime) +
+                    " s BurnDown=" + F(p.Coast.BurnDownTime) + " s TripTime=" + F(p.Coast.TripTime) + " s DeltaV=" + F(p.Coast.DeltaV) +
+                    " m/s DeltaVNeeded=" + F(p.Coast.DeltaVNeeded) + " m/s Budget=" + F(p.Coast.Budget) + " m/s");
+            if (p.Plan != null && p.Plan.Feasible)
+                Log("  detour: UsesSunDetour=" + p.Plan.UsesSunDetour + " StraightClosestSun=" + F(p.Plan.StraightClosestSunDistance) + " m");
+            if (p.Ship != null)
+                Log("  ship: DeltaVAt=" + F(p.Ship.DeltaVAtAcceleration(p.AccelerationG * Planner.OneG)) + " m/s");
+            Log("  shortfall shown: " + p.HasShortfall);
             if (p.Readiness != null)
                 Log("  readiness: ready=" + p.Readiness.Ready + " canHold=" + p.Readiness.CanHoldAcceleration + " enoughDeltaV=" +
                     p.Readiness.HasEnoughDeltaV + " available=" + F(p.Readiness.DeltaVAvailable) + " m/s maxAccel=" + F(p.Readiness.MaxAcceleration) + " m/s^2");
