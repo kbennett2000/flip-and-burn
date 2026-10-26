@@ -179,10 +179,12 @@ runs.
     while it should be thrusting;
   - off course: the guidance finds no way to the target for 10 s, or the arrival slips by more than 10 % of the trip
     (at least an hour).
-  - can't hold the acceleration: at full throttle the engines give less than 95 % of it for a minute. If the ship is
-    overheating, it says so. Found in the game: the Bebop Refueller's radiators can't shed the Kerbstein drive's waste
-    heat at 1 g. Its heat bar climbs from 37 % to 89 % in about 90 s; above 90 % KSP Interstellar cuts the drive's power,
-    and it settles at 0.80 g with the throttle at 100 % and the heat at 97.5 %.
+- **Can't hold the acceleration** (not a stop): at full throttle the engines give less than 95 % of it for a minute.
+  The autopilot re-plans the rest of the trip at what they can sustain, and tells the player (ADR 0002, "When the
+  engines can't hold the acceleration"). It stops only if the trip can't be finished at that acceleration.
+  - Found in the game: the Bebop Refueller's radiators can't shed the Kerbstein drive's waste heat at 1 g. Its heat bar
+    climbs from 37 % to 89 % in about 90 s; above 90 % KSP Interstellar cuts the drive's power.
+  - It settles at 0.80 g with the throttle at 100 % and the heat at 97.5 %.
 - **Turn rate** (for the flip timing and the checks above) comes from MechJeb's torque and moment of inertia: a
   bang-bang half turn takes 2 sqrt(pi / alpha), giving an average rate of sqrt(pi alpha) / 2, capped at 10 deg/s.
 

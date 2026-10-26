@@ -175,11 +175,17 @@ namespace FlipAndBurn
                 if (c.Phase == GuidancePhase.Coast)
                     GuiUtils.SimpleLabel("Braking starts in", Planner.FormatTime(c.TimeToBurn));
                 GuiUtils.SimpleLabel("Arrival in", Planner.FormatTime(c.TimeToArrival));
-                GuiUtils.SimpleLabel("Acceleration", $"{Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (target {Planner.FormatG(c.Acceleration / Planner.OneG)})");
+                GuiUtils.SimpleLabel("Acceleration", $"{Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (holding {Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)})");
                 GuiUtils.SimpleLabel("Pointing error", $"{pilot.PointingError:0.0}°");
             }
 
             GUILayout.Label("Warp: " + pilot.WarpStatus, wrapStyle);
+            if (pilot.Notice != null)
+            {
+                GUILayout.Space(4);
+                GUILayout.Label(pilot.Notice, noteStyle);
+            }
+
             GUILayout.Space(6);
             if (GUILayout.Button("Abort")) PressAbort();
         }

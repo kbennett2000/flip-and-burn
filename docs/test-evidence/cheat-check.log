@@ -1,6 +1,7 @@
-# Infinite propellant cheat check 2026-10-26T22:11:25Z
+# Cheat check (infinite propellant, ignore max temperature) 2026-10-26T23:00:51Z
 ## The harness's own readings
-step 7: (a) full burn to Duna, infinite propellant True, planner can start: True
+step 7: window shows (planned at UT 18377814390.851223, target Duna, acceleration 2 g, flip CutFlipRelight, parking 60000 m, trip FullBurn, infinite propellant False)
+step 8: (a) full burn to Duna at 1 g, infinite propellant True, ignore max temperature False, planner can start: True
 ## settings.cfg: lines mentioning a cheat or propellant, before and after the run
 before: 0
 after:  0

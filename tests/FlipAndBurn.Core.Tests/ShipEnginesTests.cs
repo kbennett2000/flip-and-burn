@@ -165,6 +165,25 @@ namespace FlipAndBurn.Core.Tests
             Assert.Equal(3.17, p.MaxAcceleration / 9.81, 2);
         }
 
+        [Fact]
+        public void AboveOneG_IsPlannedLikeAnyOtherAcceleration()
+        {
+            // No cap at 1 g (ADR 0002): the Bebop can do 3.17 g; at 2 g its delta-v is higher than at 1 g (KSPIE's Isp rises
+            // with throttle), and a trip to Duna at 2 g plans and is quicker.
+            var bebop = new ShipPerformance(4_746_093.26171875, 281_249.96875, 0.5, 152_642.51278340816, 141_422.38260853774);
+            Assert.True(bebop.DeltaVAtAcceleration(2 * 9.81) > bebop.DeltaVAtAcceleration(9.81));
+            Assert.Equal(0, bebop.DeltaVAtAcceleration(3.2 * 9.81));   // above its maximum
+            StateVector k = KerbolSystem.Kerbin.Orbit.StateAt(0);
+            TripRequest Req(double g) => new TripRequest
+            {
+                ShipPosition = k.Position, ShipVelocity = k.Velocity, StartTime = 0, Target = KerbolSystem.Duna.AsTarget(),
+                Acceleration = g * 9.81, ParkingAltitude = 60_000, SunGravParameter = KerbolSystem.SunGravParameter,
+            };
+            TripPlan one = TripCalculator.Plan(Req(1)), two = TripCalculator.Plan(Req(2));
+            Assert.True(one.Feasible && two.Feasible);
+            Assert.True(two.TripTime < one.TripTime);
+        }
+
         // ---- several engine types at once: a Nerv (LF) and a Bobcat (LF + Ox) on one fuel supply
         [Fact]
         public void MixedEngines_BurnTogetherThenTheNervCarriesOn()

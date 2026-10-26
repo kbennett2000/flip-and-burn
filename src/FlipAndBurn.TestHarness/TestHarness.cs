@@ -442,7 +442,7 @@ namespace FlipAndBurn.TestHarness
             if (p.Readiness != null)
                 Log("  readiness: ready=" + p.Readiness.Ready + " canHold=" + p.Readiness.CanHoldAcceleration + " enoughDeltaV=" +
                     p.Readiness.HasEnoughDeltaV + " available=" + F(p.Readiness.DeltaVAvailable) + " m/s maxAccel=" + F(p.Readiness.MaxAcceleration) + " m/s^2");
-            Log("  Start button enabled: False (always, this cycle)");
+            Log("  Start button enabled: " + p.CanStart);
         }
 
         // ------------------------------------------------------------------ screenshots
