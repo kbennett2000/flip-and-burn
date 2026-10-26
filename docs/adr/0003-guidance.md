@@ -160,8 +160,10 @@ runs.
   swap to get world space).
 - **Pointing:** MechJeb's attitude controller, `attitudeTo(direction, INERTIAL)`.
 - **Thrust:** MechJeb's thrust controller. Flip and Burn joins its users, sets the target throttle to full, and sets
-  MechJeb's acceleration limit to the commanded acceleration, so the throttle falls as fuel burns off. A slow trim
-  (within 0.7-1.5) on that limit corrects engines whose thrust isn't proportional to throttle. Outside the flip the
+  MechJeb's acceleration limit to the commanded acceleration, so the throttle falls as fuel burns off. MechJeb's limit
+  reads each engine's live maximum thrust, which KSP Interstellar lowers when the drive's power or cooling falls short,
+  so no extra trim is used (one was tried: when the drive was short of cooling it pushed the throttle up, which made
+  more waste heat and less thrust). Outside the flip the
   engine fires only when the ship points within 5 degrees of the commanded direction. MechJeb's delta-v simulation
   isn't used (it crashed on two of the test ships).
 - **The player's MechJeb settings:** the thrust and attitude controllers' settings are saved with MechJeb's own save
@@ -173,10 +175,14 @@ runs.
 - **Stopping by itself**, with the reason in plain words:
   - out of fuel: thrust wanted but the engines give less than 10 % of it for 10 s, unless infinite propellant is on;
   - can't turn: the flip takes more than 4 half-turns at the estimated turn rate (at least 2 minutes), or the ship
-    stays more than 10 degrees off the commanded direction for 3 half-turns (at least 1 minute) while it should be
-    thrusting;
+    stays more than 10 degrees off the commanded direction, getting no closer, for 3 half-turns (at least 1 minute)
+    while it should be thrusting;
   - off course: the guidance finds no way to the target for 10 s, or the arrival slips by more than 10 % of the trip
     (at least an hour).
+  - can't hold the acceleration: at full throttle the engines give less than 95 % of it for a minute. If the ship is
+    overheating, it says so. Found in the game: the Bebop Refueller's radiators can't shed the Kerbstein drive's waste
+    heat at 1 g. Its heat bar climbs from 37 % to 89 % in about 90 s; above 90 % KSP Interstellar cuts the drive's power,
+    and it settles at 0.80 g with the throttle at 100 % and the heat at 97.5 %.
 - **Turn rate** (for the flip timing and the checks above) comes from MechJeb's torque and moment of inertia: a
   bang-bang half turn takes 2 sqrt(pi / alpha), giving an average rate of sqrt(pi alpha) / 2, capped at 10 deg/s.
 

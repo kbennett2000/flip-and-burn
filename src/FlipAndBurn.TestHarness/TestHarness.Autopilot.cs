@@ -26,6 +26,7 @@ namespace FlipAndBurn.TestHarness
         private static readonly float[] ProbeRates = { 10, 25, 50, 100 };
         private const float ProbeSeconds = 20f;          // real seconds at each rate
         private const float StatusEvery = 2f;            // real seconds between status lines
+        private const double CoastAcceleration = 0.7;    // g, for (b): below the 0.80 g the Bebop's cooling allows
 
         private double lastStatusReal, statusMaxAccelError, statusMaxPointing;
 
@@ -37,10 +38,13 @@ namespace FlipAndBurn.TestHarness
             MechJebModuleFlipAndBurnAutopilot pilot = module.Autopilot;
             // Only this harness turns the cheat on, only for this trip on the test copy, and off again at the end.
             CheatOptions.InfinitePropellant = true;
+            // The Bebop overheats at 1 g (it settles at 0.80 g: see ADR 0003). To prove the flying at 1 g, (a) also ignores
+            // overheating; same rules as infinite propellant: this harness only, this test only, off again at the end.
+            CheatOptions.IgnoreMaxTemperature = true;
             module.FlipStyleIndex = 0;   // cut, flip, relight
             module.SelectTripType(TripType.FullBurn);
             yield return new WaitForSecondsRealtime(SettleSeconds);
-            Log($"step {step}: (a) full burn to Duna, infinite propellant {CheatOptions.InfinitePropellant}, planner can start: {module.Planner.CanStart}");
+            Log($"step {step}: (a) full burn to Duna, infinite propellant {CheatOptions.InfinitePropellant}, ignore max temperature {CheatOptions.IgnoreMaxTemperature}, planner can start: {module.Planner.CanStart}");
             string before = MechJebSettingsFingerprint(f);
 
             string problem = module.PressStart();
@@ -57,6 +61,15 @@ namespace FlipAndBurn.TestHarness
             yield return Fly(pilot, () => pilot.Last != null && pilot.Last.Phase == GuidancePhase.Accelerate && !pilot.Last.Departing &&
                                           pilot.PointingError < 1 && Math.Abs(pilot.MeasuredAcceleration / pilot.Last.Acceleration - 1) < 0.02, 600, "settled at 1 g");
             if (!pilot.Running) { Fail("step " + step, "trip stopped: " + pilot.StopReason); yield break; }
+
+            // Two game minutes at normal speed first: does the drive hold 1 g without warp?
+            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 1;
+            double holdStart = Planetarium.GetUniversalTime();
+            statusMaxAccelError = statusMaxPointing = 0;
+            yield return Fly(pilot, () => Planetarium.GetUniversalTime() - holdStart > 120, 300, "hold 1 g at normal speed");
+            if (!pilot.Running) { Fail("step " + step, "trip stopped: " + pilot.StopReason); yield break; }
+            Log($"step {step}: two game minutes at normal speed: max acceleration error {statusMaxAccelError * 100:F2}%, max pointing error {statusMaxPointing:F2} deg");
+            step++;
 
             // Warp probe.
             float best = 4;
@@ -115,7 +128,8 @@ namespace FlipAndBurn.TestHarness
             string after = MechJebSettingsFingerprint(f);
             Log($"step {step}: MechJeb settings files {(before == after ? "byte-identical" : "DIFFERENT")} before Start and after Abort: {after}");
             CheatOptions.InfinitePropellant = false;
-            Log($"step {step}: infinite propellant cheat back off: {!CheatOptions.InfinitePropellant}");
+            CheatOptions.IgnoreMaxTemperature = false;
+            Log($"step {step}: infinite propellant cheat back off: {!CheatOptions.InfinitePropellant}; ignore max temperature cheat back off: {!CheatOptions.IgnoreMaxTemperature}");
             step++;
             outcome.Ok = before == after;
             if (!outcome.Ok) Fail("step " + step, "MechJeb settings changed: before " + before);
@@ -128,9 +142,12 @@ namespace FlipAndBurn.TestHarness
             MechJebModuleFlipAndBurn module = f.Module;
             MechJebModuleFlipAndBurnAutopilot pilot = module.Autopilot;
             CheatOptions.InfinitePropellant = false;
+            CheatOptions.IgnoreMaxTemperature = false;
+            // No cheats: a real trip, so at an acceleration the Bebop can hold without overheating.
+            module.AccelerationG.Val = CoastAcceleration;
             module.SelectTripType(TripType.CoastInTheMiddle);
             yield return new WaitForSecondsRealtime(SettleSeconds);
-            Log($"step {step}: (b) coast trip to Duna, infinite propellant {CheatOptions.InfinitePropellant}, planner can start: {module.Planner.CanStart}");
+            Log($"step {step}: (b) coast trip to Duna at {CoastAcceleration} g, infinite propellant {CheatOptions.InfinitePropellant}, ignore max temperature {CheatOptions.IgnoreMaxTemperature}, planner can start: {module.Planner.CanStart}");
             string before = MechJebSettingsFingerprint(f);
             string problem = module.PressStart();
             if (problem != null)
@@ -212,7 +229,40 @@ namespace FlipAndBurn.TestHarness
                 $"pointing error {pilot.PointingError:F2} deg throttle {v.ctrlState.mainThrottle:F3} " +
                 $"warp {(TimeWarp.CurrentRate > 1.01f ? (TimeWarp.fetch.Mode == TimeWarp.Modes.HIGH ? "normal" : "physics") : "none")} x{TimeWarp.CurrentRate:0.##} " +
                 $"toFlip {c.TimeToFlip:F0} s toBurn {c.TimeToBurn:F0} s toArrival {c.TimeToArrival:F0} s speed vs {v.mainBody.bodyName} {v.obt_speed:F1} m/s " +
-                $"| {pilot.WarpStatus}");
+                $"| {pilot.WarpStatus} | {DriveState(v)}");
+        }
+
+        // KSP Interstellar fusion drive: how much of its power it gets (fusionRatio), its live maximum thrust, and how full the
+        // ship's waste heat and power bars are. It loses thrust when power or cooling falls short.
+        private static string DriveState(Vessel v)
+        {
+            try
+            {
+                var bits = new List<string>();
+                foreach (Part p in v.parts)
+                foreach (PartModule m in p.Modules)
+                    if (m.GetType().Name == "DaedalusEngineController")
+                        bits.Add($"fusionRatio {Member(m, "fusionRatio")} maxThrust {Member(m, "effectiveMaxThrustInKiloNewton")} kN power {Member(m, "powerUsage")}");
+                foreach (string res in new[] { "WasteHeat", "Megajoules" })
+                {
+                    double amount = 0, max = 0;
+                    foreach (Part p in v.parts)
+                    {
+                        PartResource r = p.Resources.Get(res);
+                        if (r == null) continue;
+                        amount += r.amount;
+                        max += r.maxAmount;
+                    }
+
+                    if (max > 0) bits.Add($"{res} {amount / max * 100:F1}%");
+                }
+
+                return string.Join(", ", bits);
+            }
+            catch (Exception e)
+            {
+                return "drive state unavailable: " + e.Message;
+            }
         }
 
         private static void LogPlan(MechJebModuleFlipAndBurnAutopilot pilot)

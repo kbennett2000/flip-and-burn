@@ -236,9 +236,9 @@ mkdir -p "$evidence"
 # Did the cheat stick? Checked before cleanup restores settings.cfg, so this is what KSP left behind.
 cheat_log="$evidence/cheat-check.log"
 {
-    echo "# Infinite propellant cheat check $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "# Cheat check (infinite propellant, ignore max temperature) $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "## The harness's own readings"
-    grep -a -E '\[FlipAndBurn.Test\].*(infinite propellant|InfinitePropellant)' "$ksp_log" | sed 's/^.*\[FlipAndBurn.Test\] //' || true
+    grep -a -E '\[FlipAndBurn.Test\].*(infinite propellant|InfinitePropellant|max temperature)' "$ksp_log" | sed 's/^.*\[FlipAndBurn.Test\] //' || true
     echo "## settings.cfg: lines mentioning a cheat or propellant, before and after the run"
     echo "before: $(grep -c -i -E 'cheat|propellant' "$backup_dir/settings.cfg" || true)"
     echo "after:  $(grep -c -i -E 'cheat|propellant' "$ksp_dir/settings.cfg" || true)"
