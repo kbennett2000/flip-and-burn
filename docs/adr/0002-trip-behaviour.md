@@ -193,8 +193,10 @@ find where it went, fix the cause, and allow for boil-off only where it is real.
 
 - *Boil-off, measured in the game* (`drain-run.log`, the Bebop parked, 24 game hours per set-up):
   - engine active, or shut down, with power: no deuterium lost; electric charge falls 288 an hour;
-  - shut down with the electric charge emptied: 1.84 units an hour, **0.30 kg per game hour**, from the six IFS cryogenic
-    tanks' `ModuleStorageCryostat` (it boils off only when unpowered).
+  - shut down with the electric charge emptied: nothing for the first 12 hours, while the reactor's Megajoules store
+    (72 at the start) kept the coolers going; once that was empty, 3.1 units an hour, **0.51 kg per game hour**, from the
+    six IFS cryogenic tanks' `ModuleStorageCryostat` (it boils off only when unpowered). Averaged over the whole day,
+    0.30 kg per hour; that average was quoted here before cycle 12 found the 12 quiet hours.
 - *Trip B's own set-up, measured* (`coast-drain-run.log`: the coast trip to Duna at 0.4 g, no cheats, tanks logged every
   15 game minutes while burning and every 6 game hours while coasting):
   - speed-up: 11.220 t to 5.667 t of deuterium for 35,983 m/s, a steady 0.546 t per 15 game minutes, matching the engine
@@ -237,9 +239,9 @@ find where it went, fix the cause, and allow for boil-off only where it is real.
 - *Allowed for only when it matters.* A coast trip allows for it when the loss over the trip would cost at least 0.1 % of
   the ship's delta-v. The coast plan then takes the loss's delta-v cost over the whole trip time out of the budget,
   re-planning until the two agree (`CoastPlanner.PlanAllowingForLoss`): a slower trip that still arrives with 10 %. The
-  window then shows "Set aside for boil-off" and says, for example: "This ship's tanks lose about 1.8 kg of propellant a
-  day while the engines are off (boil-off, measured on this ship). This trip allows for it: … of delta-v is set aside, so
-  it still arrives with 10% in reserve."
+  window then shows "Set aside for boil-off" and says, as in the guide's picture (cycle 12 wording): "This ship's tanks
+  lose about 1.0 kg of fuel a day with the engines off (boil-off, measured on this ship). The trip allows for it, so it
+  still arrives with 10% in reserve."
 - *Refused before Start* when no coast fits once the loss is allowed for, with the cause and what to do (keep the tanks
   powered, or a higher acceleration for a shorter trip).
 - *Not re-planned during the speed-up.* The loss can't be measured while the engine fires (the burn's own use swamps a
@@ -265,8 +267,8 @@ quickload on the way):
   reader.
 - The live check's last estimate before arrival was 9.94 %: cautious, because it still counts the part of the guidance
   margin the trip didn't use. Under 10 % but above the 9.5 % line, so the window stayed quiet, as it should.
-- The planner, three ways (`lossplan`, same run): no loss measured, no allowance and no note; the 0.30 kg/h measured
-  without electric charge, 231 m/s set aside, a trip 27 minutes longer, still 10.00 % at arrival, and the note; 100 kg/h,
+- The planner, three ways (`lossplan`, same run): no loss measured, no allowance and no note; 0.30 kg/h (the drain
+  test's day-long average), 231 m/s set aside, a trip 27 minutes longer, still 10.00 % at arrival, and the note; 100 kg/h,
   Start refused before launch, with boil-off named as the cause.
 
 **The reader, checked independently** (`reader-check-run.log`, `tools/verify/check_reader.py`). The script shares no

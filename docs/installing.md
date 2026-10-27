@@ -55,7 +55,7 @@ Kerbal Space Program/
 
 1. Start KSP and load a game.
 2. Go to any ship **in orbit**. MechJeb adds itself to every command pod and probe core, so any crewed or probe-controlled
-   ship will do. Flip and Burn needs no research in career mode.
+   ship will do. Flip and Burn asks for no research of its own in career mode.
 3. Open MechJeb's menu with the small **MechJeb** tab (on the right edge of the screen, unless you've moved it).
 4. **Flip and Burn** should be in the list. Click it and the planner window opens.
 

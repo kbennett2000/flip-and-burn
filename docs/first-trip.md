@@ -11,6 +11,8 @@ numbers will differ with your ship, but every step is the same.
 
 ## Before you start
 
+- **You need a ship with a lot of delta-v** (its fuel budget, as a speed). The Bebop has 116 km/s; a stock rocket has a
+  few km/s and can't reach Duna this way, so Start would stay greyed out. See [Engines](engines.md) for what works.
 - [Install Flip and Burn](installing.md) and its requirements.
 - Put your ship in a **stable orbit around Kerbin**: anywhere above the atmosphere, roughly circular is best.
 - Make sure **the engine you want to use is staged or activated.** Flip and Burn reads the engines that are running.

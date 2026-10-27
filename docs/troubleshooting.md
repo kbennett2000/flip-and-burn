@@ -73,7 +73,9 @@ mods appear on their own.
 
 ### Does it work in career mode?
 
-Yes. Flip and Burn appears in MechJeb's menu on any ship with MechJeb, with no research needed.
+It should, with no research of its own. In career, MechJeb keeps a window locked only if that window names a part or a
+technology it needs, and Flip and Burn's names none. So it appears in MechJeb's menu as soon as the ship has MechJeb.
+(MechJeb's own windows do unlock through the tech tree.) All the testing so far has been in a sandbox game.
 
 ### What does it change in my game?
 

@@ -27,23 +27,23 @@ Things to know:
 ## KSP Interstellar fusion drives: the real deal
 
 Burning the whole way between planets takes an enormous amount of delta-v. A full burn to Duna at 1 g needs around
-**690 km/s**, while a good stock rocket carries **3 to 6 km/s**.
+**690 km/s**, while a stock rocket carries **a few km/s**.
 
 The fusion drives in [KSP Interstellar Extended](https://github.com/sswelm/KSP-Interstellar-Extended) are what make
-these trips practical. A ship like the Bebop Refueller has well over 100 km/s at 1 g, enough for fast coast trips
-anywhere in the Kerbol system.
+these trips practical. The Bebop Refueller has 116 km/s at 1 g: enough for a coast trip from Kerbin to Duna in about
+12 Kerbin days.
 
 Flip and Burn knows how these drives behave:
 
 - **They're less efficient at low throttle,** so a gentle acceleration on a huge drive costs more fuel per km/s than
   you might expect. The planner's numbers already include this.
-- **They run hot.** A drive that can push 3 g on paper may only be able to keep up 0.5 g before its radiators fall
-  behind. Flip and Burn steps down to what the ship can sustain, re-plans and keeps flying (see
+- **They run hot.** The Bebop's drive can push over 3 g on paper, but its radiators can only keep up with a fraction of
+  that for long. Flip and Burn steps down to what the ship can sustain, re-plans and keeps flying (see
   [Ways to fly](ways-to-fly.md#what-overheating-does)).
 - **Their power doesn't get wasted.** When a drive runs short of power, it pushes less hard but uses less fuel too, so
   you lose time, not fuel.
-- **Cryogenic tanks can boil off** if the ship runs out of electric charge. Flip and Burn measures it and allows for it
-  (see [Safety](safety.md#boil-off)).
+- **Cryogenic tanks can boil off** if the ship runs out of power for their coolers. Flip and Burn measures it and
+  allows for it (see [Safety](safety.md#boil-off)).
 
 ## Stock engines: what to expect
 
