@@ -159,7 +159,9 @@ runs.
 - **Every physics step** it calls the guidance with the ship's state relative to the Sun (KSP's orbit frame; Y and Z
   swap to get world space).
 - **Pointing:** MechJeb's attitude controller, `attitudeTo(direction, INERTIAL)`.
-- **Thrust:** MechJeb's thrust controller. Flip and Burn joins its users, sets the target throttle to full, and sets
+- **Thrust:** MechJeb's thrust controller. Flip and Burn joins its users (and leaves them at every stop; MechJeb's
+  controller always lists itself as one user, added when it starts, and drives the throttle only when it has more than
+  that one, so after a stop the player's throttle is theirs again), sets the target throttle to full, and sets
   MechJeb's acceleration limit to the commanded acceleration, so the throttle falls as fuel burns off. MechJeb's limit
   reads each engine's live maximum thrust, which KSP Interstellar lowers when the drive's power or cooling falls short,
   so no extra trim is used (one was tried: when the drive was short of cooling it pushed the throttle up, which made
@@ -217,8 +219,24 @@ runs.
 - **Lead time:** the rate is capped so the next event (the flip, the braking burn, the arrival) is at least 30 real
   seconds away under physics warp and 60 under normal warp. Warp falls steadily as an event nears and is back to
   normal speed in time.
-- **Physics warp rates:** during a trip Flip and Burn sets its own (1, 4, 10, 25), and puts the player's
-  (BetterTimeWarp's) rates back afterwards.
+- **Physics warp rates:** during a trip Flip and Burn hands the game its own (1, 4, 10, 25): the stock top rate of
+  4x is far too slow for a trip. The player's rates must never outlive the trip:
+  - At Start `WarpRatesSnapshot` keeps the player's array itself and a copy of its values. With BetterTimeWarp installed
+    that array *is* BetterTimeWarp's preset: it hands KSP its own array, so writing into the game's rates edits the preset
+    for the rest of the session. Flip and Burn never writes into it; it replaces the reference.
+  - Every way a trip ends puts the same array back with its Start values: Abort, arrival, every self-stop, leaving the
+    flight scene (`onGameSceneLoadRequested`, before the scene is torn down), the ship being unloaded, MechJeb switching
+    the module off, and the game quitting (the module's `OnDestroy`). Each step of a stop runs on its own, so one that
+    fails can't skip putting the rates back. KSP doesn't save warp rates, and BetterTimeWarp saves its presets only from
+    its own edit window, so nothing reaches a file.
+  - Found in review (cycle 9): the log showed physics rates [1,2,3,25] after the coast proof's Abort. The test helper
+    did it: it wrote 25 into the player's array (and so BetterTimeWarp's preset) before Start, and the autopilot
+    faithfully put back what it found. The helper now writes rates only into the trip's own array while a trip runs,
+    and checks after every Abort that the rates match those before Start, putting them back if not.
+  - Checked in the game (`docs/test-evidence/rates-run.log`): before Start [1,2,3,4]; during the trip [1,4,10,25];
+    after a minute of burn and Abort [1,2,3,4], the same array with the same values. Leaving for the Space Center
+    mid-trip stopped the trip first and put them back. KSP's TimeWarp is a new object in each scene, and the Space
+    Center and the next flight scene both had [1,2,3,4]. BetterTimeWarp's settings file was unchanged.
 - **Highest physics warp: 10x** (`MaxPhysicsRate`), measured on Kris's machine with the Bebop Refueller, 45 parts,
   holding its acceleration:
 

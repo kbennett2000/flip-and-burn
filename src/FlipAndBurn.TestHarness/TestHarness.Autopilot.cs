@@ -49,6 +49,7 @@ namespace FlipAndBurn.TestHarness
             Log($"step {step}: (a) flip run, full burn to Duna at {module.AccelerationG.Val} g, infinite propellant {CheatOptions.InfinitePropellant}, ignore max temperature {CheatOptions.IgnoreMaxTemperature}, planner can start: {module.Planner.CanStart}");
             string before = MechJebSettingsFingerprint(f);
             beforeSettingsText = lastSettingsText;
+            LogBeforeStart(f);
 
             string problem = module.PressStart();
             if (problem != null)
@@ -87,8 +88,7 @@ namespace FlipAndBurn.TestHarness
                 // KSP doesn't re-apply a slot's new value while warping in it: step down a slot first, and the autopilot steps
                 // back up into it (one slot per real second).
                 if (TimeWarp.CurrentRateIndex == 3) TimeWarp.SetRate(2, true);
-                TimeWarp.fetch.physicsWarpRates[3] = rate;
-                MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = rate;
+                SetTripTopRate(pilot, rate);
                 int parts = f.Ship.parts.Count;
                 double ut0 = Planetarium.GetUniversalTime();
                 float real0 = Time.realtimeSinceStartup;
@@ -110,8 +110,7 @@ namespace FlipAndBurn.TestHarness
                 best = rate;
             }
 
-            TimeWarp.fetch.physicsWarpRates[3] = best;
-            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = best;
+            SetTripTopRate(pilot, best);
             Log($"step {step}: highest stable physics warp on this machine: x{best}");
             step++;
 
@@ -176,14 +175,14 @@ namespace FlipAndBurn.TestHarness
             MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 1;
             yield return new WaitForSecondsRealtime(SettleSeconds);
             Log($"cut test {label}: ignore max temperature {CheatOptions.IgnoreMaxTemperature}, warp x{warp}");
+            LogBeforeStart(f);
             string problem = module.PressStart();
             if (problem != null) { Log($"cut test {label}: Start refused: {problem}"); yield break; }
             yield return Fly(pilot, () => pilot.Last != null && !pilot.Last.Departing && pilot.PointingError < 1 &&
                                           Math.Abs(pilot.MeasuredAcceleration / pilot.Last.Acceleration - 1) < 0.02, 300, $"cut test {label}: settle");
             if (warp > 1)
             {
-                TimeWarp.fetch.physicsWarpRates[3] = warp;
-                MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = warp;
+                SetTripTopRate(pilot, warp);
                 float t0 = Time.realtimeSinceStartup;
                 yield return Fly(pilot, () => Time.realtimeSinceStartup - t0 > 30, 40, $"cut test {label}: warp x{warp}");
             }
@@ -226,6 +225,7 @@ namespace FlipAndBurn.TestHarness
             Log($"step {step}: (a) overheating run, full burn to Duna at {module.AccelerationG.Val} g, infinite propellant {CheatOptions.InfinitePropellant}, ignore max temperature {CheatOptions.IgnoreMaxTemperature}, planner can start: {module.Planner.CanStart}");
             string before = MechJebSettingsFingerprint(f);
             beforeSettingsText = lastSettingsText;
+            LogBeforeStart(f);
             string problem = module.PressStart();
             if (problem != null)
             {
@@ -278,6 +278,7 @@ namespace FlipAndBurn.TestHarness
             Log($"step {step}: (b) coast trip to Duna at {CoastAcceleration} g, infinite propellant {CheatOptions.InfinitePropellant}, ignore max temperature {CheatOptions.IgnoreMaxTemperature}, planner can start: {module.Planner.CanStart}");
             string before = MechJebSettingsFingerprint(f);
             beforeSettingsText = lastSettingsText;
+            LogBeforeStart(f);
             string problem = module.PressStart();
             if (problem != null)
             {
@@ -306,6 +307,91 @@ namespace FlipAndBurn.TestHarness
             if (before != after) LogSettingsDiff();
             outcome.Ok = true;   // the settings verdict is in the log; carry on with the other proofs
         }
+
+        // ------------------------------------------------------------------ warp rates and throttle users (cycle 9 review)
+
+        /// <summary>
+        /// Start, a minute of burn, Abort: the player's warp rates and MechJeb throttle users are as before Start, and the
+        /// player's throttle works. Then Start again and leave the flight scene mid-trip: the rates are back there too.
+        /// </summary>
+        private IEnumerator ProofRates(Flown f, CaptureResult outcome)
+        {
+            MechJebModuleFlipAndBurn module = f.Module;
+            MechJebModuleFlipAndBurnAutopilot pilot = module.Autopilot;
+            CheatOptions.InfinitePropellant = false;
+            CheatOptions.IgnoreMaxTemperature = false;
+            module.FlipStyleIndex = 0;
+            // No cheats: a coast trip (a full burn needs more delta-v than the Bebop has) at an acceleration it holds
+            // without overheating. Both start with a burn.
+            module.SelectTripType(TripType.CoastInTheMiddle);
+            module.AccelerationG.Val = CoastAcceleration;
+            yield return new WaitForSecondsRealtime(SettleSeconds);
+            Log($"step {step}: (r) warp rates and throttle users, coast trip to Duna at {module.AccelerationG.Val} g, TimeWarp object {TimeWarp.fetch.GetInstanceID()}");
+            string before = MechJebSettingsFingerprint(f);
+            beforeSettingsText = lastSettingsText;
+            LogBeforeStart(f);
+            string problem = module.PressStart();
+            if (problem != null) { Fail("step " + step, "Start refused: " + problem); yield break; }
+            LogPlan(pilot);
+            Log($"step {step}: during the trip: physics rates {Rates(TimeWarp.fetch.physicsWarpRates)}, thrust users {Users(f.Core.Thrust)}, attitude users {Users(f.Core.Attitude)}");
+            step++;
+
+            double burnSince = double.NaN;
+            yield return Fly(pilot, () =>
+            {
+                bool burning = pilot.Last != null && pilot.MeasuredAcceleration > 0.5 * pilot.Last.Acceleration;
+                if (burning && double.IsNaN(burnSince)) burnSince = Planetarium.GetUniversalTime();
+                return burning && Planetarium.GetUniversalTime() - burnSince > 60;
+            }, 600, "a minute of burn");
+            if (!pilot.Running) { Fail("step " + step, "trip stopped: " + pilot.StopReason); yield break; }
+            Log($"step {step}: a minute of burn done: physics rates {Rates(TimeWarp.fetch.physicsWarpRates)}, thrust users {Users(f.Core.Thrust)}, warp x{TimeWarp.CurrentRate}");
+
+            module.PressAbort();
+            Log($"step {step}: Abort pressed. {pilot.StopReason} {pilot.SettingsCheck}");
+            yield return new WaitForSecondsRealtime(3f);
+            LogAfterAbort(f);
+            MechJebSettingsFingerprint(f);
+            Log($"step {step}: MechJeb settings files before Start and after Abort: {SettingsVerdict()} ({lastSettingsText.Count} files)");
+            step++;
+
+            // The player's throttle, as the throttle keys set it: the ship must follow it with no MechJeb throttle control left on.
+            Vessel v = f.Ship;
+            foreach (float want in new[] { 0.3f, 0f })
+            {
+                FlightInputHandler.state.mainThrottle = want;
+                for (int i = 1; i <= 3; i++)
+                {
+                    yield return new WaitForSecondsRealtime(1f);
+                    Log($"manual throttle {want:F1}, {i} s: accel {v.geeForce_immediate * 9.80665:F3} m/s^2 | {EngineInternals(v)}");
+                }
+            }
+
+            bool manual = Math.Abs(v.ctrlState.mainThrottle) < 0.001;
+            Log($"step {step}: manual throttle after Abort: the ship followed the player's throttle to 0.3 and back to 0 (see the lines above); ends at {v.ctrlState.mainThrottle:F3}: {(manual ? "ok" : "NOT ok")}");
+            step++;
+
+            // Leave the flight scene mid-trip, as the Space Center button does.
+            problem = module.PressStart();
+            if (problem != null) { Fail("step " + step, "second Start refused: " + problem); yield break; }
+            yield return Fly(pilot, () => pilot.Last != null && pilot.MeasuredAcceleration > 0.5 * pilot.Last.Acceleration, 600, "burning again");
+            if (!pilot.Running) { Fail("step " + step, "trip stopped: " + pilot.StopReason); yield break; }
+            Log($"step {step}: trip running again, physics rates {Rates(TimeWarp.fetch.physicsWarpRates)}; leaving for the Space Center mid-trip");
+            int flightTimeWarp = TimeWarp.fetch.GetInstanceID();
+            HighLogic.LoadScene(GameScenes.SPACECENTER);
+            float deadline = Time.realtimeSinceStartup + 300;
+            while (!(HighLogic.LoadedScene == GameScenes.SPACECENTER && TimeWarp.fetch != null && TimeWarp.fetch.GetInstanceID() != flightTimeWarp) &&
+                   Time.realtimeSinceStartup < deadline)
+                yield return new WaitForSecondsRealtime(0.5f);
+            yield return new WaitForSecondsRealtime(5f);   // BetterTimeWarp sets its rates when the scene's GUI is ready
+            Log($"step {step}: in scene {HighLogic.LoadedScene}, autopilot running {pilot.Running}, stop reason '{pilot.StopReason}', {pilot.SettingsCheck}");
+            Log($"step {step}: Space Center: TimeWarp object {(TimeWarp.fetch == null ? "none" : TimeWarp.fetch.GetInstanceID().ToString())} (flight's was {flightTimeWarp}), " +
+                $"physics rates {Rates(TimeWarp.fetch?.physicsWarpRates)}, values {(SameValues(TimeWarp.fetch?.physicsWarpRates) ? "same as" : "DIFFERENT from")} before Start {ratesBeforeStart}");
+            step++;
+            outcome.Ok = !pilot.Running && manual;
+            if (!outcome.Ok) Fail("step " + step, pilot.Running ? "the trip kept running after leaving the flight scene" : "the ship didn't follow the player's throttle after Abort");
+        }
+
+        private static bool SameValues(float[] now) => ratesBeforeStart != null && now != null && ratesBeforeStart.ToString() == Rates(now);
 
         // ------------------------------------------------------------------ helpers
 
@@ -412,15 +498,68 @@ namespace FlipAndBurn.TestHarness
                 $"started at UT {Planetarium.GetUniversalTime():F1}");
         }
 
+        // The player's physics warp rates and MechJeb's controller users just before Start, to compare after Abort.
+        private static WarpRatesSnapshot ratesBeforeStart;
+        private static string thrustUsersBeforeStart, attitudeUsersBeforeStart;
+
+        /// <summary>Who is using a MechJeb controller. The thrust controller always lists itself: MechJeb adds it when it starts.</summary>
+        private static string Users(ComputerModule m) => $"{m.Users.Count} [{string.Join(", ", m.Users.Select(u => u.GetType().Name))}]";
+
+        private static string Rates(float[] r) => r == null ? "none" : "[" + string.Join(",", r) + "]";
+
+        private static void LogBeforeStart(Flown f)
+        {
+            ratesBeforeStart = WarpRatesSnapshot.Take(TimeWarp.fetch.physicsWarpRates);
+            thrustUsersBeforeStart = Users(f.Core.Thrust);
+            attitudeUsersBeforeStart = Users(f.Core.Attitude);
+            Log($"before start: physics rates {ratesBeforeStart}, rails rates {Rates(TimeWarp.fetch.warpRates)}, thrust users {thrustUsersBeforeStart}, " +
+                $"attitude users {attitudeUsersBeforeStart}, LimitAcceleration {f.Core.Thrust.LimitAcceleration}, MaxAcceleration {f.Core.Thrust.MaxAcceleration.Val}");
+        }
+
+        /// <summary>
+        /// The test helper writes a warp rate only into the trip's own rates (the autopilot swaps them in at Start and drops them at
+        /// the end), never into the player's.
+        /// </summary>
+        private static void SetTripTopRate(MechJebModuleFlipAndBurnAutopilot pilot, float rate)
+        {
+            if (!pilot.Running || ratesBeforeStart == null || ReferenceEquals(TimeWarp.fetch.physicsWarpRates, ratesBeforeStart.Array))
+            {
+                Log($"warp rate x{rate} not set: no trip is running, so these are the player's rates");
+                return;
+            }
+
+            TimeWarp.fetch.physicsWarpRates[3] = rate;
+            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = rate;
+        }
+
         private static void LogAfterAbort(Flown f)
         {
             Vessel v = f.Ship;
             MechJebModuleThrustController thrust = f.Core.Thrust;
             Log($"after abort: {EngineInternals(v)}");
             Log($"after abort: running {f.Module.Autopilot.Running}, throttle {v.ctrlState.mainThrottle:F3}, engine throttle {EngineThrottle(v):F3}, warp x{TimeWarp.CurrentRate}, " +
-                $"physics rates [{string.Join(",", TimeWarp.fetch.physicsWarpRates)}], thrust users {thrust.Users.Count}, attitude users {f.Core.Attitude.Users.Count}, " +
+                $"physics rates {Rates(TimeWarp.fetch.physicsWarpRates)}, thrust users {Users(thrust)}, attitude users {Users(f.Core.Attitude)}, " +
                 $"LimitAcceleration {thrust.LimitAcceleration}, MaxAcceleration {thrust.MaxAcceleration.Val}, " +
                 $"accel {v.geeForce_immediate * 9.80665:F3} m/s^2");
+            CheckRatesAndUsers(f, "after abort");
+        }
+
+        /// <summary>Warp rates and controller users as they were before Start? If the rates aren't, put them back and say so.</summary>
+        private static void CheckRatesAndUsers(Flown f, string when)
+        {
+            bool rates = ratesBeforeStart != null && ratesBeforeStart.Matches(TimeWarp.fetch.physicsWarpRates);
+            Log($"{when}: physics warp rates {(rates ? "same as before Start (same array, same values)" : "DIFFERENT from before Start")}: " +
+                $"before {ratesBeforeStart}, now {Rates(TimeWarp.fetch.physicsWarpRates)}");
+            if (!rates && ratesBeforeStart != null)
+            {
+                TimeWarp.fetch.physicsWarpRates = ratesBeforeStart.Restore();
+                Log($"{when}: the test helper put the physics warp rates back to {ratesBeforeStart}");
+            }
+
+            if (f.Core == null) return;
+            string thrust = Users(f.Core.Thrust), attitude = Users(f.Core.Attitude);
+            Log($"{when}: thrust users {(thrust == thrustUsersBeforeStart ? "same as" : "DIFFERENT from")} before Start: before {thrustUsersBeforeStart}, now {thrust}; " +
+                $"attitude users {(attitude == attitudeUsersBeforeStart ? "same as" : "DIFFERENT from")} before Start: before {attitudeUsersBeforeStart}, now {attitude}");
         }
 
         private IEnumerator Shot(string file, Flown f)
