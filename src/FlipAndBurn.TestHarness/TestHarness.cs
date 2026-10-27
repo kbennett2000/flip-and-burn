@@ -78,6 +78,26 @@ namespace FlipAndBurn.TestHarness
                 }
             }
 
+            // Warp rates and throttle users: Start, a minute of burn, Abort; then leave the flight scene mid-trip; then fly again
+            // and read the rates in the new flight scene.
+            if (Want("rates"))
+            {
+                var flown = new Flown();
+                yield return PlanOnShip("Bebop Refueller", null, null, flown, save);
+                if (!flown.Ok) yield break;
+                var ok = new CaptureResult();
+                yield return ProofRates(flown, ok);
+                if (!ok.Ok) yield break;   // ProofRates said why
+                var again = new Flown();
+                yield return PlanOnShip("Bebop Refueller", null, null, again, save);
+                if (!again.Ok) yield break;
+                Log($"step {step}: back in flight: TimeWarp object {TimeWarp.fetch.GetInstanceID()}, physics rates {Rates(TimeWarp.fetch.physicsWarpRates)}, " +
+                    $"values {(SameValues(TimeWarp.fetch.physicsWarpRates) ? "same as" : "DIFFERENT from")} before the first Start {ratesBeforeStart}; " +
+                    $"thrust users {Users(again.Core.Thrust)}, attitude users {Users(again.Core.Attitude)}");
+                step++;
+                save = "quicksave";
+            }
+
             // (a) Overheating: 1 g with infinite propellant only; the autopilot steps down, re-plans and says so; Abort.
             if (Want("overheat"))
             {

@@ -1,0 +1,54 @@
+# FlipAndBurn test run 2026-10-27T04:51:31Z
+[LOG 22:42:21.931] AssemblyLoader: KSPAssembly 'FlipAndBurn' V0.1.0
+[LOG 22:42:21.931] AssemblyLoader: KSPAssembly 'FlipAndBurn.TestHarness' V0.1.0
+[LOG 22:42:21.956] AssemblyLoader: KSPAssembly 'MechJeb2' V2.15.3
+MechJeb2 v2.15.0.0 / v / v2.15.3.1
+[LOG 22:49:07.043] [HighLogic]: =========================== Scene Change : From LOADING to MAINMENU =====================
+[LOG 22:49:11.349] [FlipAndBurn] loaded
+[LOG 22:49:11.350] [FlipAndBurn.Test] step 1: harness active (-flipandburn-test given)
+[LOG 22:49:16.775] [FlipAndBurn.Test] proofs: rates
+[LOG 22:49:17.913] [FlipAndBurn.Test] step 2: loaded save 'FlipAndBurn-Test/persistent' (152 vessels, mode SANDBOX)
+[LOG 22:49:17.913] [FlipAndBurn.Test] step 2: switching to flight on 'Bebop Refueller' (vessel index 138)
+[LOG 22:49:45.368] [FlipAndBurn.Test] step 3: in flight on 'Bebop Refueller', ORBITING Kerbin, MechJeb core on part 'probeStackTorque', current stage 3
+[LOG 22:49:45.370] [FlipAndBurn.Test] step 3: MechJeb menu lists 'Flip and Burn': True
+[LOG 22:49:48.386] [FlipAndBurn.Test] diag: delta-v sources for 'Bebop Refueller' at UT 18377814381.571011, current stage 3
+[LOG 22:49:49.931] [FlipAndBurn.Test] step 5: opened the 'Flip and Burn' window
+[LOG 22:49:50.122] [FlipAndBurn.Test] step 6: selected Duna
+[LOG 22:49:58.133] [FlipAndBurn.Test] step 7: (r) warp rates and throttle users, coast trip to Duna at 0.4 g, TimeWarp object 266772
+[LOG 22:49:58.413] [FlipAndBurn.Test] before start: physics rates [1,2,3,4], rails rates [1,5,10,50,100,1000,10000,100000], thrust users 1 [MechJebModuleThrustController], attitude users 0 [], LimitAcceleration False, MaxAcceleration 40
+[LOG 22:49:58.422] [FlipAndBurn] trip started to Duna: CoastInTheMiddle, 0.40 g, CutFlipRelight, parking 60000 m, turn rate 10.00 deg/s
+[LOG 22:49:58.422] [FlipAndBurn.Test] plan: target Duna, CoastInTheMiddle, 0.40 g, flip CutFlipRelight, parking 60000 m, planned trip 431213 s, coast budget 66058 m/s, turn rate 10.00 deg/s, started at UT 18377814390.8
+[LOG 22:49:58.422] [FlipAndBurn.Test] step 7: during the trip: physics rates [1,4,10,25], thrust users 2 [MechJebModuleThrustController, MechJebModuleFlipAndBurnAutopilot], attitude users 1 [MechJebModuleFlipAndBurnAutopilot]
+[LOG 22:50:16.313] [FlipAndBurn.Test] step 8: a minute of burn done: physics rates [1,4,10,25], thrust users 2 [MechJebModuleThrustController, MechJebModuleFlipAndBurnAutopilot], warp x10
+[LOG 22:50:16.316] [FlipAndBurn] physics warp rates back to the player's [1,2,3,4]: same array, same values
+[LOG 22:50:16.326] [FlipAndBurn] trip stopped: Aborted: you stopped the trip. The throttle is cut and your MechJeb settings are back. MechJeb settings restored: identical to before the trip.
+[LOG 22:50:16.326] [FlipAndBurn.Test] step 8: Abort pressed. Aborted: you stopped the trip. The throttle is cut and your MechJeb settings are back. MechJeb settings restored: identical to before the trip.
+[LOG 22:50:19.340] [FlipAndBurn.Test] after abort: ctrl 0.000 input 0.000 | KspiEpsteinUDD: requested 0.000 current 0.000 locked False independent False (0.0%) response False accel 0.200 decel 0.100 finalThrust 0.0 kN maxThrust 4746.1 kN
+[LOG 22:50:19.340] [FlipAndBurn.Test] after abort: running False, throttle 0.000, engine throttle 0.000, warp x1, physics rates [1,2,3,4], thrust users 1 [MechJebModuleThrustController], attitude users 0 [], LimitAcceleration False, MaxAcceleration 40, accel 0.000 m/s^2
+[LOG 22:50:19.341] [FlipAndBurn.Test] after abort: physics warp rates same as before Start (same array, same values): before [1,2,3,4], now [1,2,3,4]
+[LOG 22:50:19.341] [FlipAndBurn.Test] after abort: thrust users same as before Start: before 1 [MechJebModuleThrustController], now 1 [MechJebModuleThrustController]; attitude users same as before Start: before 0 [], now 0 []
+[LOG 22:50:19.583] [FlipAndBurn.Test] step 8: MechJeb settings files before Start and after Abort: identical apart from window sizes (1803 files)
+[LOG 22:50:20.595] [FlipAndBurn.Test] manual throttle 0.3, 1 s: accel 9.330 m/s^2 | ctrl 0.300 input 0.300 | KspiEpsteinUDD: requested 0.300 current 0.300 locked False independent False (0.0%) response False accel 0.200 decel 0.100 finalThrust 1423.8 kN maxThrust 4746.1 kN
+[LOG 22:50:21.596] [FlipAndBurn.Test] manual throttle 0.3, 2 s: accel 9.330 m/s^2 | ctrl 0.300 input 0.300 | KspiEpsteinUDD: requested 0.300 current 0.300 locked False independent False (0.0%) response False accel 0.200 decel 0.100 finalThrust 1423.8 kN maxThrust 4746.1 kN
+[LOG 22:50:22.596] [FlipAndBurn.Test] manual throttle 0.3, 3 s: accel 9.330 m/s^2 | ctrl 0.300 input 0.300 | KspiEpsteinUDD: requested 0.300 current 0.300 locked False independent False (0.0%) response False accel 0.200 decel 0.100 finalThrust 1423.8 kN maxThrust 4746.1 kN
+[LOG 22:50:23.600] [FlipAndBurn.Test] manual throttle 0.0, 1 s: accel 0.000 m/s^2 | ctrl 0.000 input 0.000 | KspiEpsteinUDD: requested 0.000 current 0.000 locked False independent False (0.0%) response False accel 0.200 decel 0.100 finalThrust 0.0 kN maxThrust 4746.1 kN
+[LOG 22:50:24.616] [FlipAndBurn.Test] manual throttle 0.0, 2 s: accel 0.000 m/s^2 | ctrl 0.000 input 0.000 | KspiEpsteinUDD: requested 0.000 current 0.000 locked False independent False (0.0%) response False accel 0.200 decel 0.100 finalThrust 0.0 kN maxThrust 4746.1 kN
+[LOG 22:50:25.619] [FlipAndBurn.Test] manual throttle 0.0, 3 s: accel 0.000 m/s^2 | ctrl 0.000 input 0.000 | KspiEpsteinUDD: requested 0.000 current 0.000 locked False independent False (0.0%) response False accel 0.200 decel 0.100 finalThrust 0.0 kN maxThrust 4746.1 kN
+[LOG 22:50:25.619] [FlipAndBurn.Test] step 9: manual throttle after Abort: the ship followed the player's throttle to 0.3 and back to 0 (see the lines above); ends at 0.000: ok
+[LOG 22:50:25.626] [FlipAndBurn] trip started to Duna: CoastInTheMiddle, 0.40 g, CutFlipRelight, parking 60000 m, turn rate 10.00 deg/s
+[LOG 22:50:25.833] [FlipAndBurn.Test] step 10: trip running again, physics rates [1,4,10,25]; leaving for the Space Center mid-trip
+[LOG 22:50:25.833] [FlipAndBurn] physics warp rates back to the player's [1,2,3,4]: same array, same values
+[LOG 22:50:25.846] [FlipAndBurn] trip stopped: The trip stopped because the game left the flight scene. Start it again here. MechJeb settings restored: identical to before the trip.
+[LOG 22:50:44.017] [FlipAndBurn.Test] step 10: in scene SPACECENTER, autopilot running False, stop reason 'The trip stopped because the game left the flight scene. Start it again here.', MechJeb settings restored: identical to before the trip.
+[LOG 22:50:44.017] [FlipAndBurn.Test] step 10: Space Center: TimeWarp object 274228 (flight's was 266772), physics rates [1,2,3,4], values same as before Start [1,2,3,4]
+[LOG 22:50:45.058] [FlipAndBurn.Test] step 11: loaded save 'FlipAndBurn-Test/persistent' (152 vessels, mode SANDBOX)
+[LOG 22:50:45.058] [FlipAndBurn.Test] step 11: switching to flight on 'Bebop Refueller' (vessel index 138)
+[LOG 22:51:10.670] [FlipAndBurn.Test] step 12: in flight on 'Bebop Refueller', ORBITING Kerbin, MechJeb core on part 'probeStackTorque', current stage 3
+[LOG 22:51:10.670] [FlipAndBurn.Test] step 12: MechJeb menu lists 'Flip and Burn': True
+[LOG 22:51:13.678] [FlipAndBurn.Test] diag: delta-v sources for 'Bebop Refueller' at UT 18377814382.571033, current stage 3
+[LOG 22:51:15.196] [FlipAndBurn.Test] step 14: opened the 'Flip and Burn' window
+[LOG 22:51:15.319] [FlipAndBurn.Test] step 15: selected Duna
+[LOG 22:51:19.332] [FlipAndBurn.Test] step 16: back in flight: TimeWarp object 274370, physics rates [1,2,3,4], values same as before the first Start [1,2,3,4]; thrust users 1 [MechJebModuleThrustController], attitude users 0 []
+[LOG 22:51:19.332] [FlipAndBurn.Test] step 17: done, quitting KSP
+# Exception lines mentioning FlipAndBurn or MechJeb: 0
+# Stack frames in FlipAndBurn or MechJeb code: 0

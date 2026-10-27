@@ -110,11 +110,14 @@ When KSP reaches the main menu, `KSP.log` should contain `[FlipAndBurn] loaded`.
    - (a) the flip, from the same start, at 1 g with infinite propellant and KSP's "ignore max temperature" cheat (the
      Bebop can't sustain 1 g otherwise): a warp-stability probe, the flip and a few minutes of braking, then Abort;
    - (b) a coast trip at 0.4 g with no cheats, through the burn into the coast under normal warp, then Abort.
+   - (r) the player's warp rates and throttle: Start a coast trip at 0.4 g, a minute of burn, Abort; the physics warp rates and
+     MechJeb's throttle users must be as before Start, and the ship must follow the player's throttle. Then Start
+     again and leave for the Space Center mid-trip, and fly again: the rates must be the player's there too.
 
    It screenshots each stage and logs the acceleration, pointing error, engine throttle, warp, waste heat and hottest
    part every few seconds. It checks MechJeb's settings files before Start and after Abort. Only the harness turns the
-   cheats on, only in those runs, and turns them off again. `FLIPANDBURN_PROOFS=overheat,flip,coast` picks which
-   proofs to run. Then it quits KSP.
+   cheats on, only in those runs, and turns them off again. `FLIPANDBURN_PROOFS=rates,overheat,flip,coast` picks which
+   proofs to run (`FLIPANDBURN_SHOTS` lists the screenshots expected, or `none`). Then it quits KSP.
    It moves the Flip and Burn window to an empty part of the screen first, because MechJeb opens every window at
    the same spot. The harness reads the finished frame itself; if that comes out blank (it sometimes does on
    Linux/OpenGL), it asks this script to grab the KSP window from outside with `ffmpeg` (x11grab) instead.

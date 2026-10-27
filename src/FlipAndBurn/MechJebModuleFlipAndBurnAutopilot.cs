@@ -56,7 +56,7 @@ namespace FlipAndBurn
         private double deltaVUsed;   // m/s burned so far (for a coast trip's re-plan)
         private TripStart trip;
         private ConfigNode savedLocal, savedType, savedGlobal;
-        private float[] savedPhysicsRates;
+        private WarpRatesSnapshot playerPhysicsRates;
         private double startUT, plannedArrivalUT, flipStartUT = double.NaN, offCourseSince = double.NaN, mispointedSince = double.NaN,
             noThrustSince = double.NaN, weakSince = double.NaN, noEngineSince = double.NaN, cooldownUntil = double.NaN, lastWarpChange, bestPointing = double.MaxValue;
         private bool controlling;
@@ -133,12 +133,17 @@ namespace FlipAndBurn
             bestPointing = double.MaxValue;
 
             SaveSettings();
-            savedPhysicsRates = TimeWarp.fetch != null ? (float[])TimeWarp.fetch.physicsWarpRates.Clone() : null;
+            // The trip uses its own physics warp rates (the stock 4x top rate is far too slow for a trip). The player's are
+            // put back exactly at every way a trip can end: Abort, arrival, a self-stop, leaving the flight scene, unloading.
+            playerPhysicsRates = TimeWarp.fetch != null ? WarpRatesSnapshot.Take(TimeWarp.fetch.physicsWarpRates) : null;
             if (TimeWarp.fetch != null)
             {
                 TimeWarp.SetRate(0, true);
                 TimeWarp.fetch.physicsWarpRates = (float[])PhysicsRates.Clone();
             }
+
+            GameEvents.onGameSceneLoadRequested.Remove(OnSceneLoadRequested);
+            GameEvents.onGameSceneLoadRequested.Add(OnSceneLoadRequested);
 
             Core.Thrust.ThrustOff();
             Core.Thrust.Tmode = MechJebModuleThrustController.TMode.OFF;
@@ -156,26 +161,22 @@ namespace FlipAndBurn
         {
             if (!controlling) return;
             controlling = false;
-            try
+            GameEvents.onGameSceneLoadRequested.Remove(OnSceneLoadRequested);
+            // Each step on its own, so one that fails can't leave the others undone.
+            Guard("cutting the engines", () =>
             {
                 Core.Thrust.ThrustOff();
                 CutEngines(Vessel);
                 RelightEngines(throttleZero: true);   // back as they were at Start (active), but at zero throttle
+            });
+            Guard("releasing MechJeb's throttle and steering", () =>
+            {
                 Core.Thrust.Users.Remove(this);
                 Core.Attitude.Users.Remove(this);
                 if (Core.Attitude.Users.Count == 0) Core.Attitude.attitudeDeactivate();
-                if (TimeWarp.fetch != null)
-                {
-                    TimeWarp.SetRate(0, true);
-                    if (savedPhysicsRates != null) TimeWarp.fetch.physicsWarpRates = savedPhysicsRates;
-                }
-
-                RestoreSettings();
-            }
-            catch (Exception e)
-            {
-                Debug.LogError("[FlipAndBurn] while stopping: " + e);
-            }
+            });
+            Guard("putting the warp rates back", RestoreWarpRates);
+            Guard("putting the MechJeb settings back", RestoreSettings);
 
             StopReason = reason;
             Arrived = arrived;
@@ -183,6 +184,38 @@ namespace FlipAndBurn
             WarpStatus = "";
             Enabled = false;
             Debug.Log("[FlipAndBurn] trip stopped: " + reason + " " + SettingsCheck);
+        }
+
+        private static void Guard(string what, Action step)
+        {
+            try
+            {
+                step();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[FlipAndBurn] while stopping, {what}: {e}");
+            }
+        }
+
+        /// <summary>Normal speed, and the player's own physics warp rates back exactly as they were at Start.</summary>
+        private void RestoreWarpRates()
+        {
+            WarpRatesSnapshot saved = playerPhysicsRates;
+            playerPhysicsRates = null;
+            if (TimeWarp.fetch == null) return;   // the scene's TimeWarp is gone, and the trip's rates with it
+            TimeWarp.SetRate(0, true);
+            if (saved == null) return;
+            TimeWarp.fetch.physicsWarpRates = saved.Restore();
+            Debug.Log($"[FlipAndBurn] physics warp rates back to the player's {saved}: " +
+                      (saved.Matches(TimeWarp.fetch.physicsWarpRates) ? "same array, same values" : "MISMATCH"));
+        }
+
+        // Leaving the flight scene (Space Center, Tracking Station, main menu, a reload): stop first, so the warp rates and
+        // MechJeb settings go back while the flight scene is still there.
+        private void OnSceneLoadRequested(GameScenes scene)
+        {
+            if (controlling) Stop("The trip stopped because the game left the flight scene. Start it again from Flip and Burn when you are back in flight.");
         }
 
         protected override void OnModuleDisabled()

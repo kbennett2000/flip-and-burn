@@ -63,6 +63,7 @@ mj_settings="$ksp_dir/GameData/MechJeb2/Plugins/PluginData/MechJeb2"
 shot_dir="$ksp_dir/FlipAndBurnTest"
 # FLIPANDBURN_SHOTS overrides the list when FLIPANDBURN_PROOFS runs only some of the proofs.
 read -r -a expected_shots <<< "${FLIPANDBURN_SHOTS:-planner-bebop-2g.png a-1-overheat-replanned.png a-2-overheat-replanned-again.png a-3-overheat-after-abort.png f-1-before-flip.png f-2-during-flip.png f-3-after-flip.png f-4-after-abort.png b-1-coast.png b-2-after-abort.png}"
+[[ "${FLIPANDBURN_SHOTS:-}" == none ]] && expected_shots=()   # a check that takes no screenshots
 evidence="$repo/docs/test-evidence"
 stall_seconds=120
 max_launches=4          # first launch plus up to 3 relaunches after a stall
@@ -114,6 +115,13 @@ cleanup() {
         echo "Restored MechJeb settings in $mj_settings"
     fi
     if [[ -f "$backup_dir/BetterTimeWarp.cfg" ]]; then
+        # It stamps the save time in a comment; anything else changing would mean its warp presets changed.
+        if cmp -s <(grep -v '^//' "$backup_dir/BetterTimeWarp.cfg") <(grep -v '^//' "$btw_settings" 2>/dev/null); then
+            echo "BetterTimeWarp settings unchanged by the run (apart from its save-time comment)"
+        else
+            echo "BetterTimeWarp settings CHANGED during the run:"
+            diff <(grep -v '^//' "$backup_dir/BetterTimeWarp.cfg") <(grep -v '^//' "$btw_settings" 2>/dev/null) | head -20 || true
+        fi
         cp -p "$backup_dir/BetterTimeWarp.cfg" "$btw_settings"
         echo "Restored $btw_settings"
     fi
