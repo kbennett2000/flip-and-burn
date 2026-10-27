@@ -62,6 +62,12 @@ namespace FlipAndBurn.Core.Guidance
         /// </summary>
         public double BrakingFraction { get; set; } = CoastPlanner.BrakingFraction;
 
+        /// <summary>
+        /// Coast trips: the arrival time to fly to (UT), when it is already known: a resumed trip keeps the one it was
+        /// flying to (ADR 0004). NaN, the default, plans the fastest trip the budget allows.
+        /// </summary>
+        public double CoastArrivalUT { get; set; } = double.NaN;
+
         /// <summary>Coast trips: a velocity error (m/s) above which the ship makes a course correction burn.</summary>
         public double CorrectionThreshold { get; set; } = 1.0;
         public double MinThrustFraction { get; set; } = 0.982;
@@ -429,8 +435,15 @@ namespace FlipAndBurn.Core.Guidance
             // offer that combination, ADR 0002 addendum.)
             if (config.Trip == TripType.CoastInTheMiddle && !waypoint.HasValue)
             {
-                CoastPlan coast = CoastPlanner.Plan(Request(input), config.DeltaVBudget);
-                if (coast.Feasible && coast.CoastTime > 1) coastArrivalUT = coast.ArrivalUT;
+                if (config.CoastArrivalUT > input.UT)
+                {
+                    coastArrivalUT = config.CoastArrivalUT;
+                }
+                else
+                {
+                    CoastPlan coast = CoastPlanner.Plan(Request(input), config.DeltaVBudget);
+                    if (coast.Feasible && coast.CoastTime > 1) coastArrivalUT = coast.ArrivalUT;
+                }
             }
 
             solver = MakeSolver(legs[0]);

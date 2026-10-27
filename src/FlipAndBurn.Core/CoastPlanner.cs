@@ -109,20 +109,8 @@ namespace FlipAndBurn.Core
                     }
                 }
 
-                // Gravity over the trip just planned, along its burn-coast-burn path (the coast on its orbit around the Sun): the target's well, the Sun's pull
-                // relative to it, the target's own curve around the Sun, and the departure planet's pull while leaving it. Aim off
-                // by it and plan again.
-                StateVector planetNow = request.Target.Ephemeris.StateAt(request.StartTime);
-                StateVector end = ParkingArrival.Relative(request.Target, request.StartTime + best.Total, request.ShipPosition, parkingRadius, request.North);
-                gravity.Integrate(request.StartTime,
-                    gravity.CoastPath(request.StartTime, request.ShipPosition - planetNow.Position, request.ShipVelocity - planetNow.Velocity,
-                        best.T1, best.A1, best.Tc, best.T2, end.Position, end.Velocity),
-                    best.Total, out Vec3 g1, out Vec3 g2, PathGravity.CoastSamples);
-                gravity.FrameCurve(request.StartTime, best.Total, out Vec3 curveP, out Vec3 curveV);
-                DepartureGravity.Effect(request.Departure, request.StartTime, request.ShipPosition, request.ShipVelocity,
-                    best.A1, best.T1, best.Total, out Vec3 depV, out Vec3 depP);
-                wellV = g1 + curveV + depV;
-                wellP = g2 + curveP + depP;
+                // Gravity over the trip just planned; aim off by it and plan again.
+                Allowance(request, gravity, parkingRadius, best, out wellV, out wellP);
             }
 
             result.Feasible = true;
@@ -133,6 +121,78 @@ namespace FlipAndBurn.Core
             result.ArrivalUT = request.StartTime + best.Total;
             result.DeltaV = DeltaVFor(best);
             return result;
+        }
+
+        /// <summary>
+        /// The burn-coast-burn trip that arrives at <paramref name="arrivalUT"/>, and whether its burns fit the budget the
+        /// way <see cref="Plan"/>'s do (the guidance margin under it). A resumed trip keeps flying to the arrival it was
+        /// already flying to when this fits (ADR 0004): a fresh "fastest" plan from part-way through the trip can land up
+        /// to about 1 % either side of the one being flown, which would move the arrival with no time away at all.
+        /// </summary>
+        public static CoastPlan PlanArrivingAt(TripRequest request, double deltaVBudget, double arrivalUT)
+        {
+            var result = new CoastPlan { Budget = deltaVBudget };
+            double total = request == null ? 0 : arrivalUT - request.StartTime;
+            if (request?.Target == null || !(request.Acceleration > 0) || !(deltaVBudget > 0) || !(total > 0))
+            {
+                result.Problem = "invalid input";
+                return result;
+            }
+
+            double a1 = request.Acceleration, a2 = request.Acceleration * BrakingFraction;
+            double burnBudget = deltaVBudget / (1 + GuidanceMargin);
+            double parkingRadius = request.Target.Radius + request.ParkingAltitude;
+            var gravity = new PathGravity(request.Target.Ephemeris, request.Target.GravParameter, request.SunGravParameter, true);
+            Vec3 wellV = Vec3.Zero, wellP = Vec3.Zero;
+
+            StateVector EndState(double ut)
+            {
+                StateVector planet = request.Target.Ephemeris.StateAt(ut);
+                StateVector rel = ParkingArrival.Relative(request.Target, ut, request.ShipPosition, parkingRadius, request.North);
+                return new StateVector(planet.Position + rel.Position - wellP, planet.Velocity + rel.Velocity - wellV);
+            }
+
+            var solver = new TwoArcSolver(EndState, a1, a2, request.MaxTripTime);
+            TwoArcSolver.Arcs best = default;
+            for (int pass = 0; pass < 6; pass++)
+            {
+                best = solver.SolveFixedTotal(request.StartTime, request.ShipPosition, request.ShipVelocity, total);
+                if (!best.Valid)
+                {
+                    result.Problem = "no trip arrives then";
+                    return result;
+                }
+
+                Allowance(request, gravity, parkingRadius, best, out wellV, out wellP);
+            }
+
+            result.BurnUpTime = best.T1;
+            result.CoastTime = best.Tc;
+            result.BurnDownTime = best.T2;
+            result.TripTime = best.Total;
+            result.ArrivalUT = request.StartTime + best.Total;
+            result.DeltaV = a1 * best.T1 + a2 * best.T2;
+            result.Feasible = result.DeltaV <= burnBudget && best.Tc >= 0;
+            if (!result.Feasible) result.Problem = "arriving then needs more delta-v than the budget";
+            return result;
+        }
+
+        // Gravity over a planned trip, along its burn-coast-burn path (the coast on its orbit around the Sun): the target's
+        // well, the Sun's pull relative to it, the target's own curve around the Sun, and the departure planet's pull while
+        // leaving it. The two-arc solve aims off by it.
+        private static void Allowance(TripRequest request, PathGravity gravity, double parkingRadius, TwoArcSolver.Arcs best, out Vec3 wellV, out Vec3 wellP)
+        {
+            StateVector planetNow = request.Target.Ephemeris.StateAt(request.StartTime);
+            StateVector end = ParkingArrival.Relative(request.Target, request.StartTime + best.Total, request.ShipPosition, parkingRadius, request.North);
+            gravity.Integrate(request.StartTime,
+                gravity.CoastPath(request.StartTime, request.ShipPosition - planetNow.Position, request.ShipVelocity - planetNow.Velocity,
+                    best.T1, best.A1, best.Tc, best.T2, end.Position, end.Velocity),
+                best.Total, out Vec3 g1, out Vec3 g2, PathGravity.CoastSamples);
+            gravity.FrameCurve(request.StartTime, best.Total, out Vec3 curveP, out Vec3 curveV);
+            DepartureGravity.Effect(request.Departure, request.StartTime, request.ShipPosition, request.ShipVelocity,
+                best.A1, best.T1, best.Total, out Vec3 depV, out Vec3 depP);
+            wellV = g1 + curveV + depV;
+            wellP = g2 + curveP + depP;
         }
     }
 }

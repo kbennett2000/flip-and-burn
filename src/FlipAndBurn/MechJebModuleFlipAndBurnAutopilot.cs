@@ -19,6 +19,8 @@ namespace FlipAndBurn
         public double ParkingAltitude;     // m
         public double DeltaVBudget;        // m/s, coast trips
         public double PlannedTripTime;     // s, from the planner
+        public double DeltaVNeeded;        // m/s, from the planner (a coast trip's includes the guidance margin)
+        public double StartDeltaV = double.NaN;   // m/s, the ship's delta-v at Start; NaN when fuel isn't counted
     }
 
     /// <summary>
@@ -26,11 +28,16 @@ namespace FlipAndBurn
     /// with MechJeb's throttle and acceleration limit, and runs time warp (ADR 0003, "Flying").
     /// </summary>
     /// <remarks>
-    /// MechJeb finds this module on its own, like the window. It is enabled only while a trip runs; MechJeb doesn't save
-    /// that, so after the game is saved and loaded no trip is running (resuming is the next item, ADR 0003).
+    /// MechJeb finds this module on its own, like the window. It is enabled while a trip is in progress: flying, or paused.
+    ///
+    /// A trip is saved with the ship (<see cref="TripRecord"/> in this module's node of MechJeb's per-ship settings,
+    /// ADR 0004). Leaving the ship any way (another scene, another ship, quitting) pauses it: the engine is cut and
+    /// MechJeb's controls are given back, exactly as at the end of a trip. Coming back to the ship, or loading a save made
+    /// during the trip, resumes it on its own, re-planned from where the ship is then.
     ///
     /// The player's MechJeb settings for the two controllers it borrows (thrust and attitude) are saved with MechJeb's own
-    /// save routine when the trip starts and loaded back the same way when it ends or is aborted.
+    /// save routine when the trip starts or resumes and loaded back the same way when it ends, pauses or is aborted. Any
+    /// save MechJeb makes in between gets the player's values too (<see cref="MechJebModuleFlipAndBurnSaveGuard"/>).
     /// </remarks>
     [UsedImplicitly]
     public class MechJebModuleFlipAndBurnAutopilot : ComputerModule
@@ -50,6 +57,10 @@ namespace FlipAndBurn
         /// <summary>Above this share of its temperature limit a part is about to fail: re-plan at 80 % of the acceleration.</summary>
         public const double OverheatingPart = 0.9;
         private const double SecondsBetweenWarpChanges = 1.0;   // real seconds
+        /// <summary>Real seconds the ship must be loaded, active and off rails before a paused trip resumes (lets the scene settle).</summary>
+        public const float ResumeSettleSeconds = 3f;
+        /// <summary>The trip's node in this module's part of MechJeb's per-ship settings (ADR 0004).</summary>
+        public const string TripNodeName = "FLIPANDBURN_TRIP";
 
         private FlipAndBurnGuidance guidance;
         private GuidanceConfig baseConfig;
@@ -57,16 +68,41 @@ namespace FlipAndBurn
         private TripStart trip;
         private ConfigNode savedLocal, savedType, savedGlobal;
         private WarpRatesSnapshot playerPhysicsRates;
+        private float[] tripPhysicsRates;
+        // The trip in progress (flying or paused), as saved with the ship; null when there is none.
+        private TripRecord record;
+        // The player's MechJeb acceleration limit, the only MechJeb settings the trip changes, and the trip's values while a
+        // save swaps the player's in.
+        private bool playerLimitAcceleration, tripLimitAcceleration, swappedForSave;
+        private double playerMaxAcceleration, tripMaxAcceleration;
+        private float settledSince = -1;
         private double startUT, plannedArrivalUT, flipStartUT = double.NaN, offCourseSince = double.NaN, mispointedSince = double.NaN,
             noThrustSince = double.NaN, weakSince = double.NaN, noEngineSince = double.NaN, cooldownUntil = double.NaN, lastWarpChange, bestPointing = double.MaxValue;
         private bool controlling;
 
         public MechJebModuleFlipAndBurnAutopilot(MechJebCore core) : base(core)
         {
-            Priority = 250;   // before the thrust controller (200) in each physics step
+            // MechJeb runs and saves its modules in rising priority: after the thrust controller (200), so this module's
+            // OnSave puts the trip's acceleration limit back after the thrust controller has saved the player's
+            // (MechJebModuleFlipAndBurnSaveGuard, priority 150, swaps the player's in first).
+            Priority = 250;
         }
 
-        public bool Running => Enabled && guidance != null;
+        public bool Running => controlling && guidance != null;
+        /// <summary>A trip is in progress but not flying: the player left the ship, pressed Pause, or the game was just loaded.</summary>
+        public bool Paused => record != null && !controlling;
+        /// <summary>Paused with the Pause button: it waits for Resume while the player stays with the ship.</summary>
+        public bool PausedByPlayer { get; private set; }
+        /// <summary>Why the trip is paused, in plain words (shown in the window), or null.</summary>
+        public string PauseNotice { get; private set; }
+        /// <summary>The trip in progress as it would be saved now (for the window and the test helper), or null.</summary>
+        public TripRecord Record => record;
+        /// <summary>How many times this trip was resumed in this ship's current session (for the test helper).</summary>
+        public int Resumes { get; private set; }
+        /// <summary>The last resume's numbers (for the test helper): time away, and arrival before and after the re-plan.</summary>
+        public double LastAwaySeconds { get; private set; } = double.NaN;
+        public double LastResumeOldArrivalUT { get; private set; } = double.NaN;
+        public double LastResumeNewArrivalUT { get; private set; } = double.NaN;
         public GuidanceCommand Last { get; private set; }
         public TripStart Trip => trip;
         /// <summary>Thrust acceleration felt right now (m/s^2).</summary>
@@ -90,6 +126,26 @@ namespace FlipAndBurn
         public string Notice { get; private set; }
         /// <summary>How many times the trip was re-planned at a lower acceleration.</summary>
         public int Replans { get; private set; }
+        /// <summary>The delta-v expected to be left at arrival (m/s), from the last plan; NaN when fuel isn't counted.</summary>
+        public double ReserveAtArrival { get; private set; } = double.NaN;
+        /// <summary>That as a share of the delta-v the trip started with.</summary>
+        public double ReserveShare { get; private set; } = double.NaN;
+        /// <summary>Why the expected reserve is below the 10 % kept back, in plain words; null when it isn't.</summary>
+        public string ReserveNote { get; private set; }
+
+        // The expected reserve from a plan, and why it is short if it is.
+        private void SetReserve(double reserve, double startDeltaV, string whyShort)
+        {
+            ReserveAtArrival = startDeltaV > 0 ? reserve : double.NaN;
+            ReserveShare = startDeltaV > 0 ? reserve / startDeltaV : double.NaN;
+            ReserveNote = ReserveShare < Planner.Reserve - 1e-6
+                ? $"The ship is expected to arrive with {Planner.FormatSpeed(Math.Max(0, reserve))} of delta-v, {ReserveShare * 100:0.0}% of what it " +
+                  $"started with: less than the {Planner.Reserve * 100:0}% kept in reserve, because {whyShort}."
+                : null;
+        }
+
+        // The ship's delta-v when the trip started: the budget is the rest after the reserve.
+        private double StartDeltaVOf(TripRecord r) => CheatOptions.InfinitePropellant || !(r.DeltaVBudget > 0) ? double.NaN : r.DeltaVBudget / (1 - Planner.Reserve);
 
         // ------------------------------------------------------------------ start and stop
 
@@ -132,36 +188,67 @@ namespace FlipAndBurn
             flipStartUT = offCourseSince = mispointedSince = noThrustSince = weakSince = noEngineSince = cooldownUntil = double.NaN;
             bestPointing = double.MaxValue;
 
-            SaveSettings();
-            // The trip uses its own physics warp rates (the stock 4x top rate is far too slow for a trip). The player's are
-            // put back exactly at every way a trip can end: Abort, arrival, a self-stop, leaving the flight scene, unloading.
-            playerPhysicsRates = TimeWarp.fetch != null ? WarpRatesSnapshot.Take(TimeWarp.fetch.physicsWarpRates) : null;
-            if (TimeWarp.fetch != null)
+            record = new TripRecord
             {
-                TimeWarp.SetRate(0, true);
-                TimeWarp.fetch.physicsWarpRates = (float[])PhysicsRates.Clone();
-            }
-
-            GameEvents.onGameSceneLoadRequested.Remove(OnSceneLoadRequested);
-            GameEvents.onGameSceneLoadRequested.Add(OnSceneLoadRequested);
-
-            Core.Thrust.ThrustOff();
-            Core.Thrust.Tmode = MechJebModuleThrustController.TMode.OFF;
-            Core.Thrust.Users.Add(this);
-            Core.Attitude.Users.Add(this);
-            controlling = true;
-            Enabled = true;
+                Target = start.Target.bodyName,
+                Trip = start.Trip,
+                Flip = start.Flip,
+                ChosenAcceleration = start.Acceleration,
+                Acceleration = start.Acceleration,
+                ParkingAltitude = start.ParkingAltitude,
+                DeltaVBudget = start.DeltaVBudget,
+                StartUT = startUT,
+                PlannedArrivalUT = plannedArrivalUT,
+                LastFlownUT = startUT,
+            };
+            PausedByPlayer = false;
+            PauseNotice = null;
+            Resumes = 0;
+            SetReserve(start.StartDeltaV - start.DeltaVNeeded, start.StartDeltaV, "the plan at Start needs it");
+            Engage();
             Debug.Log($"[FlipAndBurn] trip started to {start.Target.bodyName}: {start.Trip}, {start.Acceleration / TripCalculator.OneG:F2} g, " +
                       $"{start.Flip}, parking {start.ParkingAltitude:F0} m, turn rate {TurnRate * 180 / Math.PI:F2} deg/s");
             return null;
         }
 
-        /// <summary>Cut the throttle, stop warp, release control, put the player's MechJeb settings back.</summary>
-        public void Stop(string reason, bool arrived = false)
+        /// <summary>Take the ship: the player's settings and warp rates saved, the trip's in, MechJeb's controls joined.</summary>
+        private void Engage()
         {
-            if (!controlling) return;
-            controlling = false;
+            SaveSettings();
+            MechJebModuleThrustController thrust = Core.Thrust;
+            playerLimitAcceleration = tripLimitAcceleration = thrust.LimitAcceleration;
+            playerMaxAcceleration = tripMaxAcceleration = thrust.MaxAcceleration.Val;
+            swappedForSave = false;
+
+            // The trip uses its own physics warp rates (the stock 4x top rate is far too slow for a trip). The player's are
+            // put back exactly at every way a trip can end or pause: Abort, arrival, a self-stop, Pause, leaving the ship.
+            playerPhysicsRates = TimeWarp.fetch != null ? WarpRatesSnapshot.Take(TimeWarp.fetch.physicsWarpRates) : null;
+            tripPhysicsRates = (float[])PhysicsRates.Clone();
+            if (TimeWarp.fetch != null)
+            {
+                TimeWarp.SetRate(0, true);
+                TimeWarp.fetch.physicsWarpRates = tripPhysicsRates;
+            }
+
             GameEvents.onGameSceneLoadRequested.Remove(OnSceneLoadRequested);
+            GameEvents.onGameSceneLoadRequested.Add(OnSceneLoadRequested);
+            GameEvents.onVesselChange.Remove(OnVesselChange);
+            GameEvents.onVesselChange.Add(OnVesselChange);
+
+            thrust.ThrustOff();
+            thrust.Tmode = MechJebModuleThrustController.TMode.OFF;
+            thrust.Users.Add(this);
+            Core.Attitude.Users.Add(this);
+            controlling = true;
+            Enabled = true;
+        }
+
+        /// <summary>Give the ship back: engines cut (left active at zero throttle), MechJeb's controls, warp rates and settings the player's.</summary>
+        private void Release()
+        {
+            controlling = false;
+            GameEvents.onGameSceneLoadRequested.Remove(OnSceneLoadRequested);   // onVesselChange stays: see OnVesselChange
+            if (swappedForSave) AfterThrustSaved();
             // Each step on its own, so one that fails can't leave the others undone.
             Guard("cutting the engines", () =>
             {
@@ -177,13 +264,85 @@ namespace FlipAndBurn
             });
             Guard("putting the warp rates back", RestoreWarpRates);
             Guard("putting the MechJeb settings back", RestoreSettings);
+            guidance = null;
+            WarpStatus = "";
+        }
 
+        /// <summary>End the trip for good: release the ship (if flying) and forget the trip, so no save brings it back.</summary>
+        public void Stop(string reason, bool arrived = false)
+        {
+            if (!controlling && record == null) return;
+            if (controlling) Release();
+            GameEvents.onVesselChange.Remove(OnVesselChange);
+            record = null;
+            PausedByPlayer = false;
+            PauseNotice = null;
+            settledSince = -1;
             StopReason = reason;
             Arrived = arrived;
             guidance = null;
-            WarpStatus = "";
             Enabled = false;
             Debug.Log("[FlipAndBurn] trip stopped: " + reason + " " + SettingsCheck);
+        }
+
+        /// <summary>
+        /// Pause the trip: the ship is given back exactly as at the end of a trip (engine cut, so it coasts), and the trip is
+        /// kept, with the ship, to carry on later (ADR 0004).
+        /// </summary>
+        /// <param name="why">Plain words, e.g. "you went to the Space Center".</param>
+        /// <param name="byPlayer">The Pause button: wait for Resume while the player stays with the ship.</param>
+        public void Pause(string why, bool byPlayer)
+        {
+            if (!controlling) return;
+            // This also runs while the game shuts down, so each step on its own and nothing may throw.
+            double ut = double.NaN;
+            Guard("saving the trip", () =>
+            {
+                ut = Planetarium.GetUniversalTime();
+                UpdateRecord(ut);
+            });
+            Release();
+            PausedByPlayer = byPlayer;
+            settledSince = -1;
+            string target = record.Target;
+            Guard("naming the target", () => target = Planner.BodyName(trip.Target));
+            PauseNotice = byPlayer
+                ? $"The trip to {target} is paused: the engine is off and the ship coasts. Press Resume to carry on. " +
+                  "You can save, switch ships or leave now; the trip carries on when you come back to this ship."
+                : $"The trip to {target} is paused ({why}): the engine is off and the ship coasts. It carries on when you come back to this ship.";
+            Notice = null;
+            Guard("telling the player", () => ScreenMessages.PostScreenMessage("Flip and Burn: " + PauseNotice, 10f, ScreenMessageStyle.UPPER_CENTER));
+            Debug.Log($"[FlipAndBurn] trip paused ({why}) at UT {ut:F1}: delta-v used {record.DeltaVUsed:F0} m/s, holding " +
+                      $"{record.Acceleration / TripCalculator.OneG:F2} g, arrival planned at UT {record.PlannedArrivalUT:F0}; {SettingsCheck}");
+        }
+
+        /// <summary>The Resume button: carry on now.</summary>
+        public string PressResume()
+        {
+            if (!Paused) return "No trip is paused.";
+            PausedByPlayer = false;
+            return Resume();
+        }
+
+        // Bring the saved record up to date with the trip as it is now.
+        private void UpdateRecord(double ut)
+        {
+            if (record == null) return;
+            record.Acceleration = CurrentAcceleration;
+            record.DeltaVUsed = deltaVUsed;
+            record.PlannedArrivalUT = ArrivalBeingFlown(ut);
+            record.LastFlownUT = ut;
+            record.Replans = Replans;
+            record.CutEngines = cutEngines.Where(e => e != null && e.part != null).Select(e => e.part.persistentId).Distinct().ToList();
+        }
+
+        // The arrival the trip is flying to now, as the guidance has it: a coast trip's fixed arrival, or a full burn's current
+        // estimate. (The planner's estimate at Start can differ from it by up to about 1 %.)
+        private double ArrivalBeingFlown(double ut)
+        {
+            if (guidance != null && !double.IsNaN(guidance.CoastArrivalUT)) return guidance.CoastArrivalUT;
+            if (Last != null && Last.TimeToArrival > 0 && Last.Phase != GuidancePhase.Done) return ut + Last.TimeToArrival;
+            return plannedArrivalUT;
         }
 
         private static void Guard(string what, Action step)
@@ -194,7 +353,7 @@ namespace FlipAndBurn
             }
             catch (Exception e)
             {
-                Debug.LogError($"[FlipAndBurn] while stopping, {what}: {e}");
+                Debug.LogWarning($"[FlipAndBurn] while {what}: {e.GetType().Name}: {e.Message}");
             }
         }
 
@@ -203,6 +362,7 @@ namespace FlipAndBurn
         {
             WarpRatesSnapshot saved = playerPhysicsRates;
             playerPhysicsRates = null;
+            tripPhysicsRates = null;
             if (TimeWarp.fetch == null) return;   // the scene's TimeWarp is gone, and the trip's rates with it
             TimeWarp.SetRate(0, true);
             if (saved == null) return;
@@ -211,22 +371,105 @@ namespace FlipAndBurn
                       (saved.Matches(TimeWarp.fetch.physicsWarpRates) ? "same array, same values" : "MISMATCH"));
         }
 
-        // Leaving the flight scene (Space Center, Tracking Station, main menu, a reload): stop first, so the warp rates and
-        // MechJeb settings go back while the flight scene is still there.
+        // Leaving the flight scene (Space Center, Tracking Station, main menu, a reload): pause first, so the warp rates and
+        // MechJeb settings go back while the flight scene is still there. KSP saved the game, trip included, just before.
         private void OnSceneLoadRequested(GameScenes scene)
         {
-            if (controlling) Stop("The trip stopped because the game left the flight scene. Start it again from Flip and Burn when you are back in flight.");
+            if (!controlling) return;
+            string where = scene == GameScenes.SPACECENTER ? "you went to the Space Center"
+                : scene == GameScenes.TRACKSTATION ? "you went to the Tracking Station"
+                : scene == GameScenes.MAINMENU ? "you went to the main menu"
+                : scene == GameScenes.FLIGHT ? "the game was reloaded"
+                : "the game left the flight scene";
+            Pause(where, byPlayer: false);
+        }
+
+        // Switching to another ship: this one's trip pauses (only the active ship can fly a trip). A trip paused with the
+        // Pause button stops waiting for Resume once the player leaves: it carries on when they come back, like any other.
+        private void OnVesselChange(Vessel now)
+        {
+            if (now == Vessel) return;
+            if (controlling) Pause("you switched to " + (now != null ? now.vesselName : "another ship"), byPlayer: false);
+            else if (record != null) PausedByPlayer = false;
         }
 
         protected override void OnModuleDisabled()
         {
-            if (controlling) Stop("Flip and Burn was switched off.");
+            if (controlling || record != null) Stop("Flip and Burn was switched off.");
         }
 
         public override void OnDestroy()
         {
-            if (controlling) Stop("The ship was unloaded.");
+            // The ship unloading, or the game quitting: pause, so the trip carries on from the last save.
+            if (controlling) Pause("the ship was unloaded", byPlayer: false);
+            GameEvents.onVesselChange.Remove(OnVesselChange);
+            GameEvents.onGameSceneLoadRequested.Remove(OnSceneLoadRequested);
             base.OnDestroy();
+        }
+
+        // ------------------------------------------------------------------ saved with the ship (ADR 0004)
+
+        public override void OnStart(PartModule.StartState state)
+        {
+            base.OnStart(state);
+            if (record != null && !controlling) Enabled = true;   // a trip loaded with the ship: watch for the moment to resume
+        }
+
+        public override void OnLoad(ConfigNode local, ConfigNode type, ConfigNode global)
+        {
+            base.OnLoad(local, type, global);
+            // Only a fresh module picks a trip up: MechJeb also reloads its own capture of a module's settings.
+            if (local == null || !local.HasNode(TripNodeName) || record != null || controlling) return;
+            ConfigNode node = local.GetNode(TripNodeName);
+            TripRecord r = TripRecord.FromValues(node.values.Cast<ConfigNode.Value>().Select(v => new KeyValuePair<string, string>(v.name, v.value)), out string problem);
+            if (r == null)
+            {
+                StopReason = "Flip and Burn couldn't carry on the trip saved with this ship: " + problem + ". Plan it again here.";
+                Debug.LogWarning("[FlipAndBurn] saved trip not read: " + problem);
+                return;
+            }
+
+            record = r;
+            PausedByPlayer = false;
+            PauseNotice = $"The trip to {r.Target} was loaded with the ship; it carries on in a moment.";
+            settledSince = -1;
+            Debug.Log($"[FlipAndBurn] saved trip loaded: to {r.Target}, {r.Trip}, {r.Acceleration / TripCalculator.OneG:F2} g, last flown at UT {r.LastFlownUT:F1}, " +
+                      $"delta-v used {r.DeltaVUsed:F0} m/s, arrival planned at UT {r.PlannedArrivalUT:F0}");
+        }
+
+        public override void OnSave(ConfigNode local, ConfigNode type, ConfigNode global)
+        {
+            base.OnSave(local, type, global);
+            // The thrust controller has saved by now (it runs first); give the trip its acceleration limit back.
+            if (swappedForSave) AfterThrustSaved();
+            if (local == null || record == null) return;
+            if (controlling) UpdateRecord(Planetarium.GetUniversalTime());
+            ConfigNode node = local.AddNode(TripNodeName);
+            foreach (KeyValuePair<string, string> kv in record.ToValues()) node.AddValue(kv.Key, kv.Value);
+        }
+
+        /// <summary>
+        /// Just before MechJeb saves the thrust controller: put the player's acceleration limit in, so no MechJeb settings
+        /// file or saved game ever records the trip's (the only MechJeb settings the trip changes).
+        /// </summary>
+        internal void BeforeThrustSaves()
+        {
+            if (!controlling || swappedForSave) return;
+            MechJebModuleThrustController thrust = Core.Thrust;
+            tripLimitAcceleration = thrust.LimitAcceleration;
+            tripMaxAcceleration = thrust.MaxAcceleration.Val;
+            thrust.LimitAcceleration = playerLimitAcceleration;
+            thrust.MaxAcceleration.Val = playerMaxAcceleration;
+            swappedForSave = true;
+        }
+
+        private void AfterThrustSaved()
+        {
+            if (!swappedForSave) return;
+            swappedForSave = false;
+            MechJebModuleThrustController thrust = Core.Thrust;
+            thrust.LimitAcceleration = tripLimitAcceleration;
+            thrust.MaxAcceleration.Val = tripMaxAcceleration;
         }
 
         // The two MechJeb controllers Flip and Burn borrows, saved and loaded with MechJeb's own routine.
@@ -288,6 +531,13 @@ namespace FlipAndBurn
 
         public override void OnFixedUpdate()
         {
+            if (swappedForSave) AfterThrustSaved();   // safety net: a save that never reached this module's OnSave
+            if (!controlling)
+            {
+                if (record != null) WatchToResume();
+                return;
+            }
+
             if (!Running) return;
             Vessel v = Vessel;
             double ut = Planetarium.GetUniversalTime();
@@ -318,6 +568,7 @@ namespace FlipAndBurn
             MeasureHottestPart(v);
             Vector3d want = ToWorld(cmd.Direction);
             PointingError = Vector3d.Angle(facingWorld, want);
+            if (announceResume) AnnounceResume(ut, cmd);
 
             if (cmd.Phase == GuidancePhase.Done)
             {
@@ -359,6 +610,237 @@ namespace FlipAndBurn
             Watchdog(cmd, ut, thrustWanted, pointed, flipping);
             if (!Running) return;
             Warp(cmd);
+        }
+
+        // ------------------------------------------------------------------ resuming (ADR 0004)
+
+        // A paused trip on the ship the player is flying: once the ship has settled, carry on.
+        private void WatchToResume()
+        {
+            Vessel v = Vessel;
+            bool here = HighLogic.LoadedSceneIsFlight && FlightGlobals.ready && v != null && v == FlightGlobals.ActiveVessel && v.loaded && !v.packed &&
+                        TimeWarp.fetch != null;
+            if (!here || PausedByPlayer)
+            {
+                settledSince = -1;
+                return;
+            }
+
+            // Engines at zero until the trip has re-planned and the ship points where it should: a save made during a burn
+            // keeps the ship's throttle, and KSP gives it back when the ship loads.
+            HoldEnginesAtZero(v);
+            if (settledSince < 0)
+            {
+                settledSince = Time.realtimeSinceStartup;
+                RelightSavedCutEngines(v);
+                return;
+            }
+
+            if (Time.realtimeSinceStartup - settledSince < ResumeSettleSeconds) return;
+            settledSince = -1;
+            Resume();
+        }
+
+        private static void HoldEnginesAtZero(Vessel v)
+        {
+            v.ctrlState.mainThrottle = 0;
+            if (v == FlightGlobals.ActiveVessel) FlightInputHandler.state.mainThrottle = 0;
+            SetEngineThrottles(v, 0f);
+        }
+
+        // Engines the trip had shut down when it was saved (a cut, the coast): relight them at zero throttle, as at Start.
+        private void RelightSavedCutEngines(Vessel v)
+        {
+            if (record == null || record.CutEngines.Count == 0) return;
+            foreach (ModuleEngines e in v.FindPartModulesImplementing<ModuleEngines>())
+                if (e.part != null && record.CutEngines.Contains(e.part.persistentId) && !cutEngines.Contains(e)) cutEngines.Add(e);
+            RelightEngines(throttleZero: true);
+        }
+
+        /// <summary>
+        /// Carry a paused trip on: re-plan from where the ship is now with the tests the planner applies before Start, and
+        /// either fly on, telling the player how long they were away and what that did to the arrival, or stop with the
+        /// reason and nothing fired. Returns the stop reason, or null.
+        /// </summary>
+        private string Resume()
+        {
+            if (record == null || controlling) return "No trip to resume.";
+            Vessel v = Vessel;
+            double ut = Planetarium.GetUniversalTime();
+            CelestialBody target = FlightGlobals.Bodies.FirstOrDefault(b => b.bodyName == record.Target);
+            if (target == null)
+            {
+                Stop($"Flip and Burn couldn't carry on the trip saved with this ship: {record.Target} isn't in this game. Plan a new trip here.");
+                return StopReason;
+            }
+
+            string name = Planner.BodyName(target);
+            double away = Math.Max(0, ut - record.LastFlownUT);
+            ShipPerformance ship = null;
+            if (!CheatOptions.InfinitePropellant)
+            {
+                ShipReading reading = ShipPerformanceReader.Read(v, out string engineProblem);
+                if (engineProblem == null && reading.Report.NoThrust) engineProblem = "none of the active engines can push the ship in space";
+                if (engineProblem != null)
+                {
+                    RefuseResume(name, engineProblem.TrimEnd('.'));
+                    return StopReason;
+                }
+
+                ship = reading.Report.Performance;
+            }
+
+            TargetPlanet departure = DepartureFor(v, target);
+            TripRequest request = RequestFrom(v, ut, target, departure, record.Acceleration, record.ParkingAltitude);
+            double keep = record.Trip == TripType.CoastInTheMiddle ? record.PlannedArrivalUT : double.NaN;
+            double startDeltaV = StartDeltaVOf(record);
+            ReplanResult check = TripReplanner.Check(request, record.Trip, record.DeltaVLeft, ship, Planner.Reserve, keep, startDeltaV);
+            Debug.Log($"[FlipAndBurn] resume check: away {away:F1} s; {record.Trip} to {record.Target} at {record.Acceleration / TripCalculator.OneG:F2} g; " +
+                      $"{check.Problem}; {(check.KeptArrival ? "keeps the arrival it was flying to" : "fastest plan from here")}; remaining {check.RemainingTime:F0} s; delta-v needed {check.DeltaV:F0} m/s, available {check.DeltaVAvailable:F0} m/s; " +
+                      $"budget left {record.DeltaVLeft:F0} m/s, used {record.DeltaVUsed:F0} m/s; expected reserve at arrival {check.ReserveAtArrival:F0} m/s " +
+                      $"({check.ReserveShare * 100:F2}% of {startDeltaV:F0}; if the arrival were kept {check.ReserveIfKept:F0} m/s); infinite propellant {CheatOptions.InfinitePropellant}");
+            if (!check.Feasible)
+            {
+                RefuseResume(name, ProblemText(check, target, record.Acceleration, record.Trip));
+                return StopReason;
+            }
+
+            TurnRate = EstimateTurnRate();
+            trip = new TripStart
+            {
+                Target = target, Acceleration = record.ChosenAcceleration, Flip = record.Flip, Trip = record.Trip,
+                ParkingAltitude = record.ParkingAltitude, DeltaVBudget = record.DeltaVBudget, PlannedTripTime = record.PlannedArrivalUT - record.StartUT,
+            };
+            var config = new GuidanceConfig
+            {
+                Target = request.Target,
+                Departure = departure,
+                Acceleration = record.Acceleration,
+                Trip = record.Trip,
+                DeltaVBudget = record.Trip == TripType.CoastInTheMiddle ? check.DeltaVAvailable : record.DeltaVLeft,
+                Flip = record.Flip,
+                ParkingAltitude = record.ParkingAltitude,
+                TurnRate = TurnRate,
+                SunGravParameter = Planetarium.fetch.Sun.gravParameter,
+                // Fly exactly what the re-plan found: the arrival kept, or the fastest from here.
+                CoastArrivalUT = check.Coast != null ? check.Coast.ArrivalUT : double.NaN,
+            };
+
+            baseConfig = config;
+            guidance = new FlipAndBurnGuidance(config);
+            CurrentAcceleration = record.Acceleration;
+            deltaVUsed = record.DeltaVUsed;
+            startUT = record.StartUT;
+            Replans = record.Replans;
+            double oldArrival = record.PlannedArrivalUT;
+            plannedArrivalUT = ut + check.RemainingTime;
+            Last = null;
+            StopReason = null;
+            Arrived = false;
+            FlipSeconds = double.NaN;
+            flipStartUT = offCourseSince = mispointedSince = noThrustSince = weakSince = noEngineSince = cooldownUntil = double.NaN;
+            bestPointing = double.MaxValue;
+            PausedByPlayer = false;
+            PauseNotice = null;
+
+            SetReserve(check.ReserveAtArrival, startDeltaV, check.KeptArrival
+                ? "keeping the arrival it was flying to after the pause uses a sliver of it"
+                : "the ship has less delta-v left than the trip planned for");
+            Engage();
+            Resumes++;
+            LastAwaySeconds = away;
+            LastResumeOldArrivalUT = oldArrival;
+            LastResumeNewArrivalUT = double.NaN;
+            // Told on the first guidance step, so the new arrival is the guidance's own, as the old one was.
+            announceResume = true;
+            resumeKeptArrival = check.KeptArrival;
+            Notice = $"Trip resumed after {AwayText(away)} away; re-planning from where the ship is now.";
+            MechJebModuleFlipAndBurn window = Core.GetComputerModule<MechJebModuleFlipAndBurn>();
+            if (window != null && !window.Enabled) window.Enabled = true;   // show the player the trip is back
+            Debug.Log($"[FlipAndBurn] trip resumed to {record.Target} after {away:F1} s away: re-planned {check.RemainingTime:F0} s to go " +
+                      $"({(check.KeptArrival ? "keeping the arrival it was flying to" : "the fastest from here")}); {record.Trip} at " +
+                      $"{record.Acceleration / TripCalculator.OneG:F2} g, delta-v used {deltaVUsed:F0} m/s, budget for the rest {config.DeltaVBudget:F0} m/s; " +
+                      $"turn rate {TurnRate * 180 / Math.PI:F2} deg/s");
+            return null;
+        }
+
+        private bool announceResume, resumeKeptArrival;
+
+        private static string AwayText(double away) => away < 60 ? $"{away:0} s" : Planner.FormatTime(away);
+
+        // The resume message, on the first guidance step after a resume: how long the player was away, and what that did to
+        // the arrival, in plain words.
+        private void AnnounceResume(double ut, GuidanceCommand cmd)
+        {
+            announceResume = false;
+            double newArrival = ArrivalBeingFlown(ut), oldArrival = LastResumeOldArrivalUT, away = LastAwaySeconds;
+            plannedArrivalUT = newArrival;
+            LastResumeNewArrivalUT = newArrival;
+            UpdateRecord(ut);
+            double change = newArrival - oldArrival;
+            string why = away >= 60 ? $": the engine was off for {AwayText(away)}" : ": the new plan from where the ship is now needs it";
+            string changeText = Math.Abs(change) < 60
+                ? "about when it was planned before"
+                : $"{Planner.FormatTime(Math.Abs(change))} {(change > 0 ? "later" : "earlier")} than planned before{(change > 0 ? why : "")}";
+            Notice = $"Trip resumed after {AwayText(away)} away. Arrival in {Planner.FormatTime(newArrival - ut)}, {changeText}. " +
+                     "The ship turns to its burn direction before the engine fires.";
+            ScreenMessages.PostScreenMessage("Flip and Burn: " + Notice, 15f, ScreenMessageStyle.UPPER_CENTER);
+            Debug.Log($"[FlipAndBurn] resumed trip's arrival: UT {newArrival:F0}, was {oldArrival:F0} ({change:+0;-0} s), " +
+                      $"{(resumeKeptArrival ? "kept" : "re-planned")}; away {away:F1} s; first command {cmd.Phase}, pointing error {PointingError:F1} deg");
+        }
+
+        private void RefuseResume(string target, string why)
+        {
+            Stop($"Flip and Burn couldn't carry on the trip to {target}: {why}. Nothing was fired. Plan a new trip here: the window shows what this " +
+                 "ship can still do from where it is (a lower acceleration or a coast trip may still work).");
+            ScreenMessages.PostScreenMessage("Flip and Burn: " + StopReason, 15f, ScreenMessageStyle.UPPER_CENTER);
+        }
+
+        // The planet the ship is leaving, if it is inside one's sphere of influence (not the target's), as at Start.
+        private static TargetPlanet DepartureFor(Vessel v, CelestialBody target)
+        {
+            CelestialBody body = v.mainBody;
+            if (body == Planetarium.fetch.Sun || body == target) return null;
+            TargetPlanet departure = Planner.AsPlanet(body);
+            departure.SafeRadius = body.Radius + (body.atmosphere ? body.atmosphereDepth : 0) + 10_000;
+            return departure;
+        }
+
+        private static TripRequest RequestFrom(Vessel v, double ut, CelestialBody target, TargetPlanet departure, double acceleration, double parkingAltitude)
+        {
+            StateVector state = KspShip.HeliocentricState(v, ut);
+            return new TripRequest
+            {
+                ShipPosition = state.Position,
+                ShipVelocity = state.Velocity,
+                StartTime = ut,
+                Target = Planner.AsPlanet(target),
+                Departure = departure,
+                Acceleration = acceleration,
+                ParkingAltitude = parkingAltitude,
+                SunGravParameter = Planetarium.fetch.Sun.gravParameter,
+            };
+        }
+
+        // A re-plan's problem in plain words.
+        private static string ProblemText(ReplanResult r, CelestialBody target, double acceleration, TripType tripType)
+        {
+            string g = Planner.FormatG(acceleration / TripCalculator.OneG), name = Planner.BodyName(target);
+            switch (r.Problem)
+            {
+                case ReplanProblem.TargetGravityTooStrong:
+                    return $"{name}'s gravity at the parking orbit needs at least {Planner.FormatG(r.MinimumAcceleration / TripCalculator.OneG)}, more than {g}";
+                case ReplanProblem.CantHoldAcceleration:
+                    return $"the engines can now reach only {Planner.FormatG(r.MaxAcceleration / TripCalculator.OneG)}, less than {g}";
+                case ReplanProblem.NotEnoughDeltaV:
+                    return tripType == TripType.CoastInTheMiddle
+                        ? $"the delta-v left ({Planner.FormatSpeed(r.DeltaVAvailable)}, keeping the reserve) isn't enough for a coast trip to {name} from here at {g}"
+                        : $"the rest of the trip needs {Planner.FormatSpeed(r.DeltaV)} of delta-v and the ship has {Planner.FormatSpeed(r.DeltaVAvailable)} at {g}";
+                case ReplanProblem.SunInTheWay:
+                    return $"the Sun is now between the ship and {name}, and a coast trip can't go around it yet";
+                default:
+                    return $"there's no way to reach {name} from here at {g}";
+            }
         }
 
         // Stop with a plain reason when something goes wrong.
@@ -495,51 +977,34 @@ namespace FlipAndBurn
                 return;
             }
 
-            // Can the rest of the trip be flown at that acceleration?
+            // Can the rest of the trip be flown at that acceleration? (The fuel isn't re-checked here: the trip was checked at
+            // Start, and a lower acceleration needs less of it.)
             Vessel v = Vessel;
-            CelestialBody sun = Planetarium.fetch.Sun;
-            StateVector state = KspShip.HeliocentricState(v, ut);
-            TargetPlanet departure = v.mainBody != sun && v.mainBody != trip.Target ? Planner.AsPlanet(v.mainBody) : null;
-            var request = new TripRequest
-            {
-                ShipPosition = state.Position,
-                ShipVelocity = state.Velocity,
-                StartTime = ut,
-                Target = baseConfig.Target,
-                Departure = departure,
-                Acceleration = now,
-                ParkingAltitude = trip.ParkingAltitude,
-                SunGravParameter = sun.gravParameter,
-            };
-            TripPlan plan = TripCalculator.Plan(request);
+            TargetPlanet departure = DepartureFor(v, trip.Target);
+            TripRequest request = RequestFrom(v, ut, trip.Target, departure, now, trip.ParkingAltitude);
             double budget = Math.Max(0, trip.DeltaVBudget - deltaVUsed);
-            CoastPlan coast = trip.Trip == TripType.CoastInTheMiddle ? CoastPlanner.Plan(request, budget) : null;
+            double startDeltaV = record != null ? StartDeltaVOf(record) : double.NaN;
+            ReplanResult check = TripReplanner.Check(request, trip.Trip, budget, null, Planner.Reserve, double.NaN, startDeltaV);
             string g = Planner.FormatG(now / TripCalculator.OneG), gWas = Planner.FormatG(was / TripCalculator.OneG);
-            if (!plan.Feasible)
+            if (!check.Feasible)
             {
-                string reason = plan.Problem == TripProblem.TargetGravityTooStrong
-                    ? $"{Planner.BodyName(trip.Target)}'s gravity at the parking orbit needs at least {Planner.FormatG(plan.MinimumAcceleration / TripCalculator.OneG)}"
-                    : "there's no way to reach the target from here at that acceleration";
-                Stop($"Stopped: the engines could only hold {g} ({why}), and the trip can't be finished at {g}: {reason}.");
+                Stop($"Stopped: the engines could only hold {g} ({why}), and the trip can't be finished at {g}: {ProblemText(check, trip.Target, now, trip.Trip)}.");
                 return;
             }
 
-            if (coast != null && !coast.Feasible)
-            {
-                Stop($"Stopped: the engines could only hold {g} ({why}), and the delta-v left isn't enough for a coast trip at {g}.");
-                return;
-            }
-
-            double remaining = coast != null ? coast.TripTime : plan.TripTime;
+            double remaining = check.RemainingTime;
             double newArrival = ut + remaining;
             double change = newArrival - plannedArrivalUT;
             GuidanceConfig c = Copy(baseConfig);
             c.Acceleration = now;
             c.Departure = departure;
             c.DeltaVBudget = budget;
+            c.CoastArrivalUT = check.Coast != null ? check.Coast.ArrivalUT : double.NaN;
+            if (record != null) record.Acceleration = now;
             guidance = new FlipAndBurnGuidance(c);
             CurrentAcceleration = now;
             plannedArrivalUT = newArrival;
+            SetReserve(check.ReserveAtArrival, startDeltaV, "the rest of the trip at the lower acceleration needs more of it");
             Replans++;
             Notice = $"The engines couldn't safely hold {gWas}: {why}. Flip and Burn is now holding {g} and has re-planned the rest " +
                      $"of the trip: arrival is {Planner.FormatTime(Math.Abs(change))} {(change >= 0 ? "later" : "earlier")} " +
@@ -556,7 +1021,7 @@ namespace FlipAndBurn
             Flip = c.Flip, ParkingAltitude = c.ParkingAltitude, TurnRate = c.TurnRate, SunGravParameter = c.SunGravParameter,
             SunSafetyDistance = c.SunSafetyDistance, EquatorNormal = c.EquatorNormal, RelightToleranceDeg = c.RelightToleranceDeg,
             ArrivalCutoff = c.ArrivalCutoff, DetourMargin = c.DetourMargin, BrakingFraction = c.BrakingFraction,
-            CorrectionThreshold = c.CorrectionThreshold, MinThrustFraction = c.MinThrustFraction,
+            CorrectionThreshold = c.CorrectionThreshold, MinThrustFraction = c.MinThrustFraction, CoastArrivalUT = c.CoastArrivalUT,
         };
 
         private void MeasureHottestPart(Vessel v)
@@ -687,6 +1152,16 @@ namespace FlipAndBurn
         {
             TimeWarp tw = TimeWarp.fetch;
             if (tw == null) return;
+            if (tripPhysicsRates != null && !ReferenceEquals(tw.physicsWarpRates, tripPhysicsRates))
+            {
+                // Something else handed the game new physics rates during the trip (BetterTimeWarp sets its preset when a
+                // scene's GUI is ready, or the player picks another): those are now the player's to get back.
+                playerPhysicsRates = WarpRatesSnapshot.Take(tw.physicsWarpRates);
+                if (TimeWarp.CurrentRateIndex != 0) TimeWarp.SetRate(0, true);
+                tw.physicsWarpRates = tripPhysicsRates;
+                Debug.Log($"[FlipAndBurn] physics warp rates were replaced during the trip; the player's are now {playerPhysicsRates}");
+            }
+
             WarpDecision d = WarpPolicy.Decide(cmd, PointingError <= 2);
             bool wantPhysics = d.Mode == WarpMode.Physics;
             bool wantRails = d.Mode == WarpMode.Rails;

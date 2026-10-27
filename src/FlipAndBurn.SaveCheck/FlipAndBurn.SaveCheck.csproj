@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Dev-only check, never shipped. ./build.sh test installs it, with Flip and Burn itself removed, for one KSP run that
+    loads a save made mid-trip (ADR 0004), and removes it afterwards. It does nothing unless KSP is started with
+    -flipandburn-test. It must not reference Flip and Burn.
+  -->
+  <Import Project="../KSPReferences.props" />
+
+  <PropertyGroup>
+    <AssemblyName>FlipAndBurn.SaveCheck</AssemblyName>
+    <RootNamespace>FlipAndBurn.SaveCheck</RootNamespace>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+</Project>

@@ -173,6 +173,9 @@ namespace FlipAndBurn.Core.Tests
         public int Steps, Legs;
         public double ParkingAltitude, Acceleration;
         public readonly List<string> PhaseLog = new List<string>();
+        /// <summary>Where the ship was when the flight ended (finished, or stopped by <c>stopAfterSeconds</c>).</summary>
+        public double EndUT;
+        public Vec3 EndPosition, EndVelocity, EndFacing;
         public string SolverStats = "";
         public readonly List<string> Trace = new List<string>();
         public double TraceFrom = double.MaxValue, TraceTo = double.MaxValue, TraceEvery = 50;
@@ -201,13 +204,19 @@ namespace FlipAndBurn.Core.Tests
         public static FlightResult Fly(string name, PlanetRecord target, double accelG, FlipManeuver flip, double startUT,
             double parkingAltitude, double cruiseWarp = DefaultCruiseWarp, double turnRateDegPerSec = 5, double maxTimeFactor = 4,
             double stopAfterSeconds = double.MaxValue, double traceFrom = double.MaxValue, double traceTo = double.MaxValue, double traceEvery = 50, Action<GuidanceConfig> configure = null,
-            TripType trip = TripType.FullBurn, double deltaVBudget = 0)
+            TripType trip = TripType.FullBurn, double deltaVBudget = 0, Action<ShipSimulator> start = null)
         {
             PlanetRecord kerbin = KerbolSystem.Kerbin;
             double a = accelG * TripCalculator.OneG;
             double turnRate = turnRateDegPerSec * Math.PI / 180;
             var sim = new ShipSimulator(kerbin, target, turnRate);
             sim.StartInOrbit(kerbin, 100_000, startUT);
+            if (start != null)
+            {
+                // Pick a trip up from somewhere else (a resumed trip, ADR 0004).
+                start(sim);
+                startUT = sim.UT;
+            }
 
             TargetPlanet targetPlanet = target.AsTarget();
             targetPlanet.SphereOfInfluence = target.SphereOfInfluence;
@@ -332,6 +341,10 @@ namespace FlipAndBurn.Core.Tests
             }
 
             result.SolverStats = guidance.SolverStats;
+            result.EndUT = sim.UT;
+            result.EndPosition = sim.Position;
+            result.EndVelocity = sim.Velocity;
+            result.EndFacing = sim.Facing;
             result.TripTime = sim.UT - startUT;
             OrbitShape orbit = sim.OrbitAround(target);
             result.FinalEccentricity = orbit.Eccentricity;

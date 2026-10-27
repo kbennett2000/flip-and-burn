@@ -96,7 +96,7 @@ namespace FlipAndBurn.Core.Tests
             return new Dictionary<string, FlightResult>(results);
         });
 
-        private static FlightResult Flown(string name) => FlownCases.Value[name];
+        internal static FlightResult Flown(string name) => FlownCases.Value[name];
 
         private static void CheckBar(FlightResult r)
         {

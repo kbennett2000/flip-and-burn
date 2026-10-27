@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using JetBrains.Annotations;
+using FlipAndBurn.Core;
 using FlipAndBurn.Core.Guidance;
 using MuMech;
 using UnityEngine;
@@ -108,8 +110,21 @@ namespace FlipAndBurn
             return pilot.StartTrip(Planner.BuildTripStart());   // null when the trip started
         }
 
-        /// <summary>The Abort button (and the test helper).</summary>
+        /// <summary>The Abort button (and the test helper): end the trip for good, saved trip included.</summary>
         public void PressAbort() => Autopilot?.Stop("Aborted: you stopped the trip. The throttle is cut and your MechJeb settings are back.");
+
+        /// <summary>
+        /// The Pause button (and the test helper): engine off, trip kept. KSP won't save, switch ships or leave flight while a
+        /// ship accelerates at more than 0.1 g, so this is how a player leaves during a burn (ADR 0004).
+        /// </summary>
+        public void PressPause() => Autopilot?.Pause("you pressed Pause", byPlayer: true);
+
+        /// <summary>The Resume button (and the test helper). Returns a problem, or null.</summary>
+        public string PressResume()
+        {
+            MechJebModuleFlipAndBurnAutopilot pilot = Autopilot;
+            return pilot == null ? "Flip and Burn's autopilot isn't loaded." : pilot.PressResume();   // null when the trip carried on
+        }
 
         protected override void WindowGUI(int windowID)
         {
@@ -121,6 +136,10 @@ namespace FlipAndBurn
             if (pilot != null && pilot.Running)
             {
                 DrawFlying(pilot);
+            }
+            else if (pilot != null && pilot.Paused)
+            {
+                DrawPaused(pilot);
             }
             else if (Planner.SituationMessage != null)
             {
@@ -155,7 +174,7 @@ namespace FlipAndBurn
                     if (!string.IsNullOrEmpty(pilot.SettingsCheck)) GUILayout.Label(pilot.SettingsCheck, wrapStyle);
                 }
 
-                GUILayout.Label("No trip is running. A trip doesn't carry on after the game is saved and loaded: start it again here.", wrapStyle);
+                GUILayout.Label("No trip is running.", wrapStyle);
             }
 
             GUILayout.EndVertical();
@@ -179,6 +198,7 @@ namespace FlipAndBurn
                 GuiUtils.SimpleLabel("Pointing error", $"{pilot.PointingError:0.0}°");
             }
 
+            DrawReserve(pilot);
             GUILayout.Label("Warp: " + pilot.WarpStatus, wrapStyle);
             if (pilot.Notice != null)
             {
@@ -187,7 +207,47 @@ namespace FlipAndBurn
             }
 
             GUILayout.Space(6);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Pause")) PressPause();
             if (GUILayout.Button("Abort")) PressAbort();
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawPaused(MechJebModuleFlipAndBurnAutopilot pilot)
+        {
+            TripRecord r = pilot.Record;
+            CelestialBody target = FlightGlobals.Bodies.FirstOrDefault(b => b.bodyName == r.Target);
+            string name = target != null ? Planner.BodyName(target) : r.Target;
+            GuiUtils.SimpleLabel("Trip to", $"{name}, {(r.Trip == TripType.CoastInTheMiddle ? "coast in the middle" : "full burn")}");
+            GuiUtils.SimpleLabel("Phase", "paused, engine off");
+            GuiUtils.SimpleLabel("Acceleration", Planner.FormatG(r.Acceleration / Planner.OneG));
+            double toArrival = r.PlannedArrivalUT - Planetarium.GetUniversalTime();
+            if (toArrival > 0) GuiUtils.SimpleLabel("Arrival was planned in", Planner.FormatTime(toArrival));
+            DrawReserve(pilot);
+            if (pilot.PauseNotice != null)
+            {
+                GUILayout.Space(4);
+                GUILayout.Label(pilot.PauseNotice, noteStyle);
+            }
+
+            GUILayout.Space(6);
+            GUILayout.BeginHorizontal();
+            if (pilot.PausedByPlayer && GUILayout.Button("Resume"))
+            {
+                string problem = PressResume();
+                if (problem != null) ScreenMessages.PostScreenMessage("Flip and Burn: " + problem, 8f);
+            }
+
+            if (GUILayout.Button("Abort")) PressAbort();
+            GUILayout.EndHorizontal();
+        }
+
+        // The delta-v expected at arrival, and a plain warning when it is below the 10 % reserve.
+        private void DrawReserve(MechJebModuleFlipAndBurnAutopilot pilot)
+        {
+            if (double.IsNaN(pilot.ReserveShare)) return;
+            GuiUtils.SimpleLabel("Reserve at arrival", $"about {Planner.FormatSpeed(Math.Max(0, pilot.ReserveAtArrival))} ({pilot.ReserveShare * 100:0.0}%)");
+            if (pilot.ReserveNote != null) GUILayout.Label(pilot.ReserveNote, noteStyle);
         }
 
         private static string PhaseName(GuidanceCommand c)

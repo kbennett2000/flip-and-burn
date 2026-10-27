@@ -1,0 +1,12 @@
+# mechjeb_settings_global.cfg as MechJeb wrote it mid-trip (2026-10-27 00:49:07, the test helper's forced MechJeb save at log step 7).
+# In memory at that moment the trip's limit was on: LimitAcceleration True, MaxAcceleration 3.924 (0.4 g).
+# The file has the player's values: the save guard swapped them in for MechJeb's save (ADR 0004).
+11:	LimitAcceleration = False
+12-	LimiterMinThrottle = True
+13-	MaxDynamicPressure
+14-	{
+--
+23:	MaxAcceleration
+24-	{
+25-		ValConfig = 40
+26-		TextConfig = 40
