@@ -156,7 +156,7 @@ namespace FlipAndBurn.TestHarness
             module.AccelerationG.Val = 0.4;
             module.SelectTripType(TripType.CoastInTheMiddle);
             yield return new WaitForSecondsRealtime(SettleSeconds);
-            module.Planner.Refresh(f.Ship);
+            module.Replan();
             string problem = module.PressStart();
             if (problem != null) { Fail("coastdrain", "Start refused: " + problem); failed = true; yield break; }
             MechJebModuleFlipAndBurnAutopilot pilot = module.Autopilot;
@@ -205,7 +205,7 @@ namespace FlipAndBurn.TestHarness
             foreach ((string name, double kgPerHour) in new[] { ("no loss measured", 0.0), ("0.299 kg/h (drain test, no electric charge)", 0.299), ("100 kg/h", 100.0) })
             {
                 pilot.Loss.Restore(kgPerHour * 24, 24 * 3600);
-                module.Planner.Refresh(f.Ship);
+                module.Replan();
                 Planner p = module.Planner;
                 TripStart start = p.BuildTripStart();
                 Log($"loss plan [{name}]: rate {pilot.Loss.RateKgPerSecond * 3600:F3} kg/h; coast feasible {p.Coast?.Feasible}; trip {p.Coast?.TripTime:F0} s; " +
@@ -233,7 +233,7 @@ namespace FlipAndBurn.TestHarness
             }
 
             pilot.Loss.Restore(0, 0);
-            module.Planner.Refresh(f.Ship);
+            module.Replan();
             if (!ok) { Fail("lossplan", "the planner didn't allow for the measured loss as expected"); failed = true; }
             outcome.Ok = ok;
         }

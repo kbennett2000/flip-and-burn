@@ -180,6 +180,12 @@ namespace FlipAndBurn.Core.Tests
         public double WatchPeakShare;
         /// <summary>The simulation hit its real-time limit (<see cref="Flights.MaxWallSeconds"/>).</summary>
         public bool TimedOut;
+        /// <summary>
+        /// Every game hour (every 2 minutes while climbing out): the time, whether the ship was climbing out, the delta-v
+        /// burned so far and the guidance's burning left (for the reserve the window shows, ReserveShownTests).
+        /// </summary>
+        public readonly List<(double UT, bool Climbing, double Used, double BurnTimeLeft, GuidancePhase Phase)> ReserveSamples =
+            new List<(double, bool, double, double, GuidancePhase)>();
         /// <summary>Where the ship was when the flight ended (finished, or stopped by <c>stopAfterSeconds</c>).</summary>
         public double EndUT;
         public Vec3 EndPosition, EndVelocity, EndFacing;
@@ -232,7 +238,7 @@ namespace FlipAndBurn.Core.Tests
             double parkingAltitude, double cruiseWarp = DefaultCruiseWarp, double turnRateDegPerSec = 5, double maxTimeFactor = 4,
             double stopAfterSeconds = double.MaxValue, double traceFrom = double.MaxValue, double traceTo = double.MaxValue, double traceEvery = 50, Action<GuidanceConfig> configure = null,
             TripType trip = TripType.FullBurn, double deltaVBudget = 0, Action<ShipSimulator> start = null, bool watch = true,
-            double wallSeconds = MaxWallSeconds)
+            double wallSeconds = MaxWallSeconds, Action<double, GuidanceCommand, double, FlipAndBurnGuidance> observe = null)
         {
             PlanetRecord kerbin = KerbolSystem.Kerbin;
             double a = accelG * TripCalculator.OneG;
@@ -302,6 +308,7 @@ namespace FlipAndBurn.Core.Tests
             GuidancePhase lastPhase = (GuidancePhase)(-1);
             int lastLeg = 0;
             bool lastDeparting = false, lastCirc = false, lastCorr = false;
+            double nextReserveSample = startUT;
             while (sim.UT < limit)
             {
                 // A hang fails fast: no simulated trip may take more than this many real seconds.
@@ -388,6 +395,13 @@ namespace FlipAndBurn.Core.Tests
                 {
                     result.DeltaVUsed += cmd.Acceleration * dt;
                     sim.Step(dt, cmd.Direction, cmd.Acceleration);
+                }
+
+                observe?.Invoke(sim.UT, cmd, result.DeltaVUsed, guidance);
+                if (sim.UT >= nextReserveSample && cmd.Phase != GuidancePhase.Done)
+                {
+                    nextReserveSample = sim.UT + (cmd.Departing ? 120 : 3600);
+                    result.ReserveSamples.Add((sim.UT, cmd.Departing, result.DeltaVUsed, guidance.BurnTimeLeft, cmd.Phase));
                 }
 
                 result.Steps++;

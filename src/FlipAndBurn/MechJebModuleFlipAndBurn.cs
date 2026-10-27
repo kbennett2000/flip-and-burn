@@ -55,6 +55,36 @@ namespace FlipAndBurn
 
         protected override GUILayoutOption[] WindowOptions() => new[] { GUILayout.Width(380) };
 
+        // Unity's layout grows a window to fit but never shrinks it, so after the planner (tall) the trip window kept the
+        // planner's height. When what's shown changes shape, the height is reset once and the window fits again. (Only on a
+        // change: every new window position marks MechJeb's settings as changed.)
+        private string lastLayout;
+
+        public override void DrawGUI(bool inEditor)
+        {
+            string layout = LayoutKey();
+            if (layout != lastLayout)
+            {
+                lastLayout = layout;
+                Rect r = WindowPos;
+                if (r.height > 40) WindowPos = new Rect(r.x, r.y, r.width, 40);
+            }
+
+            base.DrawGUI(inEditor);
+        }
+
+        // What decides the window's height: which view, and how many lines of each kind.
+        private string LayoutKey()
+        {
+            MechJebModuleFlipAndBurnAutopilot pilot = Autopilot;
+            if (pilot != null && pilot.Running)
+                return $"flying|{pilot.Last?.Phase}|{pilot.Notice?.Length}|{pilot.ReserveNote?.Length}|{double.IsNaN(pilot.ReserveShare)}";
+            if (pilot != null && pilot.Paused)
+                return $"paused|{pilot.PauseNotice?.Length}|{pilot.ReserveNote?.Length}|{pilot.PausedByPlayer}";
+            return $"plan|{Planner.SituationMessage?.Length}|{TripTypeIndex}|{Planner.Target?.bodyName}|{Planner.TripRows.Count}|{Planner.ShipRows.Count}|" +
+                   string.Join(",", Planner.Notes.Select(n => n.Length)) + $"|{pilot?.StopReason?.Length}|{pilot?.SettingsCheck?.Length}";
+        }
+
         public override void OnUpdate()
         {
             if (!Enabled || Vessel == null) return;
@@ -71,6 +101,13 @@ namespace FlipAndBurn
             SyncInputs();
             Planner.Refresh(Vessel);
             return true;
+        }
+
+        /// <summary>For the test harness: take the inputs as they are now (acceleration, flip style) and plan right away.</summary>
+        public void Replan()
+        {
+            SyncInputs();
+            Planner.Refresh(Vessel);
         }
 
         /// <summary>For the test harness: pick the trip type and plan right away.</summary>
@@ -113,7 +150,7 @@ namespace FlipAndBurn
         }
 
         /// <summary>The Abort button (and the test helper): end the trip for good, saved trip included.</summary>
-        public void PressAbort() => Autopilot?.Stop("Aborted: you stopped the trip. The throttle is cut and your MechJeb settings are back.");
+        public void PressAbort() => Autopilot?.Stop("Trip aborted. The engine is off and your MechJeb settings are as they were.");
 
         /// <summary>
         /// The Pause button (and the test helper): engine off, trip kept. KSP won't save, switch ships or leave flight while a
@@ -133,8 +170,16 @@ namespace FlipAndBurn
             wrapStyle ??= new GUIStyle(GUI.skin.label) { wordWrap = true };
             noteStyle ??= new GUIStyle(GUI.skin.label) { wordWrap = true, normal = { textColor = new Color(1f, 0.85f, 0.35f) } };
 
-            GUILayout.BeginVertical();
             MechJebModuleFlipAndBurnAutopilot pilot = Autopilot;
+            // An input changed in the last event (a key, a click): plan again before drawing, so the rows never show the
+            // old plan beside the new input. Only at the start of a layout pass, so layout and paint draw the same rows.
+            if (Event.current.type == EventType.Layout && Vessel != null && !(pilot != null && (pilot.Running || pilot.Paused)))
+            {
+                SyncInputs();
+                Planner.Update(Vessel);
+            }
+
+            GUILayout.BeginVertical();
             if (pilot != null && pilot.Running)
             {
                 DrawFlying(pilot);
@@ -192,8 +237,10 @@ namespace FlipAndBurn
                 if (c.Phase == GuidancePhase.Coast)
                     GuiUtils.SimpleLabel("Braking starts in", Planner.FormatTime(c.TimeToBurn));
                 GuiUtils.SimpleLabel("Arrival in", Planner.FormatTime(c.TimeToArrival));
-                GuiUtils.SimpleLabel("Acceleration", $"{Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (holding {Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)})");
-                GuiUtils.SimpleLabel("Pointing error", $"{pilot.PointingError:0.0}°");
+                GuiUtils.SimpleLabel("Acceleration", c.Phase == GuidancePhase.Coast && !c.Correcting
+                    ? "engine off (coasting)"
+                    : $"{Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (aiming for {Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)})");
+                GuiUtils.SimpleLabel("Pointing off by", $"{pilot.PointingError:0.0}°");
             }
 
             DrawReserve(pilot);
@@ -261,7 +308,7 @@ namespace FlipAndBurn
         {
             switch (c.Phase)
             {
-                case GuidancePhase.Accelerate: return c.Departing ? "speeding up (climbing out)" : "speeding up";
+                case GuidancePhase.Accelerate: return c.Departing ? "speeding up (climbing out of orbit)" : "speeding up";
                 case GuidancePhase.Flip: return "flip";
                 case GuidancePhase.Coast: return c.Correcting ? "coasting (course correction)" : "coasting, engine off";
                 case GuidancePhase.Decelerate: return "slowing down";

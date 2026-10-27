@@ -76,5 +76,12 @@ namespace FlipAndBurn.Core.Tests
             Assert.Equal(5, WarpPolicy.PickIndex(rates, 1000, cap: 25));
             Assert.Equal(0, WarpPolicy.PickIndex(rates, 1.5));
         }
+
+        [Fact]
+        public void CoastTrip_TheSpeedUpEndsInTheCoast()
+        {
+            Assert.Contains("flip in", WarpPolicy.Decide(Cmd(GuidancePhase.Accelerate, toFlip: 3000), pointed: true).Reason);
+            Assert.Contains("coast in", WarpPolicy.Decide(Cmd(GuidancePhase.Accelerate, toFlip: 3000), pointed: true, coastTrip: true).Reason);
+        }
     }
 }

@@ -186,7 +186,7 @@ namespace FlipAndBurn.TestHarness
                     m2.AccelerationG.Val = g;
                     m2.SelectTripType(type);
                     yield return new WaitForSecondsRealtime(1f);
-                    m2.Planner.Refresh(second.Ship);
+                    m2.Replan();
                     Log($"step {step}: second ship, {type} to {target} at {g} g: can start {m2.Planner.CanStart}" +
                         (m2.Planner.CanStart ? "" : "; " + string.Join(" ", m2.Planner.Notes)));
                     if (!m2.Planner.CanStart) continue;

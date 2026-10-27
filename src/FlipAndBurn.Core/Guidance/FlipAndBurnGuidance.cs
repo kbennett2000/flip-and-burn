@@ -171,6 +171,12 @@ namespace FlipAndBurn.Core.Guidance
         /// <summary>The Sun-detour waypoint, if this trip uses one.</summary>
         public Vec3? DetourWaypoint => legs.Count > 1 ? legs[0].Waypoint : (Vec3?)null;
 
+        /// <summary>
+        /// Seconds of burning left in the trip at the acceleration being flown, as the latest plan has it (the speed-up still
+        /// to go and the braking; a coast trip's coast doesn't count). NaN when not known (making the orbit safe).
+        /// </summary>
+        public double BurnTimeLeft { get; private set; } = double.NaN;
+
         /// <summary>Coast trips: the arrival time being flown to (NaN for a full burn).</summary>
         public double CoastArrivalUT => coastArrivalUT;
 
@@ -182,8 +188,17 @@ namespace FlipAndBurn.Core.Guidance
 
         public GuidanceCommand Update(GuidanceInput input)
         {
-            if (safeOrbit) return SafeOrbitStep(input);
-            if (circularizing) return Circularize(input);
+            if (safeOrbit)
+            {
+                BurnTimeLeft = double.NaN;
+                return SafeOrbitStep(input);
+            }
+
+            if (circularizing)
+            {
+                BurnTimeLeft = 0;
+                return Circularize(input);
+            }
 
             if (!initialized) Initialize(input);
             currentPosition = input.Position;
@@ -213,6 +228,7 @@ namespace FlipAndBurn.Core.Guidance
                 if (!IsCoastTrip) flipTime = Vec3.Angle(arcs.A1, arcs.A2) / config.TurnRate;
                 if (!leg.IsWaypoint) UpdateGravityAllowance(input, arcs);
 
+                BurnTimeLeft = arcs.T1 + arcs.T2;
                 if (arcs.T1 > Math.Max(step, 1e-3))
                 {
                     cmd.Direction = arcs.A1.Normalized();
@@ -259,6 +275,7 @@ namespace FlipAndBurn.Core.Guidance
             Vec3 thrust = law.Solve(input.UT, input.Position, input.Velocity, out double timeToGo);
             Vec3 want = thrust.Normalized();
             cmd.TimeToArrival = timeToGo;
+            BurnTimeLeft = timeToGo;
 
             if (phase == GuidancePhase.Flip)
             {
@@ -344,6 +361,7 @@ namespace FlipAndBurn.Core.Guidance
             }
 
             plannedBrakingTime = tb;
+            BurnTimeLeft = tb;
             double coastLeft = tau - tb;
             // Once braking is near, latch its start: it may come earlier, never later. Close to it the coast plan is
             // ill-conditioned at high speed (the time left is the square root of a small difference of large numbers: at

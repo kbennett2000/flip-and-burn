@@ -164,6 +164,20 @@ namespace FlipAndBurn.TestHarness
                 if (!ok.Ok || failed) yield break;
             }
 
+            // Cycle 12: the pictures for the player's guide (only when asked: "docshots").
+            if ((wanted ?? "").Split(',').Contains("docshots"))
+            {
+                yield return ProofDocShots();
+                if (failed) yield break;
+            }
+
+            if ((wanted ?? "").Split(',').Contains("docstart"))
+            {
+                yield return ProofDocStart();
+                if (failed) yield break;
+            }
+
+
             // Cycle 11: the delta-v reader, checked against tools/verify/check_reader.py (only when asked: "readercheck").
             if ((wanted ?? "").Split(',').Contains("readercheck"))
             {
@@ -484,7 +498,7 @@ namespace FlipAndBurn.TestHarness
             // Flip and Burn's own reader.
             try
             {
-                module.Planner.Refresh(ship);
+                module.Replan();
                 ShipPerformance perf = module.Planner.Ship;
                 Log("diag FlipAndBurn: FullThrust=" + F(perf.FullThrust) + " N VacuumIsp=" + F(perf.VacuumIsp) + " s IspThrottleExponent=" +
                     F(perf.IspThrottleExponent) + " StartMass=" + F(perf.StartMass) + " kg EndMass=" + F(perf.EndMass) + " kg");
