@@ -178,10 +178,17 @@ runs.
 - **Flip styles:** cut, flip, relight (engine off while turning, relight within 5 degrees) and skew flip (thrust while
   turning) come from the guidance.
 - **Engine off means off.** Whenever no thrust is wanted (the cut in a cut, flip, relight; the coast; Abort and every
-  other stop), each running engine's actual throttle is set to zero at once. Engines follow the commanded throttle at
-  their own pace, and the Kerbstein drive winds down so slowly that in the game it kept pushing about 1 g through a
-  whole "cut" flip, and was still at 1 g three seconds after an Abort. On a coast trip the flip is the turn to the braking direction during the coast,
-  with the engine off.
+  other stop), each running engine's throttle is zeroed and the engine is shut down, the way KSP Interstellar's own
+  safety cut-off does it. It is relit when thrust is wanted again, and after a stop it is left active at zero throttle,
+  as it was at Start.
+  - Found in the game: after a long warped cruise, the Kerbstein drive kept pushing about 1 g through a whole "cut" flip,
+    and after an Abort, with the ship's throttle at zero. Its requested throttle stayed at the old value.
+  - Short tests (temperature cheat on or off, 25x warp for 30 s) cut cleanly, so the trigger is the long cruise. Shutting
+    the engine down cuts it whatever the cause.
+  - Relighting: the engine is activated again (and the part force-activated, as KSP Interstellar does). While thrust is
+    wanted, Flip and Burn also sets each running engine's own throttle to what MechJeb's acceleration limit computes
+    (commanded acceleration over full-thrust acceleration). In the game the relit Kerbstein drive didn't pick up the
+    ship's throttle by itself.
 - **Stopping by itself**, with the reason in plain words:
   - out of fuel: thrust wanted but the engines give less than 10 % of it for 10 s, unless infinite propellant is on;
   - can't turn: the flip takes more than 4 half-turns at the estimated turn rate (at least 2 minutes), or the ship
