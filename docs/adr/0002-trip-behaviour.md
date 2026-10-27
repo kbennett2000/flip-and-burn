@@ -289,3 +289,41 @@ the save. The delta-v holding acceleration a is then 2 · Isp · g0 · √(a/F) 
   the old figures are the right ones × √0.126: the throttle rule counted twice.
 - A stock ship (CubeSat v3.2, a KE-1 Mastodon; `check_engines.py` from cycle 7) is unchanged: 699.5 m/s at 0.4, 1 and
   2 g, before and after, and 699.5 m/s independently. A stock engine has no throttle rule.
+
+## Addendum (2026-10-27): what the player reads (cycle 12 polish)
+
+Kris asked for the window and every message to read cleanly for a first-time player. Changes that alter behaviour:
+
+- **The window fits what it shows.** Unity's layout grows a window but never shrinks it, so the trip window kept the
+  planner's height. When the content changes shape, the height is reset once (not every frame: every new window
+  position marks MechJeb's settings as changed).
+- **No stale rows.** An input changed in the window is planned again at the start of the next layout pass, so the rows
+  never show the old plan beside the new input. The test helper plans through the same path (`Replan`).
+- **Numbers that add up as written.** The shortfall message writes needed, available and short at one precision (the
+  largest number's), and takes "short" from the two rounded numbers (`Readout.Shortfall`). A ship's most acceleration
+  is rounded **down** everywhere, so the window never promises more than the ship can do ("can reach only 3.16 g …
+  lower the acceleration to that or less", where it used to say 3.17 g and then 3.16 g).
+- **The right reason for a low reserve.** The live check keeps the reason the last plan gave (Start, a resume, a heat
+  re-plan) while the reserve is where that plan put it, and names a new cause only when it falls further. A resume that
+  keeps its arrival at 9.2 % used to be blamed on "the trip using more delta-v than planned".
+- **Passing messages pass.** "Trip resumed …" and "the engines couldn't safely hold …" clear when the trip moves to its
+  next phase; the safe-orbit messages stay.
+- **Plainer rows:** "Top speed (relative to Kerbin)", "Pointing off by", "1.00 g (aiming for 1.00 g)", "engine off
+  (coasting)" during the coast, and a coast trip's warp line says "coast in …" rather than "flip in …".
+- **MechJeb's stage-simulation NullReference** on KSP Interstellar ships never came from Flip and Burn: only the test
+  helper's diagnostic asks MechJeb for its stage simulation (and catches it). The mod itself never calls it.
+- **The reserve the player sees is the realistic figure** (Kris, product owner, cycle 12). A first trip that warned
+  "under 10 %" mid-trip and then arrived with 13.1 % would worry players for nothing. The window and messages now show
+  what the ship will most likely arrive with; the autopilot's own decisions (keeping an arrival after a pause, re-plans,
+  refusals) keep the whole 6 % guidance margin as before.
+  - *After the climb out:* the delta-v the ship has, less the burning the guidance has left (`BurnTimeLeft` × the
+    acceleration), plus 1 % for a coast trip's course corrections and final settling (`ReserveWatch.FlyingOverhead`; a
+    full burn is flown within 0.1 % of its plan and gets none).
+  - *While climbing out* (the guidance's times aren't settled yet): from the plan, at what coast trips really use, 2.7 %
+    over their burns rather than the plan's 6 % (`ReserveWatch.TypicalCoastOverhead`; trip B used 64,044 of 66,058 m/s
+    planned with the margin, the guide's 1 g trip 101 of 104 km/s).
+  - *Proof* (`ReserveShownTests`, the simulator): every sample after the climb out within a point of what the ship
+    arrived with: Duna coast 0.92 points (184 samples), Jool coast 0.56 (417), a full burn to Duna 0.45 (33). While
+    climbing out: 1.10, 1.44 and 0.10 points.
+  - *The warning* comes only when the realistic figure is under 10 %. It keeps the last plan's reason while the figure
+    is within a point of that plan's, and names a new cause only when it falls further.

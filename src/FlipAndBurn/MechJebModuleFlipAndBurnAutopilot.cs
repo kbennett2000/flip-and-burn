@@ -125,6 +125,8 @@ namespace FlipAndBurn
         public double CurrentAcceleration { get; private set; }
         /// <summary>What changed during the trip, in plain words (shown in the window), or null.</summary>
         public string Notice { get; private set; }
+        // The phase a passing message belongs to; null for messages that stay (the safe-orbit rescue).
+        private GuidancePhase? noticePhase;
         /// <summary>How many times the trip was re-planned at a lower acceleration.</summary>
         public int Replans { get; private set; }
         /// <summary>The delta-v expected to be left at arrival (m/s), from the last plan; NaN when fuel isn't counted.</summary>
@@ -255,6 +257,29 @@ namespace FlipAndBurn
             reservePlanUsedAt = usedAt;
         }
 
+        // The reserve a plan expects at arrival, and why it is what it is: the live check keeps that reason while the
+        // reserve is where the plan put it, and looks for a new one only when it falls further.
+        private double planReserve = double.NaN;
+        private string planWhy;
+
+        // What the player is shown for a plan made now: the realistic figure (what such trips really use, ReserveWatch),
+        // not the plan's 6 % guidance margin, which stays in the autopilot's own decisions. "cautious" if the engines can't be
+        // read.
+        private double ShownReserveForPlan(double neededFromHere, double acceleration, double timeLeft, double cautious)
+        {
+            double have = DeltaVNow(acceleration);
+            if (double.IsNaN(have) || record == null) return cautious;
+            double allowanceLeft = record.LossAllowance * ReserveWatch.AllowanceShareLeft(timeLeft, record.StartPlannedTripTime);
+            return ReserveWatch.ExpectedAtArrival(have, ReserveWatch.ExpectedUse(neededFromHere, record.Trip == TripType.CoastInTheMiddle), 0, allowanceLeft);
+        }
+
+        private void PlanReserve(double reserve, double startDeltaV, string why)
+        {
+            SetReserve(reserve, startDeltaV, why);
+            planReserve = reserve;
+            planWhy = why;
+        }
+
         // Every 30 real seconds: the delta-v the ship has against what the plan still needs (ReserveWatch). Delta-v burned
         // comes off both, so only propellant gone without thrust, or the engines doing worse than they read, moves it.
         private void WatchReserve(GuidanceCommand cmd, Vessel v)
@@ -265,8 +290,17 @@ namespace FlipAndBurn
             double have = DeltaVNow(CurrentAcceleration);
             if (!(start > 0) || double.IsNaN(reservePlanNeeded) || double.IsNaN(have)) return;
             double allowanceLeft = record.LossAllowance * ReserveWatch.AllowanceShareLeft(cmd.TimeToArrival, trip.PlannedTripTime);
-            double reserve = ReserveWatch.ExpectedAtArrival(have, reservePlanNeeded, deltaVUsed - reservePlanUsedAt, allowanceLeft);
-            SetReserve(reserve, start, ReserveCause(), 0.005);
+            // The realistic figure (ADR 0002, cycle 12): from the burning the guidance has left, once the ship has climbed out
+            // of the planet it left (before that the guidance's times aren't settled); until then from the plan, at what
+            // such trips really use.
+            bool coast = trip.Trip == TripType.CoastInTheMiddle;
+            double burnLeft = guidance.BurnTimeLeft;
+            double reserve = cmd.Departing || double.IsNaN(burnLeft)
+                ? ReserveWatch.ExpectedAtArrival(have, ReserveWatch.ExpectedUse(reservePlanNeeded, coast), deltaVUsed - reservePlanUsedAt, allowanceLeft)
+                : have - ReserveWatch.RemainingUse(CurrentAcceleration, burnLeft, coast) - allowanceLeft;
+            // Below the plan's own figure by more than a point: something since the plan, so say what.
+            bool asPlanned = !double.IsNaN(planReserve) && reserve >= planReserve - 0.01 * start;
+            SetReserve(reserve, start, asPlanned ? planWhy : ReserveCause());
             if (ReserveNote != null && !reserveWarned)
             {
                 reserveWarned = true;
@@ -344,7 +378,8 @@ namespace FlipAndBurn
             reserveWarned = false;
             nextReserveCheck = 0;
             lastEngines = null;
-            SetReserve(start.StartDeltaV - start.DeltaVNeeded - start.LossAllowance, start.StartDeltaV, "the plan at Start needs it");
+            PlanReserve(ReserveWatch.ExpectedAtArrival(start.StartDeltaV, ReserveWatch.ExpectedUse(start.DeltaVNeeded, start.Trip == TripType.CoastInTheMiddle),
+                0, start.LossAllowance), start.StartDeltaV, "the plan at Start needs it");
             SetReservePlan(start.DeltaVNeeded, 0);
             Engage();
             Debug.Log($"[FlipAndBurn] trip started to {start.Target.bodyName}: {start.Trip}, {start.Acceleration / TripCalculator.OneG:F2} g, " +
@@ -662,7 +697,8 @@ namespace FlipAndBurn
             }
 
             bool same = l.ToString() == savedLocal.ToString() && t.ToString() == savedType.ToString() && g.ToString() == savedGlobal.ToString();
-            SettingsCheck = same ? "MechJeb settings restored: identical to before the trip." : "MechJeb settings restored, but they differ from before the trip!";
+            SettingsCheck = same ? "Your MechJeb settings are back as they were before the trip."
+                : "Your MechJeb settings were put back, but some differ from before the trip: check them in MechJeb's windows.";
         }
 
         /// <summary>
@@ -740,6 +776,12 @@ namespace FlipAndBurn
             Vector3d want = ToWorld(cmd.Direction);
             PointingError = Vector3d.Angle(facingWorld, want);
             if (announceResume) AnnounceResume(ut, cmd);
+            // A message about the trip (resumed, stepped down) is news until the trip moves on to its next phase.
+            if (Notice != null && noticePhase.HasValue && cmd.Phase != noticePhase.Value && !cmd.SafeOrbit)
+            {
+                Notice = null;
+                noticePhase = null;
+            }
 
             if (cmd.Phase == GuidancePhase.Done)
             {
@@ -933,8 +975,8 @@ namespace FlipAndBurn
             reserveWarned = false;
             nextReserveCheck = 0;
             SetReservePlan(check.DeltaV, record.DeltaVUsed);
-            SetReserve(check.ReserveAtArrival, startDeltaV, check.KeptArrival
-                ? "keeping the arrival it was flying to after the pause uses a sliver of it"
+            PlanReserve(ShownReserveForPlan(check.DeltaV, record.Acceleration, check.RemainingTime, check.ReserveAtArrival), startDeltaV, check.KeptArrival
+                ? "catching up to the original arrival time after the pause costs a little of it"
                 : "the ship has less delta-v left than the trip planned for");
             Engage();
             Resumes++;
@@ -974,6 +1016,7 @@ namespace FlipAndBurn
                 : $"{Planner.FormatTime(Math.Abs(change))} {(change > 0 ? "later" : "earlier")} than planned before{(change > 0 ? why : "")}";
             Notice = $"Trip resumed after {AwayText(away)} away. Arrival in {Planner.FormatTime(newArrival - ut)}, {changeText}. " +
                      "The ship turns to its burn direction before the engine fires.";
+            noticePhase = cmd.Phase;
             ScreenMessages.PostScreenMessage("Flip and Burn: " + Notice, 15f, ScreenMessageStyle.UPPER_CENTER);
             Debug.Log($"[FlipAndBurn] resumed trip's arrival: UT {newArrival:F0}, was {oldArrival:F0} ({change:+0;-0} s), " +
                       $"{(resumeKeptArrival ? "kept" : "re-planned")}; away {away:F1} s; first command {cmd.Phase}, pointing error {PointingError:F1} deg");
@@ -1021,7 +1064,7 @@ namespace FlipAndBurn
                 case ReplanProblem.TargetGravityTooStrong:
                     return $"{name}'s gravity at the parking orbit needs at least {Planner.FormatG(r.MinimumAcceleration / TripCalculator.OneG)}, more than {g}";
                 case ReplanProblem.CantHoldAcceleration:
-                    return $"the engines can now reach only {Planner.FormatG(r.MaxAcceleration / TripCalculator.OneG)}, less than {g}";
+                    return $"the engines can now reach only {Planner.FormatMaxG(r.MaxAcceleration)}, less than {g}";
                 case ReplanProblem.NotEnoughDeltaV:
                     return tripType == TripType.CoastInTheMiddle
                         ? $"the delta-v left ({Planner.FormatSpeed(r.DeltaVAvailable)}, keeping the reserve) isn't enough for a coast trip to {name} from here at {g}"
@@ -1065,6 +1108,7 @@ namespace FlipAndBurn
             guidance.EnterSafeOrbit(lastInput, why, full);
             string name = Planner.BodyName(trip.Target);
             Notice = $"Flip and Burn can't finish in the planned parking orbit: {why}. It is putting the ship in a safe orbit around {name} instead.";
+            noticePhase = null;
             ScreenMessages.PostScreenMessage("Flip and Burn: " + Notice, 15f, ScreenMessageStyle.UPPER_CENTER);
             Debug.Log($"[FlipAndBurn] safe orbit instead: {why}; full thrust {full:F2} m/s^2; altitude {Vessel.altitude:F0} m, orbit {Vessel.orbit.PeA:F0} x {Vessel.orbit.ApA:F0} m");
             return true;
@@ -1076,6 +1120,7 @@ namespace FlipAndBurn
             double was = guidance.SafeOrbitAcceleration;
             guidance.SetSafeOrbitAcceleration(acceleration);
             Notice = $"Making the orbit safe at {Planner.FormatG(acceleration / TripCalculator.OneG)} (was {Planner.FormatG(was / TripCalculator.OneG)}): {why}.";
+            noticePhase = null;
             ScreenMessages.PostScreenMessage("Flip and Burn: " + Notice, 10f, ScreenMessageStyle.UPPER_CENTER);
             Debug.Log($"[FlipAndBurn] safe orbit eased off to {acceleration:F3} m/s^2 (was {was:F3}): {why}");
         }
@@ -1301,11 +1346,13 @@ namespace FlipAndBurn
             guidance = new FlipAndBurnGuidance(c);
             CurrentAcceleration = now;
             plannedArrivalUT = newArrival;
-            SetReserve(check.ReserveAtArrival, startDeltaV, "the rest of the trip at the lower acceleration needs more of it");
+            PlanReserve(ShownReserveForPlan(check.DeltaV, now, check.RemainingTime, check.ReserveAtArrival), startDeltaV,
+                "the rest of the trip at the lower acceleration needs more of it");
             Replans++;
             Notice = $"The engines couldn't safely hold {gWas}: {why}. Flip and Burn is now holding {g} and has re-planned the rest " +
                      $"of the trip: arrival is {Planner.FormatTime(Math.Abs(change))} {(change >= 0 ? "later" : "earlier")} " +
                      $"({Planner.FormatTime(remaining)} from now).";
+            noticePhase = Last?.Phase;
             ScreenMessages.PostScreenMessage("Flip and Burn: " + Notice, 15f, ScreenMessageStyle.UPPER_CENTER);
             Debug.Log($"[FlipAndBurn] re-planned at {now / TripCalculator.OneG:F2} g (was {was / TripCalculator.OneG:F2} g, measured " +
                       $"{MeasuredAcceleration / TripCalculator.OneG:F4} g at full throttle, waste heat {heat * 100:F1}%): trip {remaining:F0} s from now, " +
@@ -1459,7 +1506,7 @@ namespace FlipAndBurn
                 Debug.Log($"[FlipAndBurn] physics warp rates were replaced during the trip; the player's are now {playerPhysicsRates}");
             }
 
-            WarpDecision d = WarpPolicy.Decide(cmd, PointingError <= 2);
+            WarpDecision d = WarpPolicy.Decide(cmd, PointingError <= 2, trip?.Trip == TripType.CoastInTheMiddle);
             bool wantPhysics = d.Mode == WarpMode.Physics;
             bool wantRails = d.Mode == WarpMode.Rails;
             float[] rates = wantRails ? tw.warpRates : tw.physicsWarpRates;

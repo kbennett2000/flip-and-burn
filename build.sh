@@ -8,6 +8,8 @@
 #                       FLIPANDBURN_PROOFS picks proofs (rates,resume,overheat,flip,coast,cuttest; default all but
 #                       cuttest). With "resume", KSP is launched twice more: once to load the save made mid-trip, and
 #                       once with Flip and Burn removed from GameData to load it again (put back afterwards).
+#   ./build.sh release  Build and write release/FlipAndBurn-<version>.zip with exactly what goes in GameData
+#                       (GameData/FlipAndBurn/Plugins/*.dll, the licence and a readme). Installs nothing.
 #
 # KSPDir comes from local.props (copy local.props.example to start).
 set -euo pipefail
@@ -48,6 +50,32 @@ install_plugin() {
 }
 
 case "$mode" in
+    release)
+        dotnet build "$plugin_project" -c "$config" -nologo
+        version="$(dotnet msbuild "$plugin_project" -nologo -getProperty:Version)"
+        stage="$(mktemp -d)"
+        mod="$stage/GameData/FlipAndBurn"
+        mkdir -p "$mod/Plugins" release
+        cp "src/FlipAndBurn/bin/$config/FlipAndBurn.dll" "src/FlipAndBurn/bin/$config/FlipAndBurn.Core.dll" "$mod/Plugins/"
+        cp LICENSE "$mod/LICENSE.txt"
+        cat > "$mod/README.txt" <<TXT
+Flip and Burn $version
+Expanse-style constant-thrust travel between planets, as a MechJeb window.
+
+Needs KSP 1.12.x, MechJeb2 2.15 or later, and Module Manager.
+Install: copy the FlipAndBurn folder into your KSP GameData folder.
+Guide: https://github.com/kbennett2000/flip-and-burn
+
+Public domain (the Unlicense): use it for anything.
+TXT
+        zip="$repo/release/FlipAndBurn-$version.zip"
+        rm -f "$zip"
+        (cd "$stage" && zip -q -r -X "$zip" GameData)
+        rm -rf "${stage:?}"
+        echo "Wrote $zip:"
+        unzip -l "$zip"
+        exit 0
+        ;;
     install)
         install_plugin
         remove_harness
@@ -56,7 +84,7 @@ case "$mode" in
     test)
         ;;
     *)
-        echo "Unknown mode '$mode'. Use: ./build.sh  or  ./build.sh test" >&2
+        echo "Unknown mode '$mode'. Use: ./build.sh, ./build.sh test or ./build.sh release" >&2
         exit 2
         ;;
 esac

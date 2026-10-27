@@ -39,7 +39,8 @@ namespace FlipAndBurn.Core.Guidance
         /// <summary>Normal warp keeps the braking burn at least this many real seconds away (leaving rails takes a moment).</summary>
         public const double RailsLeadSeconds = 60;
 
-        public static WarpDecision Decide(GuidanceCommand cmd, bool pointed)
+        /// <param name="coastTrip">A coast trip: the speed-up ends in the coast, not a flip, and the warp line says so.</param>
+        public static WarpDecision Decide(GuidanceCommand cmd, bool pointed, bool coastTrip = false)
         {
             if (cmd == null) return Normal("not flying");
             switch (cmd.Phase)
@@ -62,7 +63,7 @@ namespace FlipAndBurn.Core.Guidance
                 case GuidancePhase.Coast:
                     return Capped(WarpMode.Rails, cmd.TimeToBurn, RailsLeadSeconds, "coasting, engine off", "braking burn");
                 case GuidancePhase.Accelerate:
-                    return Capped(WarpMode.Physics, cmd.TimeToFlip, PhysicsLeadSeconds, "speeding up", "flip");
+                    return Capped(WarpMode.Physics, cmd.TimeToFlip, PhysicsLeadSeconds, "speeding up", coastTrip ? "coast" : "flip");
                 default: // Decelerate, FinalApproach
                     return Capped(WarpMode.Physics, cmd.TimeToArrival, PhysicsLeadSeconds, "slowing down", "arrival");
             }

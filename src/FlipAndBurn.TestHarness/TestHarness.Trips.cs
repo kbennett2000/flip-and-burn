@@ -156,7 +156,7 @@ namespace FlipAndBurn.TestHarness
             module.AccelerationG.Val = spec.AccelG;
             module.SelectTripType(spec.Trip);
             yield return new WaitForSecondsRealtime(SettleSeconds);
-            module.Planner.Refresh(f.Ship);
+            module.Replan();
             Log($"trip {spec.Name}: {spec.What}; infinite propellant {CheatOptions.InfinitePropellant}, ignore max temperature {CheatOptions.IgnoreMaxTemperature}, " +
                 $"physics warp up to x{spec.MaxPhysicsRate}; arrival tolerance: periapsis and apoapsis within {OrbitTolerance * 100:0}% of the parking altitude, " +
                 $"both above the atmosphere; planner can start {module.Planner.CanStart}");

@@ -57,7 +57,7 @@ namespace FlipAndBurn.TestHarness
                 if (r.resourceName == "LqdDeuterium") fuelUnits += r.amount;
             Log($"reader check [{v.vesselName}, {state}]: vessel.totalMass {v.totalMass:R} t; LqdDeuterium {fuelUnits:R} units");
 
-            module.Planner.Refresh(v);
+            module.Replan();
             ShipPerformance now = module.Planner.Ship;
             string problem = string.Join(" ", module.Planner.Notes.Where(n => n.Contains("engine")));
             // The old reader: thrust and Isp straight from the engine module (maxThrust, the Isp curve at vacuum).
@@ -77,7 +77,7 @@ namespace FlipAndBurn.TestHarness
             foreach (double g in ReaderCheckG)
             {
                 module.AccelerationG.Val = g;
-                module.Planner.Refresh(v);
+                module.Replan();
                 string rows = string.Join("; ", module.Planner.ShipRows.Select(r => $"{r.Key.Trim()} = {r.Value}"));
                 double a = g * TripCalculator.OneG;
                 Log($"reader check [{v.vesselName}, {state}] {g:0.0} g: new {now?.DeltaVAtAcceleration(a):F1} m/s, old {old?.DeltaVAtAcceleration(a):F1} m/s; " +

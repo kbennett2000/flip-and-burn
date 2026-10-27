@@ -175,19 +175,19 @@ namespace FlipAndBurn
                     ? $"{FormatSpeed(available)} at {FormatG(AccelerationG)}{estimate}"
                     : "—"));
                 ShipRows.Add(Row("  at full thrust", FormatSpeed(Ship.FullThrustDeltaV) + estimate));
-                ShipRows.Add(Row("Ship's max acceleration", FormatG(Ship.MaxAcceleration / OneG) + estimate));
+                ShipRows.Add(Row("Ship's max acceleration", FormatMaxG(Ship.MaxAcceleration) + estimate));
             }
 
             Notes.AddRange(reading.Report.Notes);
             if (engineProblem != null) Notes.Add(engineProblem);
             if (reading.StagesBelow > 0)
             {
-                Notes.Add($"This ship has {reading.StagesBelow} more stage{(reading.StagesBelow == 1 ? "" : "s")} below the current one. " +
-                          "Flip and Burn plans with the engines firing now and the fuel they can reach; the stages below aren't counted.");
+                Notes.Add($"This ship has {reading.StagesBelow} more stage{(reading.StagesBelow == 1 ? "" : "s")} below this one. " +
+                          "Flip and Burn only counts the engines running now and the fuel they can reach.");
             }
 
             if (InfinitePropellant)
-                Notes.Add("Infinite propellant is on (a KSP cheat), so fuel isn't counted: no delta-v limits apply.");
+                Notes.Add("KSP's Infinite Propellant cheat is on, so fuel isn't counted.");
 
             if (Target == null)
             {
@@ -229,8 +229,8 @@ namespace FlipAndBurn
             bool canHold = engineProblem == null && Ship.HasThrust && requested <= Ship.MaxAcceleration;
             if (engineProblem == null && !canHold)
             {
-                Notes.Add($"This ship can reach only {FormatG(Ship.MaxAcceleration / OneG)}, less than the {FormatG(AccelerationG)} you asked for. " +
-                          $"Lower the acceleration to {FormatG(Math.Floor(Ship.MaxAcceleration / OneG * 100) / 100)} or less.");
+                Notes.Add($"This ship can reach only {FormatMaxG(Ship.MaxAcceleration)}, less than the {FormatG(AccelerationG)} you asked for. " +
+                          "Lower the acceleration to that or less.");
             }
 
             if (Trip == TripType.CoastInTheMiddle)
@@ -240,8 +240,8 @@ namespace FlipAndBurn
 
             if (Plan.UsesSunDetour)
             {
-                Notes.Add($"The Sun is in the way: the straight path passes {FormatDistance(Plan.StraightClosestSunDistance)} from it, inside the " +
-                          $"{FormatDistance(request.SunSafetyDistance)} safety limit. The trip goes around it in two legs, and the numbers above include the detour.");
+                Notes.Add($"The Sun is in the way: the straight path passes {FormatDistance(Plan.StraightClosestSunDistance)} from it, closer than the " +
+                          $"safe {FormatDistance(request.SunSafetyDistance)}. The trip goes around it in two legs; the numbers above include the detour.");
             }
             else if (Plan.GravityNotNegligible && Trip == TripType.FullBurn)
             {
@@ -253,7 +253,7 @@ namespace FlipAndBurn
         {
             TripRows.Add(Row("Trip time", FormatTime(Plan.TripTime)));
             TripRows.Add(Row("Flip in", FormatTime(Plan.TimeToFlip)));
-            TripRows.Add(Row($"Peak speed (vs. {DepartureName})", FormatSpeed(Plan.PeakSpeed)));
+            TripRows.Add(Row($"Top speed (relative to {DepartureName})", FormatSpeed(Plan.PeakSpeed)));
             TripRows.Add(Row("Delta-v needed", FormatSpeed(Plan.TotalDeltaV)));
             if (!shipKnown) return;
 
@@ -262,8 +262,9 @@ namespace FlipAndBurn
             HasShortfall = !(canHold && enough);
             if (!canHold || enough) return;
 
-            Notes.Add($"Not enough delta-v: the trip needs {FormatSpeed(Readiness.DeltaVNeeded)}, but at {FormatG(AccelerationG)} " +
-                      $"this ship has {FormatSpeed(Readiness.DeltaVAvailable)}. Short by {FormatSpeed(Readiness.DeltaVShortfall)}.");
+            (string needed, string has, string shortBy) = Readout.Shortfall(Readiness.DeltaVNeeded, Readiness.DeltaVAvailable);
+            Notes.Add($"Not enough delta-v: the trip needs {needed}, but at {FormatG(AccelerationG)} " +
+                      $"this ship has {has}. Short by {shortBy}.");
             if (Plan.UsesSunDetour)
             {
                 Notes.Add("A trip with a coast in the middle can't go around the Sun yet, so there's no coast trip to suggest right now.");
@@ -289,7 +290,7 @@ namespace FlipAndBurn
 
             if (!(available > 0))
             {
-                Notes.Insert(0, "A trip with a coast in the middle is planned from the ship's delta-v, and this ship's isn't known.");
+                Notes.Insert(0, "A coast trip is planned from the ship's delta-v, and Flip and Burn can't read this ship's.");
                 return;
             }
 
@@ -297,12 +298,11 @@ namespace FlipAndBurn
             if (!Coast.Feasible)
             {
                 Notes.Insert(0, LossBlocks
-                    ? $"Not even a trip with a coast in the middle fits once this ship's boil-off is allowed for: its tanks lose about " +
-                      $"{FormatMass(Math.Max(0, LossRate?.Invoke() ?? 0) * DayLength)} of propellant a day while the engines are off, and over a coast " +
-                      $"that long it would arrive with less than 10% in reserve. If the tanks need power to stay cold, keep them powered, " +
-                      "or choose a higher acceleration for a shorter trip."
-                    : $"Not even a trip with a coast in the middle fits: at {FormatG(AccelerationG)} this ship has {FormatSpeed(available)}, " +
-                      $"and after keeping 10% in reserve that can't reach {BodyName(target)} and stop there.");
+                    ? $"No coast trip fits once this ship's boil-off is counted: its tanks lose about " +
+                      $"{FormatMass(Math.Max(0, LossRate?.Invoke() ?? 0) * DayLength)} of fuel a day with the engines off, so it would arrive with " +
+                      "less than 10% in reserve. Keep the tanks powered if they need power to stay cold, or choose a higher acceleration for a shorter trip."
+                    : $"No coast trip fits either: at {FormatG(AccelerationG)} this ship has {FormatSpeed(available)} of delta-v, and after keeping " +
+                      $"10% in reserve that isn't enough to reach {BodyName(target)} and stop there.");
                 return;
             }
 
@@ -369,8 +369,8 @@ namespace FlipAndBurn
         {
             if (!(LossAllowance > 0)) return null;
             double rate = Math.Max(0, LossRate?.Invoke() ?? 0);
-            return $"This ship's tanks lose about {FormatMass(rate * DayLength)} of propellant a day while the engines are off (boil-off, " +
-                   $"measured on this ship). This trip allows for it: {FormatSpeed(LossAllowance)} of delta-v is set aside, so it still arrives with 10% in reserve.";
+            return $"This ship's tanks lose about {FormatMass(rate * DayLength)} of fuel a day with the engines off (boil-off, measured on this " +
+                   "ship). The trip allows for it, so it still arrives with 10% in reserve.";
         }
 
         private string PlanProblem(TripPlan plan, TripRequest request, CelestialBody target)
@@ -444,14 +444,7 @@ namespace FlipAndBurn
         /// <summary>KSP's own compact time format, which follows the game's Kerbin/Earth time setting.</summary>
         public static string FormatTime(double seconds) => KSPUtil.PrintDateDeltaCompact(seconds, true, false);
 
-        public static string FormatSpeed(double metresPerSecond)
-        {
-            double kms = metresPerSecond / 1000.0;
-            if (metresPerSecond < 1000) return metresPerSecond.ToString("N0", CultureInfo.InvariantCulture) + " m/s";
-            if (kms < 10) return kms.ToString("N2", CultureInfo.InvariantCulture) + " km/s";
-            if (kms < 100) return kms.ToString("N1", CultureInfo.InvariantCulture) + " km/s";
-            return kms.ToString("N0", CultureInfo.InvariantCulture) + " km/s";
-        }
+        public static string FormatSpeed(double metresPerSecond) => Readout.Speed(metresPerSecond);
 
         /// <summary>A game day (s): 6 hours with Kerbin time, 24 with Earth time.</summary>
         public static double DayLength => KSPUtil.dateTimeFormatter?.Day > 0 ? KSPUtil.dateTimeFormatter.Day : 21600;
@@ -459,6 +452,9 @@ namespace FlipAndBurn
         public static string FormatMass(double kg) => kg >= 1000
             ? (kg / 1000).ToString("0.0", CultureInfo.InvariantCulture) + " t"
             : kg.ToString(kg >= 10 ? "0" : "0.0", CultureInfo.InvariantCulture) + " kg";
+
+        /// <summary>A ship's most acceleration (m/s^2), rounded down: the window never promises more than the ship can do.</summary>
+        public static string FormatMaxG(double metresPerSecondSquared) => FormatG(Math.Floor(metresPerSecondSquared / OneG * 100) / 100);
 
         public static string FormatG(double g) => g.ToString("0.00", CultureInfo.InvariantCulture) + " g";
 
