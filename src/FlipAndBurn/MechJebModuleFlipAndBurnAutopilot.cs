@@ -159,6 +159,10 @@ namespace FlipAndBurn
             try
             {
                 Core.Thrust.ThrustOff();
+                // Stop the engines at once: some spool down slowly (the Kerbstein drive still pushed 1 g three seconds
+                // after the throttle was cut).
+                foreach (ModuleEngines e in Vessel.FindPartModulesImplementing<ModuleEngines>())
+                    if (e.EngineIgnited) e.currentThrottle = 0f;
                 Core.Thrust.Users.Remove(this);
                 Core.Attitude.Users.Remove(this);
                 if (Core.Attitude.Users.Count == 0) Core.Attitude.attitudeDeactivate();
@@ -309,6 +313,11 @@ namespace FlipAndBurn
             else
             {
                 thrust.TargetThrottle = 0f;
+                // Cut means cut: some engines spool down slowly (the Kerbstein drive kept pushing about 1 g through a
+                // "cut, flip, relight" flip while its throttle wound down), so stop them at once.
+                if (!thrustWanted)
+                    foreach (ModuleEngines e in v.FindPartModulesImplementing<ModuleEngines>())
+                        if (e.EngineIgnited) e.currentThrottle = 0f;
             }
 
             Watchdog(cmd, ut, thrustWanted, pointed, flipping);
@@ -518,6 +527,14 @@ namespace FlipAndBurn
         {
             double hottest = 0;
             string name = "";
+            if (CheatOptions.IgnoreMaxTemperature)
+            {
+                // KSP's "ignore max temperature" cheat: no part can fail from heat, so heat needn't hold anything back.
+                HottestFraction = 0;
+                HottestPart = "";
+                return;
+            }
+
             foreach (Part p in v.parts)
             {
                 double f = Math.Max(p.maxTemp > 0 ? p.temperature / p.maxTemp : 0, p.skinMaxTemp > 0 ? p.skinTemperature / p.skinMaxTemp : 0);

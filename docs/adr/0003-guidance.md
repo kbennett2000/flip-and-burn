@@ -169,8 +169,18 @@ runs.
 - **The player's MechJeb settings:** the thrust and attitude controllers' settings are saved with MechJeb's own save
   routine when the trip starts and loaded back the same way when it ends or is aborted. A second save afterwards is
   compared with the first, and the window says whether they match.
+  - In the game every MechJeb settings file was byte-identical before Start and after Abort except for two window
+    heights MechJeb records whenever a window is redrawn:
+    - Flip and Burn's own window (650 → 660 px: it shows the stop reason after Abort);
+    - MechJeb's Maneuver Planner (238 → 223 px: its contents follow the ship's orbit).
+  - No setting value changed. Fixing window heights would mean fighting MechJeb's window layout, so they are left as
+    MechJeb records them.
 - **Flip styles:** cut, flip, relight (engine off while turning, relight within 5 degrees) and skew flip (thrust while
-  turning) come from the guidance. On a coast trip the flip is the turn to the braking direction during the coast,
+  turning) come from the guidance.
+- **Engine off means off.** Whenever no thrust is wanted (the cut in a cut, flip, relight; the coast; Abort and every
+  other stop), each running engine's actual throttle is set to zero at once. Engines follow the commanded throttle at
+  their own pace, and the Kerbstein drive winds down so slowly that in the game it kept pushing about 1 g through a
+  whole "cut" flip, and was still at 1 g three seconds after an Abort. On a coast trip the flip is the turn to the braking direction during the coast,
   with the engine off.
 - **Stopping by itself**, with the reason in plain words:
   - out of fuel: thrust wanted but the engines give less than 10 % of it for 10 s, unless infinite propellant is on;

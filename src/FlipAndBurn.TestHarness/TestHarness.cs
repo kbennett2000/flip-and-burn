@@ -58,29 +58,60 @@ namespace FlipAndBurn.TestHarness
             Log("step 1: harness active (" + Flag + " given)");
             yield return new WaitForSecondsRealtime(3f);
 
+            // Which proofs to run: all by default; FLIPANDBURN_PROOFS (e.g. "flip,coast") picks some, so a long run that
+            // already passed one part needn't repeat it.
+            string wanted = Environment.GetEnvironmentVariable("FLIPANDBURN_PROOFS");
+            bool Want(string name) => string.IsNullOrEmpty(wanted) ? name != "cuttest" : wanted.Split(',').Contains(name);
+            Log("proofs: " + (string.IsNullOrEmpty(wanted) ? "all" : wanted));
+            string save = SaveFile;
+
+            // Diagnostic: does the engine cut at Abort with the temperature cheat on / after 25x warp / with neither?
+            if (Want("cuttest"))
+            {
+                foreach ((string label, bool cheat, float warp) in new[] { ("A", true, 1f), ("B", true, 25f), ("C", false, 1f) })
+                {
+                    var flown = new Flown();
+                    yield return PlanOnShip("Bebop Refueller", null, null, flown, save);
+                    if (!flown.Ok) yield break;
+                    yield return CutTest(flown, label, cheat, warp);
+                    save = "quicksave";
+                }
+            }
+
             // (a) Overheating: 1 g with infinite propellant only; the autopilot steps down, re-plans and says so; Abort.
-            var flown = new Flown();
-            yield return PlanOnShip("Bebop Refueller", null, null, flown, SaveFile);
-            if (!flown.Ok) yield break;
-            var ok = new CaptureResult();
-            yield return ProofOverheat(flown, ok);
-            if (!ok.Ok) yield break;
+            if (Want("overheat"))
+            {
+                var flown = new Flown();
+                yield return PlanOnShip("Bebop Refueller", null, null, flown, save);
+                if (!flown.Ok) yield break;
+                var ok = new CaptureResult();
+                yield return ProofOverheat(flown, ok);
+                if (!ok.Ok) yield break;
+                save = "quicksave";   // the next proof starts from the test save's start again
+            }
 
             // (a) The flip, from the same start: 1 g with overheating ignored too; warp probe, the flip, braking, Abort.
-            flown = new Flown();
-            yield return PlanOnShip("Bebop Refueller", null, null, flown, "quicksave");
-            if (!flown.Ok) yield break;
-            ok = new CaptureResult();
-            yield return ProofFullBurn(flown, ok);
-            if (!ok.Ok) yield break;
+            if (Want("flip"))
+            {
+                var flown = new Flown();
+                yield return PlanOnShip("Bebop Refueller", null, null, flown, save);
+                if (!flown.Ok) yield break;
+                var ok = new CaptureResult();
+                yield return ProofFullBurn(flown, ok);
+                if (!ok.Ok) yield break;
+                save = "quicksave";
+            }
 
-            // (b) Coast trip to Duna without the cheat, from the same starting point: burn, coast under warp, Abort.
-            flown = new Flown();
-            yield return PlanOnShip("Bebop Refueller", null, null, flown, "quicksave");
-            if (!flown.Ok) yield break;
-            ok = new CaptureResult();
-            yield return ProofCoast(flown, ok);
-            if (!ok.Ok) yield break;
+            // (b) Coast trip to Duna without the cheats, from the same starting point: burn, coast under warp, Abort.
+            if (Want("coast"))
+            {
+                var flown = new Flown();
+                yield return PlanOnShip("Bebop Refueller", null, null, flown, save);
+                if (!flown.Ok) yield break;
+                var ok = new CaptureResult();
+                yield return ProofCoast(flown, ok);
+                if (!ok.Ok) yield break;
+            }
 
             Log("step " + step + ": done, quitting KSP");
             Application.Quit();
@@ -466,12 +497,16 @@ namespace FlipAndBurn.TestHarness
         /// <paramref name="onCaptured"/> runs in the same frame the pixels were read, so what it logs is what the image shows.
         /// Falls back to asking build.sh for an external grab when the in-game read comes back blank.
         /// </summary>
-        private IEnumerator Capture(int step, string file, CaptureResult result, Action onCaptured)
+        private IEnumerator Capture(int step, string file, CaptureResult result, Action onCaptured, bool retried = false)
         {
             string folder = Path.Combine(KSPUtil.ApplicationRootPath, ScreenshotFolder);
             string path = Path.GetFullPath(Path.Combine(folder, file));
             Directory.CreateDirectory(folder);
             if (File.Exists(path)) File.Delete(path);
+            // KSP only draws while its window is on screen; a capture taken while it's hidden comes back blank, and the
+            // external grab then shows whatever is in front instead.
+            if (!Application.isFocused)
+                Log("step " + step + ": note: the KSP window isn't the active window (fine if it's still on screen)");
 
             foreach (string method in new[] { "readpixels", "screen-to-rendertexture", "readpixels-without-msaa" })
             {
@@ -517,6 +552,20 @@ namespace FlipAndBurn.TestHarness
 
             // Ask build.sh to grab the KSP window from outside (ffmpeg x11grab), then check that image.
             onCaptured();
+            // Blank in game: KSP isn't drawing, most likely because its window is hidden. Freeze the moment (pause the
+            // game) and wait for the window to come back, then try again, rather than capture nothing.
+            if (!retried && HighLogic.LoadedSceneIsFlight)
+            {
+                Log("step " + step + ": in-game capture blank: pausing the game until the KSP window is back on screen (up to 15 minutes)");
+                FlightDriver.SetPause(true, false);
+                float waitUntil = Time.realtimeSinceStartup + 900f;
+                while (!Application.isFocused && Time.realtimeSinceStartup < waitUntil) yield return new WaitForSecondsRealtime(1f);
+                FlightDriver.SetPause(false, false);
+                yield return new WaitForSecondsRealtime(1f);
+                yield return Capture(step, file, result, onCaptured, true);
+                yield break;
+            }
+
             Log("step " + step + ": in-game capture blank; external capture requested: " + path);
             float deadline = Time.realtimeSinceStartup + ExternalCaptureTimeout;
             while (Time.realtimeSinceStartup < deadline)
@@ -537,6 +586,10 @@ namespace FlipAndBurn.TestHarness
                 Log("step " + step + ": external capture: mean brightness " + brightness.ToString("0.00", Inv) + "/255");
                 if (brightness >= MinBrightness)
                 {
+                    string hash = BitConverter.ToString(System.Security.Cryptography.SHA256.Create().ComputeHash(File.ReadAllBytes(path)));
+                    if (hash == lastExternalHash)
+                        Log("step " + step + ": WARNING: this external capture is identical to the previous one: the KSP window probably wasn't on screen");
+                    lastExternalHash = hash;
                     Log("step " + step + ": screenshot saved to " + path + " (" + new FileInfo(path).Length + " bytes, method external-x11grab)");
                     result.Ok = true;
                     yield break;
@@ -547,6 +600,8 @@ namespace FlipAndBurn.TestHarness
 
             result.Error = "every capture was blank (mean brightness below " + MinBrightness + "/255)";
         }
+
+        private static string lastExternalHash;
 
         private static Texture2D CaptureViaReadPixels()
         {
