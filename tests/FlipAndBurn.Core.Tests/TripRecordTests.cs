@@ -24,6 +24,8 @@ namespace FlipAndBurn.Core.Tests
             PlannedArrivalUT = 18378245603.999999,
             LastFlownUT = 18377814450.000001,
             Replans = 3,
+            StartPlannedTripTime = 431213.98765432101,
+            LossAllowance = 2387.9876543,
             CutEngines = new List<uint> { 4294967295, 1, 2_147_483_648 },
         };
 
@@ -43,7 +45,9 @@ namespace FlipAndBurn.Core.Tests
             Assert.Equal(a.PlannedArrivalUT, b.PlannedArrivalUT);
             Assert.Equal(a.LastFlownUT, b.LastFlownUT);
             Assert.Equal(a.Replans, b.Replans);
+            Assert.Equal(a.StartPlannedTripTime, b.StartPlannedTripTime);
             Assert.Equal(a.CutEngines, b.CutEngines);
+            Assert.Equal(a.LossAllowance, b.LossAllowance);
         }
 
         [Fact]
@@ -109,6 +113,25 @@ namespace FlipAndBurn.Core.Tests
                 .Select(kv => kv.Key == "version" ? new KeyValuePair<string, string>(kv.Key, "99") : kv).ToList();
             Assert.Null(TripRecord.FromValues(values, out string problem));
             Assert.Contains("newer", problem);
+        }
+
+        [Fact]
+        public void WithoutTheStartPlan_ReadsAsNotSaved()
+        {
+            // Records written before the arrival report kept the Start plan read fine; the report then falls back.
+            List<KeyValuePair<string, string>> values = Sample().ToValues().Where(kv => kv.Key != "startPlannedTripTime").ToList();
+            TripRecord read = TripRecord.FromValues(values, out string problem);
+            Assert.Null(problem);
+            Assert.True(double.IsNaN(read.StartPlannedTripTime));
+        }
+
+        [Fact]
+        public void WithoutTheLossAllowance_ReadsAsNone()
+        {
+            List<KeyValuePair<string, string>> values = Sample().ToValues().Where(kv => kv.Key != "lossAllowance").ToList();
+            TripRecord read = TripRecord.FromValues(values, out string problem);
+            Assert.Null(problem);
+            Assert.Equal(0, read.LossAllowance);
         }
 
         [Fact]

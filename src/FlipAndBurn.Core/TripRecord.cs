@@ -40,6 +40,13 @@ namespace FlipAndBurn.Core
         /// <summary>The last moment the trip was flying (UT): when it was saved while flying, or when it was paused.</summary>
         public double LastFlownUT { get; set; }
         public int Replans { get; set; }
+        /// <summary>The trip time the planner showed at Start (s), for the arrival report. Optional: NaN if not saved.</summary>
+        public double StartPlannedTripTime { get; set; } = double.NaN;
+        /// <summary>
+        /// Coast trips: delta-v set aside at Start for propellant lost while the engines are off (boil-off), measured on this
+        /// ship (m/s); not part of <see cref="DeltaVBudget"/>. Optional: 0 if not saved.
+        /// </summary>
+        public double LossAllowance { get; set; }
         /// <summary>Engines Flip and Burn shut down (a cut, the coast), by part persistentId, to relight when it resumes.</summary>
         public List<uint> CutEngines { get; set; } = new List<uint>();
 
@@ -65,6 +72,8 @@ namespace FlipAndBurn.Core
             Add("plannedArrivalUT", PlannedArrivalUT.ToString("R", Inv));
             Add("lastFlownUT", LastFlownUT.ToString("R", Inv));
             Add("replans", Replans.ToString(Inv));
+            if (!double.IsNaN(StartPlannedTripTime)) Add("startPlannedTripTime", StartPlannedTripTime.ToString("R", Inv));
+            if (LossAllowance > 0) Add("lossAllowance", LossAllowance.ToString("R", Inv));
             Add("cutEngines", string.Join(",", CutEngines.Select(id => id.ToString(Inv))));
             return v;
         }
@@ -110,6 +119,18 @@ namespace FlipAndBurn.Core
                   Num("plannedArrivalUT", x => r.PlannedArrivalUT = x) & Num("lastFlownUT", x => r.LastFlownUT = x);
             ok &= int.TryParse(Get("replans"), NumberStyles.Integer, Inv, out int replans);
             r.Replans = replans;
+            // Optional (added after the first records were written): absent reads as NaN.
+            if (map.TryGetValue("startPlannedTripTime", out string planned))
+            {
+                if (double.TryParse(planned, NumberStyles.Float, Inv, out double t)) r.StartPlannedTripTime = t;
+                else ok = false;
+            }
+
+            if (map.TryGetValue("lossAllowance", out string allowance))
+            {
+                if (double.TryParse(allowance, NumberStyles.Float, Inv, out double a) && a >= 0 && !double.IsInfinity(a)) r.LossAllowance = a;
+                else ok = false;
+            }
 
             string cut = Get("cutEngines");
             if (cut != null)

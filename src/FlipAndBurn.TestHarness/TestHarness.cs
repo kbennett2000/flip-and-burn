@@ -143,6 +143,60 @@ namespace FlipAndBurn.TestHarness
                 if (!ok.Ok) yield break;
             }
 
+            // Cycle 11 investigation: where propellant goes while the engine isn't firing (only when asked: "drain").
+            if ((wanted ?? "").Split(',').Contains("drain"))
+            {
+                var flown = new Flown();
+                yield return PlanOnShip(ResumeShip, null, null, flown, save);
+                if (!flown.Ok) yield break;
+                var ok = new CaptureResult();
+                yield return ProofDrain(flown, ok);
+                if (!ok.Ok || failed) yield break;
+            }
+
+            if ((wanted ?? "").Split(',').Contains("coastdrain"))
+            {
+                var flown = new Flown();
+                yield return PlanOnShip(ResumeShip, null, null, flown, save);
+                if (!flown.Ok) yield break;
+                var ok = new CaptureResult();
+                yield return ProofCoastDrain(flown, ok);
+                if (!ok.Ok || failed) yield break;
+            }
+
+            // Cycle 11: the delta-v reader, checked against tools/verify/check_reader.py (only when asked: "readercheck").
+            if ((wanted ?? "").Split(',').Contains("readercheck"))
+            {
+                foreach ((string ship, bool fire) in new[] { ("Bebop Refueller", true), ("CubeSat v3.2", false) })
+                {
+                    var flown = new Flown();
+                    yield return PlanOnShip(ship, null, null, flown, save);
+                    if (!flown.Ok) yield break;
+                    var ok = new CaptureResult();
+                    yield return ProofReaderCheck(flown, ok, fire);
+                    if (!ok.Ok || failed) yield break;
+                }
+            }
+
+            if ((wanted ?? "").Split(',').Contains("lossplan"))
+            {
+                var flown = new Flown();
+                yield return PlanOnShip(ResumeShip, null, null, flown, save);
+                if (!flown.Ok) yield break;
+                var ok = new CaptureResult();
+                yield return ProofLossPlan(flown, ok);
+                if (!ok.Ok || failed) yield break;
+            }
+
+            // Cycle 11: whole trips, Start to the parking orbit (tripA, tripB, tripC; not part of "all": each takes an hour or so).
+            foreach (TripSpec trip in Trips)
+            {
+                if (!(wanted ?? "").Split(',').Contains("trip" + trip.Name)) continue;
+                var ok = new CaptureResult();
+                yield return ProofTrip(trip, ok);
+                if (!ok.Ok || failed) yield break;
+            }
+
             // Cycle 10: the trip carries on after leaving the ship, saving and loading (ADR 0004). build.sh then relaunches
             // KSP for the save made mid-trip, and loads that save once more with Flip and Burn removed.
             if (Want("resume"))

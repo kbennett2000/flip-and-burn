@@ -1,0 +1,16 @@
+# Cheat check (infinite propellant, ignore max temperature) 2026-10-27T15:07:52Z
+## The harness's own readings
+trip C: full burn to Duna at 1 g with a skew flip; infinite propellant and ignore max temperature; infinite propellant True, ignore max temperature True, physics warp up to x25; arrival tolerance: periapsis and apoapsis within 5% of the parking altitude, both above the atmosphere; planner can start True
+trip C arrival message: Arrived at Duna: in a 59.8 × 60.0 km orbit (planned: 60 km, circular). The trip took 3d, 1h, 43m, 1m longer than planned at Start (3d, 1h, 41m). It used 693 km/s of delta-v; fuel isn't counted (infinite propellant is on).
+screenshot trip-c-6-final-orbit-map.png: phase Done running False pointing 0.00 accel 9.810 warp  stop 'Arrived at Duna: in a 59.8 × 60.0 km orbit (planned: 60 km, circular). The trip took 3d, 1h, 43m, 1m longer than planned at Start (3d, 1h, 41m). It used 693 km/s of delta-v; fuel isn't counted (infinite propellant is on).'
+trip C: infinite propellant cheat back off: True; ignore max temperature cheat back off: True
+## settings.cfg: lines mentioning a cheat or propellant, before and after the run
+before: 0
+after:  0
+## settings.cfg: every line KSP changed during the run (diff before -> after)
+(no changes)
+## Every save except FlipAndBurn-Test: files changed during the run
+files fingerprinted: 5162
+(no changes)
+## Every save except FlipAndBurn-Test: lines mentioning InfinitePropellant
+0 files

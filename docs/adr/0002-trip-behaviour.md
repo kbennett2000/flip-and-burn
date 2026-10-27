@@ -183,3 +183,109 @@ How this is read in the code (`MechJebModuleFlipAndBurnAutopilot`):
   gravity at the parking orbit). A coast trip keeps its budget less the delta-v already burned.
 - **Found in the game:** the Bebop Refueller at 1 g overheats in about 100 s, settles at 0.80 g, and is re-planned at
   0.76 g.
+
+## Addendum (2026-10-27): the delta-v the player sees, and propellant lost while the engines are off
+
+Asked by Kris after trip B's first run reported arriving with 4.3 % of its delta-v, under the 10 % a coast trip keeps:
+find where it went, fix the cause, and allow for boil-off only where it is real.
+
+**Where it went: nowhere. The delta-v reader was wrong while the drive fired.**
+
+- *Boil-off, measured in the game* (`drain-run.log`, the Bebop parked, 24 game hours per set-up):
+  - engine active, or shut down, with power: no deuterium lost; electric charge falls 288 an hour;
+  - shut down with the electric charge emptied: 1.84 units an hour, **0.30 kg per game hour**, from the six IFS cryogenic
+    tanks' `ModuleStorageCryostat` (it boils off only when unpowered).
+- *Trip B's own set-up, measured* (`coast-drain-run.log`: the coast trip to Duna at 0.4 g, no cheats, tanks logged every
+  15 game minutes while burning and every 6 game hours while coasting):
+  - speed-up: 11.220 t to 5.667 t of deuterium for 35,983 m/s, a steady 0.546 t per 15 game minutes, matching the engine
+    model (effective Isp within 2 %);
+  - coast, 102 game hours: **5.6668 t throughout** (34,893.9 units at every sample: nothing lost). The Megajoules store ran down from 409 to empty by
+    about 60 hours; electric charge kept the cryostats powered (1.28 million to 0.93 million) the whole way.
+  - (KSP crashed near the end of that coast: the plugin's DLL was replaced on disk while the game had it loaded. The coast
+    figures were complete by then.)
+- *The drive's code* (KSP Interstellar's `DaedalusEngineController`): a power shortfall scales thrust and fuel flow by
+  the same factor, so it can weaken the drive but never wastes fuel. The Isp depends only on throttle: Isp = engine Isp ×
+  throttle^0.5.
+- *The reader's fault:* while the drive fires, KSP Interstellar writes the Isp *at the current throttle* (about 99,800 s at
+  throttle 0.126) into the engine's Isp curve. The reader took that as the full-throttle Isp (281,250 s) and applied the
+  throttle rule a second time. So it showed 24.8 km/s left with 95 % of the fuel aboard, and 3.2 km/s at trip B's
+  arrival. At Start (drive idle) it was right, which is why the plan at Start was.
+
+**Fixes:**
+
+1. *The reader* reads a KSP Interstellar fusion drive's full-throttle thrust and Isp from its controller (`MaximumThrust`
+   and `EngineIsp`, with the drive's relativity factor) instead of the live curve, so the delta-v shown is the same
+   whether the drive is firing or idle. Other engines are read as before.
+2. *While the engines are shut down* (the coast, a cut), they read as nothing; the delta-v is then worked out from the
+   ship's mass now and the last reading's engines and dry mass, so propellant lost while coasting still shows.
+3. *The live reserve check* (every 30 real seconds, `ReserveWatch`): the delta-v the ship has, less what the last plan
+   (Start, a resume, or a heat re-plan) still needs: the plan's figure minus the delta-v burned since, measured from the
+   acceleration. Burning takes the same amount off both, so flying the plan leaves the reserve where it was; propellant
+   that goes without thrust comes off only what the ship has, and shows at once. It speaks up below 9.5 % (the reader is
+   good to a few tenths of a percent), saying why in plain words: propellant going while the engines are off (with the
+   measured rate), or the trip using more delta-v than planned.
+   - A first version estimated what the rest of the trip needs from the time left at the chosen acceleration, scaled to
+     the plan at the first check. Right after Start the guidance's flip and braking times aren't settled, so it read
+     7.4 % 30 seconds into trip B and was replaced before the run went on.
+
+**Boil-off allowance, for ships that do lose propellant** (ships that run out of electric charge, for example):
+
+- *Measured, not assumed.* Whenever a trip is flying or the window is open, the autopilot samples the mass of every
+  resource the ship's engines burn once a game minute. Stretches with any engine firing, or with propellant added, don't
+  count. After an hour of game time without firing, the average is this ship's loss rate. It is saved with the ship.
+  Nothing is engine-specific.
+- *Allowed for only when it matters.* A coast trip allows for it when the loss over the trip would cost at least 0.1 % of
+  the ship's delta-v. The coast plan then takes the loss's delta-v cost over the whole trip time out of the budget,
+  re-planning until the two agree (`CoastPlanner.PlanAllowingForLoss`): a slower trip that still arrives with 10 %. The
+  window then shows "Set aside for boil-off" and says, for example: "This ship's tanks lose about 1.8 kg of propellant a
+  day while the engines are off (boil-off, measured on this ship). This trip allows for it: … of delta-v is set aside, so
+  it still arrives with 10% in reserve."
+- *Refused before Start* when no coast fits once the loss is allowed for, with the cause and what to do (keep the tanks
+  powered, or a higher acceleration for a shorter trip).
+- *Not re-planned during the speed-up.* The loss can't be measured while the engine fires (the burn's own use swamps a
+  loss of grams an hour). The coast is where a loss shows, and the live check reports it there.
+- *Full burns don't allow for it.* They are short (a day or so at 1 g), and the live check still reports a shortfall.
+
+**Proof: trip B again, on the fixed build** (`trip-b-run.log`: coast to Duna at 0.4 g, no cheats, with a quicksave and
+quickload on the way):
+
+| Point | Deuterium in the tanks | Reader (at 0.4 g) | Expected reserve | Megajoules | Electric charge |
+|---|---|---|---|---|---|
+| Start | 11.220 t | 73,385 m/s | 10.00 % | 416 (full) | 1,279,674 |
+| 0.5 h, firing | 10.130 t | 66,377 m/s (the old reader: 23,495) | 10.01 % | 415 | 1,279,085 |
+| After the quickload | | | 10.15 % | | |
+| 2.5 h, end of the speed-up | 5.779 t | 38,146 m/s | 10.15 % | 410 | 1,278,506 |
+| Coast, 3 h to 117 h | 5.667 t throughout (0.15 kg on a course correction) | 37,411 m/s | 10.15 % | 407, empty from about 60 h | 1,278,114 to 902,412 |
+| Arrived | 1.383 t | 9,199 m/s | (12.5 % real) | 0 | 896,476 |
+
+- It arrived in a 59.9 × 60.2 km orbit, 16 s later than planned at Start, and the report said: "It used 64.0 km/s of
+  delta-v and has 9.20 km/s left, 12.5% of the 73.4 km/s it started with." An independent calculation from the 1.383 t
+  left and the drive's part config gives 9,199 m/s.
+- Trip B's first run used exactly the same delta-v (64,044 m/s), so it too arrived with about 12.5 %; its "4.3 %" was the
+  reader.
+- The live check's last estimate before arrival was 9.94 %: cautious, because it still counts the part of the guidance
+  margin the trip didn't use. Under 10 % but above the 9.5 % line, so the window stayed quiet, as it should.
+- The planner, three ways (`lossplan`, same run): no loss measured, no allowance and no note; the 0.30 kg/h measured
+  without electric charge, 231 m/s set aside, a trip 27 minutes longer, still 10.00 % at arrival, and the note; 100 kg/h,
+  Start refused before launch, with boil-off named as the cause.
+
+**The reader, checked independently** (`reader-check-run.log`, `tools/verify/check_reader.py`). The script shares no
+code with the plugin. It works the drive's figures out from its part config (Mk7: 15,000 kN, Isp 500,000 s), scaled to
+the Bebop's 3.75 m drive by the config's TweakScale exponents (thrust × 0.316, Isp × 0.5625). The propellant comes from
+the save. The delta-v holding acceleration a is then 2 · Isp · g0 · √(a/F) · (√m_start − √m_end):
+
+| Bebop Refueller (11.22 t deuterium) | Independent | Flip and Burn, fixed | The old reader |
+|---|---|---|---|
+| Drive idle, 0.4 g | 73,397.3 m/s | 73,397.3 m/s | 73,397.3 m/s |
+| Drive idle, 1 g | 116,051.3 m/s | 116,051.3 m/s | 116,051.3 m/s |
+| Drive idle, 2 g | 164,121.3 m/s | 164,121.3 m/s | 164,121.3 m/s |
+| Drive firing at throttle 0.126, 0.4 g | 73,384.3 m/s | 73,384.3 m/s | 26,048.8 m/s |
+| Drive firing at throttle 0.126, 1 g | 116,030.8 m/s | 116,030.8 m/s | 41,186.8 m/s |
+| Drive firing at throttle 0.126, 2 g | 164,092.3 m/s | 164,092.3 m/s | 58,247.0 m/s |
+
+- With the drive idle (the planner before Start) the old reader was right. That is why every plan at Start was right,
+  and why this went unnoticed until a whole trip without cheats was flown.
+- While the drive fires, the engine's Isp curve read 99,833.8 s. The script's engine Isp × √0.126 gives 99,833.8 s, so
+  the old figures are the right ones × √0.126: the throttle rule counted twice.
+- A stock ship (CubeSat v3.2, a KE-1 Mastodon; `check_engines.py` from cycle 7) is unchanged: 699.5 m/s at 0.4, 1 and
+  2 g, before and after, and 699.5 m/s independently. A stock engine has no throttle rule.

@@ -251,6 +251,116 @@ runs.
 - **Losing the engine** (none running while thrust is wanted, for 5 s) stops the trip whatever the cheats, with a plain
   reason.
 
+### Arriving (2026-10-27)
+
+**What "arrived" means** (checked from the log in the cycle 11 trips):
+- a circular parking orbit at the chosen altitude: periapsis and apoapsis both within ±5 % of it, and both above the
+  atmosphere;
+- the engine off, MechJeb's throttle and steering handed back, and the player's warp rates and MechJeb settings back
+  exactly;
+- out of time warp before the circularizing burn.
+
+**The arrival report.** The window and an on-screen message say it in plain words: "Arrived at Duna: in a 59.9 × 60.2 km
+orbit (planned: 60 km, circular). The trip took …, … than planned at Start (…). It used … of delta-v and has … left, … of
+the … it started with." With infinite propellant on, the fuel line says fuel isn't counted.
+
+**When a trip can't arrive cleanly, it makes the ship's orbit safe** rather than letting it crash or fly past
+(`ArrivalSafety`, the guidance's safe-orbit mode):
+- **The watch.** Inside the target's sphere of influence, every physics step, it looks for two things:
+  - **Falling too fast to stop above the atmosphere.** A flip-and-burn arrival brakes at 99-100 % of the chosen
+    acceleration by design, so braking at the chosen acceleration is never the test. The test is whether the ship could
+    stop above the atmosphere at the most the engines can **keep up**:
+    - With KSP's "ignore max temperature" cheat on, that is full thrust. Otherwise it is only what the trip has proven
+      it can hold: its acceleration after any heat step-downs. The Bebop's drive gives 3.17 g on paper but holds about
+      0.45 g.
+    - It fires when stopping at that thrust would take more than 90 % of the height left above the atmosphere, and only
+      if that thrust is at least twice the chosen acceleration. A normal approach can need up to about 1.2 times the
+      simple stopping distance (Jool's pull, a curved path), so with less headroom a rescue can't be told apart from a
+      normal arrival, nor do much more.
+  - **Flying past:** outbound, unbound, and beyond twice the parking radius.
+- **Watchdog stops near the target become rescues.** These are: off course, the arrival slipping, the engines unable to
+  hold any useful acceleration, and a lower-acceleration re-plan that can't finish. Each makes the orbit safe first and
+  then stops. Fuel out, a lost engine and a ship that can't turn still just stop: nothing can fly the ship.
+- **The rescue.** It steers the velocity straight to circular at the current radius, the cheapest way to a safe orbit,
+  climbing gently if below the parking orbit:
+  - It burns at the sustainable thrust above, with the cycle 9 heat guard still running (`HeatGuard`, now shared by the
+    trip, the rescue and the simulator). Warp is held at normal speed.
+  - Then it stops and says why and where: "couldn't finish in the planned 60 km parking orbit: … It put the ship in a
+    safe orbit around Duna instead, … km."
+- **Simulator proof** (`ArrivalSafetyTests`, `ArrivalWatchSweepTests`):
+  - **Three emergencies end in safe circular orbits at about the minimum delta-v:**
+    - falling at 6 km/s from 3,000 km: 6.0 km/s;
+    - flying past at 2 km/s from 2,000 km: 2.0 km/s;
+    - falling at 300 m/s from 100 km: 0.37 km/s.
+  - **The rescue and heat** (`Rescue_StaysWithinTheHeatLimit`). The case is a ship flying past Duna at 6 km/s from
+    4,000 km, in a heat model of the Bebop's drive that sustains 0.45 g:
+    - at the trip's nominal 1 g, the drive overheats before the orbit is safe;
+    - at the 0.48 g the trip had proven, a safe 7,800 km orbit, with the hottest part at 48 %;
+    - started too high at 1 g, the heat guard brings it down in time: 98 % at the peak, 8 step-downs.
+  - **No false alarms.** The normal run's 8 simulated trips plus a sweep of 21 (`ArrivalWatchSweepTests`,
+    `Category=LongRunning`, 1.5 min) all parked with the watch quiet: **29 simulated trips, 0 false alarms.** The sweep
+    covers Duna, Dres and Eve; full burns with both flip styles and coast trips; 0.25, 0.45, 1, 2 and 3 g. All run with
+    the watch at its most sensitive (engines keeping up exactly twice the chosen acceleration). The closest any came to
+    the firing line was 74 % of it (Duna at 0.25 g).
+- **A trip that couldn't arrive, found and fixed: fast coast trips braked too late.**
+  - **What the sweep found:** coast trips with very large budgets flew past the target. Examples: Duna at 1 g with a
+    681 km/s budget, coasting at 321 km/s; Dres at 0.45 g, coasting at 216 km/s. The watch fired correctly, but at
+    71 km/s inside Duna's sphere of influence no rescue can stop the ship either.
+  - **Why:** near the braking start, the coast plan's "time left" is the square root of a small difference of large
+    numbers. At 320 km/s a 2 m/s error moves it by about two minutes. Step after step it receded (11 s, 12 s, 16 s, …
+    547 s) while the course error grew to 16 km/s, so braking never started. A late "course correction" then braked on
+    a fixed heading and missed.
+  - **Fix:** once braking is less than ten minutes away, its start is latched. It may come earlier, never later, and
+    the braking law corrects what is left.
+  - **Proof:** all three now park exactly, to the second (periapsis 60.0 and 20.0 km, eccentricity ≤ 0.0002). The
+    Bebop's own coast trips (about 50 km/s) never reached this regime.
+
+**Proof in the game** (cycle 11, the Bebop Refueller from Kerbin orbit to Duna, 60 km parking orbit; `trip-*-run.log`):
+
+| Trip | Orbit | Trip time vs plan at Start | Delta-v | Warp ended before arrival | Engine throttle while more than 5° off |
+|---|---|---|---|---|---|
+| A: full burn, 1 g, cut-flip-relight, cheats | 59.96 × 60.06 km, e 0.00014 | 70,981 s vs 70,914 s (+67 s) | 692.6 km/s used | 127 s, none while circularizing | 0 in 632 steps |
+| B: coast, 0.4 g, no cheats, quicksave and quickload on the way | 59.91 × 60.19 km, e 0.00037 | 431,265 s vs 431,249 s (+16 s) | 64.0 km/s used, 9.20 km/s left (12.5 %) | 144 s, none while circularizing | 0 in 1,033 steps |
+| C: full burn, 1 g, skew flip, cheats | 59.82 × 60.02 km, e 0.00025 | 70,981 s vs 70,914 s (+67 s) | 692.7 km/s used | 127 s, none while circularizing | 0 in 492 steps |
+
+Every trip ended with the engine off, MechJeb's throttle and steering handed back (one thrust user, MechJeb's own, as
+before Start), the player's warp rates back, and all 1,803 MechJeb settings files byte-identical to before Start. Trip A
+was flown on an earlier build of this cycle; the changes after it (the one-step throttle lag, the delta-v reader, the
+reserve check, the boil-off allowance) are covered by trips B and C on the final build.
+
+### Firing while up to 5 degrees off (2026-10-27)
+
+**Rule:** the engine fires at the full commanded throttle once the ship points within 5 degrees of the burn direction
+(`EngineCommand`), and is held at zero beyond that.
+
+**Question:** what does firing at up to 5 degrees off cost? Every physics step of the cycle 11 trips logged it: the thrust
+pushed across the burn direction, and the thrust lost along it, while firing between 0.1 and 5 degrees off.
+
+| When | Firing 0.1-5° off | Largest error while firing | Pushed sideways | Lost along the burn | Fired in that window |
+|---|---|---|---|---|---|
+| Trip A, after Start | 23 s | 4.64° | 5.5 m/s | 0.09 m/s | 1,768 m/s |
+| Trip A, after the relight | 10 s | 4.67° | 2.9 m/s | 0.04 m/s | 1,403 m/s |
+| Trip B, after Start | 21 s | 4.88° | 2.0 m/s | 0.04 m/s | 639 m/s |
+| Trip B, steady (course corrections included) | 16 s | 4.57° | 0.7 m/s | 0.01 m/s | 31,738 m/s |
+| Trip C, after Start | 23 s | 4.91° | 5.5 m/s | 0.09 m/s | 1,771 m/s |
+| Trip C, after the skew flip | 9 s | 4.64° | 2.5 m/s | 0.03 m/s | 1,407 m/s |
+
+A burn starts only a few times per trip: Start, the relight, a resume, a course correction. Each costs a few m/s sideways
+and under 0.1 m/s of forward thrust, against trips of 64-693 km/s, so well under 0.01 % of the delta-v. The guidance
+re-solves from the real state every step and absorbs the sideways push: trip A still arrived in a 60.0 × 60.1 km orbit for
+a planned 60 km.
+
+**Decision: keep 5 degrees, with no ramp.**
+- Tightening it would make every burn wait while MechJeb settles the last degrees, for no measurable gain.
+- Scaling the throttle down with the pointing error would add code and tuning for well under 0.01 %.
+- The rule that matters, no thrust while more than 5 degrees off, is checked every physics step in the trips. A
+  one-step lag found there is fixed (below).
+
+**The one-step lag.** In trip B's first run the engine kept its burn throttle (0.126) for a single physics step after the
+ship swung past 5 degrees mid-burn. The cause: MechJeb hands its throttle (from the previous target) to the ship each
+physics step, and an engine that updates after the autopilot copies it. The autopilot now zeroes the ship's own throttle in
+the same step it holds the engine at zero or cuts it.
+
 ### Carrying on after a reload
 
 Done in cycle 10: a trip is saved with the ship, pauses when the player leaves it, and resumes, re-planned, when they

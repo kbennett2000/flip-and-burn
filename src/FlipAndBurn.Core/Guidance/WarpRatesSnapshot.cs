@@ -42,6 +42,18 @@ namespace FlipAndBurn.Core.Guidance
             return true;
         }
 
+        /// <summary>
+        /// True when <paramref name="now"/> holds the values the player had at Start, in whatever array: after a quickload
+        /// KSP builds a new flight scene, with its own array of the player's rates.
+        /// </summary>
+        public bool SameValues(float[] now)
+        {
+            if (now == null || now.Length != values.Length) return false;
+            for (int i = 0; i < values.Length; i++)
+                if (now[i] != values[i]) return false;
+            return true;
+        }
+
         public override string ToString() => "[" + string.Join(",", values) + "]";
     }
 }

@@ -104,6 +104,14 @@ namespace FlipAndBurn
                     IspThrottleExponent = IspThrottleExponent(e.part),
                     Understood = Understood(e),
                 };
+                // A KSP Interstellar fusion drive rewrites the engine while it fires: the Isp curve becomes the Isp at the
+                // throttle it is running at, and the thrust is cut by any power shortfall. Read the drive's full-throttle
+                // figures from its controller instead, so the delta-v shown is the same whether the drive is firing or not.
+                if (DaedalusFullThrottle(e.part, out double fullThrustKn, out double fullIsp))
+                {
+                    r.Thrust = fullThrustKn * (e.thrustPercentage / 100.0) * 1000.0;
+                    r.VacuumIsp = fullIsp;
+                }
                 foreach (Propellant p in e.propellants)
                 {
                     PartResourceDefinition def = PartResourceLibrary.Instance.GetDefinition(p.name);
@@ -165,6 +173,48 @@ namespace FlipAndBurn
             for (; t != null && t != typeof(PartModule); t = t.BaseType)
                 if (t.Name == "DaedalusEngineController") return true;
             return false;
+        }
+
+        /// <summary>
+        /// A KSPIE fusion drive's thrust (kN) and vacuum Isp (s) at full throttle and full power, with its relativity factor,
+        /// from the controller (its MaximumThrust and EngineIsp). False for any other engine, or if they can't be read.
+        /// </summary>
+        private static bool DaedalusFullThrottle(Part part, out double thrustKn, out double isp)
+        {
+            thrustKn = isp = double.NaN;
+            const BindingFlags all = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            foreach (PartModule m in part.Modules)
+            {
+                if (!IsDaedalusType(m.GetType())) continue;
+                try
+                {
+                    double thrust = Number(m, "MaximumThrust"), engineIsp = Number(m, "EngineIsp"), dilation = Number(m, "timeDilation");
+                    if (!(dilation > 0 && dilation <= 1)) dilation = 1;
+                    if (!(thrust > 0) || !(engineIsp > 0)) return false;
+                    thrustKn = dilation * dilation * thrust;
+                    isp = dilation * engineIsp;
+                    return true;
+                }
+                catch (Exception)
+                {
+                    return false;
+                }
+            }
+
+            return false;
+
+            double Number(PartModule m, string name)
+            {
+                for (Type t = m.GetType(); t != null && t != typeof(PartModule); t = t.BaseType)
+                {
+                    PropertyInfo p = t.GetProperty(name, all | BindingFlags.DeclaredOnly);
+                    if (p != null) return Convert.ToDouble(p.GetValue(m, null));
+                    FieldInfo f = t.GetField(name, all | BindingFlags.DeclaredOnly);
+                    if (f != null) return Convert.ToDouble(f.GetValue(m));
+                }
+
+                return double.NaN;
+            }
         }
 
         /// <summary>KSPIE fusion drives lower Isp at part throttle. Returns 0 for any other engine.</summary>
