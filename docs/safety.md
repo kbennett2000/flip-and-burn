@@ -54,7 +54,7 @@ the planet, then stops and tells you, with the orbit it got:
 > instead, … Fly the last step yourself, or plan a new trip from here.
 
 On a normal trip the safety net stays out of the way. In testing it stayed quiet on every normal arrival: 29 simulated
-trips to Duna, Eve and Dres at accelerations from 0.25 g to 3 g, and every trip flown in the game.
+trips to Duna, Eve, Dres and Jool at accelerations from 0.25 g to 3 g, and every trip flown in the game.
 
 ## The 10% fuel reserve
 
@@ -73,12 +73,14 @@ A **full burn** has no reserve built in: it either has the fuel for the trip or 
 
 Some fuel tanks lose propellant over time when they aren't kept cold. KSP Interstellar's cryogenic tanks, for example,
 boil off liquid deuterium once the ship runs out of power for their coolers: electric charge, and the reactor's power
-store behind it. The Bebop Refueller, with both drained, lost about 1 kg of deuterium a day. On a coast trip of several
-weeks, that adds up.
+store behind it. In a day-long test, once both had run out, the Bebop Refueller lost about 0.5 kg of deuterium an hour:
+about 3 kg per 6-hour Kerbin day, or 12 kg per Earth day. On a coast trip of several weeks, that adds up.
 
 Flip and Burn **measures** this instead of guessing. Whenever the planner window is open or a trip is flying, it notes
 how much fuel disappears while no engine is firing, and remembers the rate for that ship. If the loss would make a real
-difference, the coast plan allows for it, so you still arrive with your 10%, and the planner tells you:
+difference, the coast plan allows for it, so you still arrive with your 10%, and the planner tells you. The picture is
+from a shorter, 2½-hour measurement that started with cold tanks, so it came out lower: about 1 kg a Kerbin day. The
+longer a ship is watched, the closer the figure gets.
 
 <p align="center">
   <img src="images/planner-boiloff.jpg" alt="The planner showing a measured boil-off rate, and the delta-v set aside for it" width="55%">
