@@ -159,10 +159,8 @@ namespace FlipAndBurn
             try
             {
                 Core.Thrust.ThrustOff();
-                // Stop the engines at once: some spool down slowly (the Kerbstein drive still pushed 1 g three seconds
-                // after the throttle was cut).
-                foreach (ModuleEngines e in Vessel.FindPartModulesImplementing<ModuleEngines>())
-                    if (e.EngineIgnited) e.currentThrottle = 0f;
+                CutEngines(Vessel);
+                RelightEngines(throttleZero: true);   // back as they were at Start (active), but at zero throttle
                 Core.Thrust.Users.Remove(this);
                 Core.Attitude.Users.Remove(this);
                 if (Core.Attitude.Users.Count == 0) Core.Attitude.attitudeDeactivate();
@@ -304,21 +302,26 @@ namespace FlipAndBurn
             bool pointed = flipping || PointingError <= PointingTolerance;
             MechJebModuleThrustController thrust = Core.Thrust;
             if (Vessel.ctrlState.mainThrottle > 0) deltaVUsed += MeasuredAcceleration * TimeWarp.fixedDeltaTime;
-            if (thrustWanted && pointed)
+            EngineCommand engines = EngineCommand.Decide(cmd.Acceleration, flipping, PointingError, PointingTolerance, FullThrustAcceleration(v));
+            switch (engines.Action)
             {
-                thrust.LimitAcceleration = true;
-                thrust.MaxAcceleration.Val = cmd.Acceleration;
-                thrust.TargetThrottle = 1f;
+                case EngineAction.Burn:
+                    thrust.LimitAcceleration = true;
+                    thrust.MaxAcceleration.Val = cmd.Acceleration;
+                    thrust.TargetThrottle = 1f;
+                    SetEngineThrottles(v, engines.Throttle);
+                    break;
+                case EngineAction.HoldAtZero:   // turning to the burn direction: no thrust until pointed
+                    thrust.TargetThrottle = 0f;
+                    SetEngineThrottles(v, 0f);
+                    break;
+                default:
+                    thrust.TargetThrottle = 0f;
+                    CutEngines(v);
+                    break;
             }
-            else
-            {
-                thrust.TargetThrottle = 0f;
-                // Cut means cut: some engines spool down slowly (the Kerbstein drive kept pushing about 1 g through a
-                // "cut, flip, relight" flip while its throttle wound down), so stop them at once.
-                if (!thrustWanted)
-                    foreach (ModuleEngines e in v.FindPartModulesImplementing<ModuleEngines>())
-                        if (e.EngineIgnited) e.currentThrottle = 0f;
-            }
+
+            if (thrustWanted) RelightEngines();
 
             Watchdog(cmd, ut, thrustWanted, pointed, flipping);
             if (!Running) return;
@@ -547,6 +550,87 @@ namespace FlipAndBurn
 
             HottestFraction = hottest;
             HottestPart = name;
+        }
+
+        // Engines Flip and Burn shut down for a cut, to relight afterwards.
+        private readonly List<ModuleEngines> cutEngines = new List<ModuleEngines>();
+
+        /// <summary>
+        /// Cut means cut: zero each running engine's throttle and shut it down. In the game the Kerbstein drive kept
+        /// pushing 1 g through a whole "cut" flip, and after an Abort, with the ship's throttle at zero: its requested
+        /// throttle stayed at the old value after a long warped cruise. Shutting the engine down is what KSP Interstellar's
+        /// own safety cut-off does.
+        /// </summary>
+        private void CutEngines(Vessel v)
+        {
+            foreach (ModuleEngines e in v.FindPartModulesImplementing<ModuleEngines>())
+            {
+                if (!e.EngineIgnited) continue;
+                e.requestedThrottle = 0f;
+                e.currentThrottle = 0f;
+                try
+                {
+                    e.Shutdown();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning("[FlipAndBurn] couldn't shut down " + e.part.partInfo?.title + ": " + ex.Message);
+                }
+
+                if (!cutEngines.Contains(e)) cutEngines.Add(e);
+            }
+        }
+
+        /// <summary>
+        /// Set each running engine's own throttle to what MechJeb's acceleration limit asks for (commanded acceleration over
+        /// the full-thrust acceleration). Normally the engine copies the ship's throttle into its own each step, but in the
+        /// game the Kerbstein drive stopped doing that after a long warped cruise and after a relight, and kept its old
+        /// throttle: so Flip and Burn sets it directly as well.
+        /// </summary>
+        private static List<ModuleEngines> RunningEngines(Vessel v) =>
+            v.FindPartModulesImplementing<ModuleEngines>().Where(e => e.EngineIgnited && !e.flameout).ToList();
+
+        /// <summary>All running engines at 100 % over the ship's mass (m/s^2).</summary>
+        private static double FullThrustAcceleration(Vessel v)
+        {
+            double mass = v.totalMass * 1000;
+            double full = RunningEngines(v).Sum(e => e.maxThrust * e.thrustPercentage / 100.0) * 1000;
+            return mass > 0 ? full / mass : 0;
+        }
+
+        private static void SetEngineThrottles(Vessel v, float throttle)
+        {
+            foreach (ModuleEngines e in RunningEngines(v))
+            {
+                e.requestedThrottle = throttle;
+                e.currentThrottle = throttle;
+            }
+        }
+
+        /// <summary>Relight the engines Flip and Burn cut.</summary>
+        private void RelightEngines(bool throttleZero = false)
+        {
+            if (cutEngines.Count == 0) return;
+            foreach (ModuleEngines e in cutEngines)
+            {
+                if (e == null || e.part == null || e.EngineIgnited) continue;
+                try
+                {
+                    e.Activate();
+                    e.part.force_activate();   // as KSP Interstellar does, so the part runs again
+                    if (throttleZero)
+                    {
+                        e.requestedThrottle = 0f;
+                        e.currentThrottle = 0f;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning("[FlipAndBurn] couldn't relight " + e.part.partInfo?.title + ": " + ex.Message);
+                }
+            }
+
+            cutEngines.Clear();
         }
 
         /// <summary>How full the ship's store of a resource is, 0 to 1 (0 if it has none).</summary>

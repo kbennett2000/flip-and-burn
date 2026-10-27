@@ -271,7 +271,6 @@ namespace FlipAndBurn.TestHarness
             CheatOptions.InfinitePropellant = false;
             // Back to the shipped warp limit (the flip run raised it with overheating ignored).
             MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 10;
-            if (TimeWarp.fetch != null) TimeWarp.fetch.physicsWarpRates[3] = 25;
             // No cheats: a real trip, so at an acceleration the Bebop can hold without overheating.
             module.AccelerationG.Val = CoastAcceleration;
             module.SelectTripType(TripType.CoastInTheMiddle);
@@ -359,7 +358,8 @@ namespace FlipAndBurn.TestHarness
                 $"pointing error {pilot.PointingError:F2} deg throttle {v.ctrlState.mainThrottle:F3} engine throttle {EngineThrottle(v):F3} " +
                 $"warp {(TimeWarp.CurrentRate > 1.01f ? (TimeWarp.fetch.Mode == TimeWarp.Modes.HIGH ? "normal" : "physics") : "none")} x{TimeWarp.CurrentRate:0.##} " +
                 $"toFlip {c.TimeToFlip:F0} s toBurn {c.TimeToBurn:F0} s toArrival {c.TimeToArrival:F0} s speed vs {v.mainBody.bodyName} {v.obt_speed:F1} m/s " +
-                $"| {pilot.WarpStatus} | {DriveState(v)}, hottest part {pilot.HottestPart} {pilot.HottestFraction * 100:F1}% of limit, parts {v.parts.Count}");
+                $"| {pilot.WarpStatus} | {DriveState(v)}, hottest part {pilot.HottestPart} {pilot.HottestFraction * 100:F1}% of limit, parts {v.parts.Count}" +
+                (c.Phase == GuidancePhase.Flip || c.Phase == GuidancePhase.Coast || what.Contains("flip") ? " | " + EngineInternals(v) : ""));
         }
 
         // KSP Interstellar fusion drive: how much of its power it gets (fusionRatio), its live maximum thrust, and how full the
@@ -416,6 +416,7 @@ namespace FlipAndBurn.TestHarness
         {
             Vessel v = f.Ship;
             MechJebModuleThrustController thrust = f.Core.Thrust;
+            Log($"after abort: {EngineInternals(v)}");
             Log($"after abort: running {f.Module.Autopilot.Running}, throttle {v.ctrlState.mainThrottle:F3}, engine throttle {EngineThrottle(v):F3}, warp x{TimeWarp.CurrentRate}, " +
                 $"physics rates [{string.Join(",", TimeWarp.fetch.physicsWarpRates)}], thrust users {thrust.Users.Count}, attitude users {f.Core.Attitude.Users.Count}, " +
                 $"LimitAcceleration {thrust.LimitAcceleration}, MaxAcceleration {thrust.MaxAcceleration.Val}, " +
