@@ -61,7 +61,8 @@ ksp_log="$ksp_dir/KSP.log"
 test_save="$ksp_dir/saves/FlipAndBurn-Test"
 mj_settings="$ksp_dir/GameData/MechJeb2/Plugins/PluginData/MechJeb2"
 shot_dir="$ksp_dir/FlipAndBurnTest"
-expected_shots=(planner-bebop-2g.png a-1-overheat-replanned.png a-2-overheat-replanned-again.png a-3-overheat-after-abort.png f-1-before-flip.png f-2-during-flip.png f-3-after-flip.png f-4-after-abort.png b-1-coast.png b-2-after-abort.png)
+# FLIPANDBURN_SHOTS overrides the list when FLIPANDBURN_PROOFS runs only some of the proofs.
+read -r -a expected_shots <<< "${FLIPANDBURN_SHOTS:-planner-bebop-2g.png a-1-overheat-replanned.png a-2-overheat-replanned-again.png a-3-overheat-after-abort.png f-1-before-flip.png f-2-during-flip.png f-3-after-flip.png f-4-after-abort.png b-1-coast.png b-2-after-abort.png}"
 evidence="$repo/docs/test-evidence"
 stall_seconds=120
 max_launches=4          # first launch plus up to 3 relaunches after a stall

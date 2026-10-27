@@ -103,11 +103,18 @@ When KSP reaches the main menu, `KSP.log` should contain `[FlipAndBurn] loaded`.
    BetterTimeWarp's settings file.
 4. Launches KSP with `-flipandburn-test`. The harness loads the test save, switches to the ship "Bebop Refueller" in
    Kerbin orbit, logs what stock, MechJeb and Flip and Burn each say about the ship's thrust and delta-v, opens the
-   Flip and Burn window and flies two trips to Duna on the autopilot: (a) a full burn with infinite propellant, through
-   a warp-stability probe, the flip and a few minutes of braking, then Abort; (b) a coast trip from the same start,
-   through the burn into the coast under normal warp, then Abort. It screenshots each stage, logs the acceleration,
-   pointing error and warp every few seconds, and checks MechJeb's settings files are byte-identical before Start and
-   after Abort. Only the harness turns infinite propellant on, for (a) only. Then it quits KSP.
+   Flip and Burn window and flies trips to Duna on the autopilot:
+   - the planner at 2 g;
+   - (a) a full burn at 1 g with infinite propellant: the ship overheats and the autopilot steps down, re-plans and says
+     so, then Abort;
+   - (a) the flip, from the same start, at 1 g with infinite propellant and KSP's "ignore max temperature" cheat (the
+     Bebop can't sustain 1 g otherwise): a warp-stability probe, the flip and a few minutes of braking, then Abort;
+   - (b) a coast trip at 0.4 g with no cheats, through the burn into the coast under normal warp, then Abort.
+
+   It screenshots each stage and logs the acceleration, pointing error, engine throttle, warp, waste heat and hottest
+   part every few seconds. It checks MechJeb's settings files before Start and after Abort. Only the harness turns the
+   cheats on, only in those runs, and turns them off again. `FLIPANDBURN_PROOFS=overheat,flip,coast` picks which
+   proofs to run. Then it quits KSP.
    It moves the Flip and Burn window to an empty part of the screen first, because MechJeb opens every window at
    the same spot. The harness reads the finished frame itself; if that comes out blank (it sometimes does on
    Linux/OpenGL), it asks this script to grab the KSP window from outside with `ffmpeg` (x11grab) instead.
