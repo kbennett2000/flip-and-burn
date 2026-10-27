@@ -148,6 +148,21 @@ cleanup() {
         cp -p "$backup_dir/settings.cfg" "$ksp_dir/settings.cfg"
         echo "Restored $ksp_dir/settings.cfg"
     fi
+    # Show the restore worked: each file Kris owns must now match its backup byte for byte.
+    if [[ -d "$backup_dir/MechJeb2" ]]; then
+        if diff -rq "$backup_dir/MechJeb2" "$mj_settings" >/dev/null; then
+            echo "Checked: MechJeb settings identical to before the run ($(find "$mj_settings" -type f | wc -l) files)"
+        else
+            echo "MechJeb settings DIFFER from before the run:" >&2
+            diff -rq "$backup_dir/MechJeb2" "$mj_settings" | head -20 >&2 || true
+        fi
+    fi
+    for pair in "BetterTimeWarp.cfg:$btw_settings" "settings.cfg:$ksp_dir/settings.cfg"; do
+        saved="$backup_dir/${pair%%:*}" live="${pair#*:}"
+        [[ -f "$saved" ]] || continue
+        if cmp -s "$saved" "$live"; then echo "Checked: $live identical to before the run"
+        else echo "$live DIFFERS from before the run" >&2; fi
+    done
     rm -rf "$backup_dir"
 }
 trap cleanup EXIT

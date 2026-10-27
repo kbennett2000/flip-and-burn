@@ -26,10 +26,12 @@ namespace FlipAndBurn.TestHarness
         // With overheating ignored the ship stays cool: 10x and 25x (25x destroyed the hot drive in an earlier run).
         private static readonly float[] ProbeRates = { 10, 25 };
         private const float ProbeSeconds = 20f;          // real seconds at each rate
-        private const float StatusEvery = 2f;            // real seconds between status lines
+        private static float statusEvery = 2f;           // real seconds between status lines (the whole trips use more)
         private const double CoastAcceleration = 0.4;    // g, for (b): below what the Bebop's drive sustains (it was still cooling at 0.48 g)
 
         private double lastStatusReal, statusMaxAccelError, statusMaxPointing;
+        // Called every physics step while a trip flies (the whole-trip proofs watch the throttle and the pointing).
+        private Action<MechJebModuleFlipAndBurnAutopilot> stepWatch;
 
         // ------------------------------------------------------------------ (a)
 
@@ -411,6 +413,7 @@ namespace FlipAndBurn.TestHarness
                     done = false;
                 }
 
+                stepWatch?.Invoke(pilot);
                 Status(pilot, what);
                 if (done) break;
                 if (Time.realtimeSinceStartup - start > timeoutReal)
@@ -436,7 +439,7 @@ namespace FlipAndBurn.TestHarness
             if (c.Phase != GuidancePhase.Flip) statusMaxPointing = Math.Max(statusMaxPointing, pilot.PointingError);
 
             float now = Time.realtimeSinceStartup;
-            if (now - lastStatusReal < StatusEvery) return;
+            if (now - lastStatusReal < statusEvery) return;
             lastStatusReal = now;
             Vessel v = FlightGlobals.ActiveVessel;
             Log($"status [{what}]: UT {Planetarium.GetUniversalTime():F1} phase {c.Phase}{(c.Departing ? " (climbing out)" : "")}{(c.Correcting ? " (correcting)" : "")} " +
@@ -547,9 +550,13 @@ namespace FlipAndBurn.TestHarness
         /// <summary>Warp rates and controller users as they were before Start? If the rates aren't, put them back and say so.</summary>
         private static void CheckRatesAndUsers(Flown f, string when)
         {
-            bool rates = ratesBeforeStart != null && ratesBeforeStart.Matches(TimeWarp.fetch.physicsWarpRates);
-            Log($"{when}: physics warp rates {(rates ? "same as before Start (same array, same values)" : "DIFFERENT from before Start")}: " +
-                $"before {ratesBeforeStart}, now {Rates(TimeWarp.fetch.physicsWarpRates)}");
+            float[] now = TimeWarp.fetch.physicsWarpRates;
+            bool same = ratesBeforeStart != null && ratesBeforeStart.Matches(now);
+            // After a quickload the flight scene is new, with its own array: the player's values in it are what count.
+            bool newScene = !same && ratesBeforeStart != null && ratesBeforeStart.SameValues(now);
+            bool rates = same || newScene;
+            Log($"{when}: physics warp rates {(same ? "same as before Start (same array, same values)" : newScene ? "same values as before Start (a new flight scene since Start, so a new array)" : "DIFFERENT from before Start")}: " +
+                $"before {ratesBeforeStart}, now {Rates(now)}");
             if (!rates && ratesBeforeStart != null)
             {
                 TimeWarp.fetch.physicsWarpRates = ratesBeforeStart.Restore();

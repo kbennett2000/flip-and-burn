@@ -50,6 +50,7 @@ namespace FlipAndBurn.Core.Guidance
                     return Normal("flipping");
             }
 
+            if (cmd.SafeOrbit) return Normal("making the orbit safe");
             if (cmd.Circularizing) return Normal("final burn into the parking orbit");
             if (cmd.Correcting) return Normal("course correction");
 

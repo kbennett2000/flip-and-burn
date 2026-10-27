@@ -62,6 +62,18 @@ namespace FlipAndBurn
 
         private double lastAvailable;
 
+        /// <summary>This ship's measured propellant loss while the engines are off (kg/s); 0 if none or not measured yet.</summary>
+        public Func<double> LossRate { get; set; } = () => 0;
+
+        /// <summary>
+        /// Coast trips: delta-v set aside for propellant lost while the engines are off over the trip (m/s), when the loss
+        /// measured on this ship is big enough to matter; 0 otherwise.
+        /// </summary>
+        public double LossAllowance { get; private set; }
+
+        /// <summary>A measured loss counts once it would cost this share of the ship's delta-v over the trip.</summary>
+        public const double LossWorthAllowing = 0.001;
+
         /// <summary>What the autopilot needs to fly the trip shown.</summary>
         public TripStart BuildTripStart() => new TripStart
         {
@@ -70,7 +82,8 @@ namespace FlipAndBurn
             Flip = Flip == FlipStyle.SkewFlip ? FlipManeuver.SkewFlip : FlipManeuver.CutFlipRelight,
             Trip = Trip,
             ParkingAltitude = ParkingAltitude(Target),
-            DeltaVBudget = (1 - Reserve) * lastAvailable,
+            DeltaVBudget = (1 - Reserve) * lastAvailable - (Trip == TripType.CoastInTheMiddle ? LossAllowance : 0),
+            LossAllowance = Trip == TripType.CoastInTheMiddle ? LossAllowance : 0,
             PlannedTripTime = Trip == TripType.CoastInTheMiddle && Coast != null ? Coast.TripTime : Plan?.TripTime ?? 0,
             DeltaVNeeded = Trip == TripType.CoastInTheMiddle && Coast != null ? Coast.DeltaVNeeded : Plan?.TotalDeltaV ?? 0,
             StartDeltaV = InfinitePropellant ? double.NaN : lastAvailable,
@@ -134,6 +147,8 @@ namespace FlipAndBurn
             Notes.Clear();
             Plan = null;
             Coast = null;
+            LossAllowance = 0;
+            LossBlocks = false;
             Readiness = null;
             HasShortfall = true;
             InfinitePropellant = CheatOptions.InfinitePropellant;
@@ -257,7 +272,8 @@ namespace FlipAndBurn
 
             Coast = CoastPlanFor(request, (1 - Reserve) * available);
             Notes.Add(Coast.Feasible
-                ? $"A trip with a coast in the middle fits: about {FormatTime(Coast.TripTime)}, keeping 10% of the delta-v in reserve. " +
+                ? $"A trip with a coast in the middle fits: about {FormatTime(Coast.TripTime)}, keeping 10% of the delta-v in reserve" +
+                  (LossAllowance > 0 ? " and allowing for this ship's boil-off" : "") + ". " +
                   "Choose \"Coast in the middle\" to see it."
                 : "Not even a trip with a coast in the middle fits this ship's delta-v.");
         }
@@ -280,8 +296,13 @@ namespace FlipAndBurn
             Coast = CoastPlanFor(request, (1 - Reserve) * available);
             if (!Coast.Feasible)
             {
-                Notes.Insert(0, $"Not even a trip with a coast in the middle fits: at {FormatG(AccelerationG)} this ship has {FormatSpeed(available)}, " +
-                                $"and after keeping 10% in reserve that can't reach {BodyName(target)} and stop there.");
+                Notes.Insert(0, LossBlocks
+                    ? $"Not even a trip with a coast in the middle fits once this ship's boil-off is allowed for: its tanks lose about " +
+                      $"{FormatMass(Math.Max(0, LossRate?.Invoke() ?? 0) * DayLength)} of propellant a day while the engines are off, and over a coast " +
+                      $"that long it would arrive with less than 10% in reserve. If the tanks need power to stay cold, keep them powered, " +
+                      "or choose a higher acceleration for a shorter trip."
+                    : $"Not even a trip with a coast in the middle fits: at {FormatG(AccelerationG)} this ship has {FormatSpeed(available)}, " +
+                      $"and after keeping 10% in reserve that can't reach {BodyName(target)} and stop there.");
                 return;
             }
 
@@ -292,6 +313,9 @@ namespace FlipAndBurn
             TripRows.Add(Row("Trip time", FormatTime(Coast.TripTime)));
             TripRows.Add(Row("Delta-v needed", FormatSpeed(Coast.DeltaVNeeded)));
             TripRows.Add(Row("Kept in reserve", $"{FormatSpeed(Reserve * available)} (10%)"));
+            if (LossAllowance > 0) TripRows.Add(Row("Set aside for boil-off", FormatSpeed(LossAllowance)));
+            string lossNote = LossNote();
+            if (lossNote != null) Notes.Add(lossNote);
             if (Coast.CoastTime < 1)
                 Notes.Add("This ship has the delta-v for a full burn, so there's nothing to coast: \"Full burn\" is the same trip.");
         }
@@ -302,18 +326,51 @@ namespace FlipAndBurn
         private string cachedCoastKey = "";
         private double cachedCoastUntil;
 
+        private double cachedLossDeltaV;
+        private bool cachedLossBlocks;
+
+        /// <summary>Coast trips: the trip would fit, but not once this ship's measured boil-off is allowed for.</summary>
+        public bool LossBlocks { get; private set; }
+
+        // The coast plan; with a measured loss that matters, the slower plan that leaves room for it (LossAllowance set).
         private CoastPlan CoastPlanFor(TripRequest request, double budget)
         {
-            string key = $"{lastKey}|{budget:R}";
+            double rate = Math.Max(0, LossRate?.Invoke() ?? 0);
+            if (InfinitePropellant || Ship == null) rate = 0;
+            string key = $"{lastKey}|{budget:R}|{rate:R}";
             double now = UnityEngine.Time.realtimeSinceStartup;
             if (cachedCoast == null || key != cachedCoastKey || now >= cachedCoastUntil)
             {
                 cachedCoast = CoastPlanner.Plan(request, budget);
+                cachedLossDeltaV = 0;
+                cachedLossBlocks = false;
+                if (rate > 0 && cachedCoast.Feasible)
+                {
+                    // Worth allowing for only if the loss over the plain trip costs a noticeable share of the delta-v.
+                    double plainCost = BackgroundLoss.DeltaVCost(Ship, request.Acceleration, rate * cachedCoast.TripTime);
+                    if (plainCost >= LossWorthAllowing * (budget / (1 - Reserve)))
+                    {
+                        cachedCoast = CoastPlanner.PlanAllowingForLoss(request, budget, Ship, rate, out cachedLossDeltaV);
+                        cachedLossBlocks = !cachedCoast.Feasible;
+                    }
+                }
+
                 cachedCoastKey = key;
                 cachedCoastUntil = now + CoastRefreshSeconds;
             }
 
+            LossAllowance = cachedCoast.Feasible ? cachedLossDeltaV : 0;
+            LossBlocks = cachedLossBlocks;
             return cachedCoast;
+        }
+
+        // The planner's note on a measured loss it allows for, in plain words.
+        private string LossNote()
+        {
+            if (!(LossAllowance > 0)) return null;
+            double rate = Math.Max(0, LossRate?.Invoke() ?? 0);
+            return $"This ship's tanks lose about {FormatMass(rate * DayLength)} of propellant a day while the engines are off (boil-off, " +
+                   $"measured on this ship). This trip allows for it: {FormatSpeed(LossAllowance)} of delta-v is set aside, so it still arrives with 10% in reserve.";
         }
 
         private string PlanProblem(TripPlan plan, TripRequest request, CelestialBody target)
@@ -395,6 +452,13 @@ namespace FlipAndBurn
             if (kms < 100) return kms.ToString("N1", CultureInfo.InvariantCulture) + " km/s";
             return kms.ToString("N0", CultureInfo.InvariantCulture) + " km/s";
         }
+
+        /// <summary>A game day (s): 6 hours with Kerbin time, 24 with Earth time.</summary>
+        public static double DayLength => KSPUtil.dateTimeFormatter?.Day > 0 ? KSPUtil.dateTimeFormatter.Day : 21600;
+
+        public static string FormatMass(double kg) => kg >= 1000
+            ? (kg / 1000).ToString("0.0", CultureInfo.InvariantCulture) + " t"
+            : kg.ToString(kg >= 10 ? "0" : "0.0", CultureInfo.InvariantCulture) + " kg";
 
         public static string FormatG(double g) => g.ToString("0.00", CultureInfo.InvariantCulture) + " g";
 

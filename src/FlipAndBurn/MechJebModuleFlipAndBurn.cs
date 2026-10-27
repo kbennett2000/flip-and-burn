@@ -46,6 +46,7 @@ namespace FlipAndBurn
 
         public MechJebModuleFlipAndBurn(MechJebCore core) : base(core)
         {
+            Planner.LossRate = () => Autopilot?.Loss.RateKgPerSecond ?? 0;
         }
 
         public override string GetName() => Title;
@@ -59,6 +60,7 @@ namespace FlipAndBurn
             if (!Enabled || Vessel == null) return;
             SyncInputs();
             if (Autopilot != null && Autopilot.Running) return;   // the planner isn't shown while flying
+            Autopilot?.SampleLoss(Vessel);
             Planner.Update(Vessel);
         }
 
@@ -143,6 +145,7 @@ namespace FlipAndBurn
             }
             else if (Planner.SituationMessage != null)
             {
+                DrawStopReason(pilot);
                 GUILayout.Label(Planner.SituationMessage, wrapStyle);
             }
             else
@@ -167,12 +170,7 @@ namespace FlipAndBurn
                 }
 
                 GUI.enabled = wasEnabled;
-                if (pilot?.StopReason != null)
-                {
-                    GUILayout.Space(4);
-                    GUILayout.Label(pilot.StopReason, noteStyle);
-                    if (!string.IsNullOrEmpty(pilot.SettingsCheck)) GUILayout.Label(pilot.SettingsCheck, wrapStyle);
-                }
+                DrawStopReason(pilot);
 
                 GUILayout.Label("No trip is running.", wrapStyle);
             }
@@ -240,6 +238,15 @@ namespace FlipAndBurn
 
             if (GUILayout.Button("Abort")) PressAbort();
             GUILayout.EndHorizontal();
+        }
+
+        // How the last trip ended (arrived, aborted, or why it stopped), in plain words.
+        private void DrawStopReason(MechJebModuleFlipAndBurnAutopilot pilot)
+        {
+            if (pilot?.StopReason == null) return;
+            GUILayout.Space(4);
+            GUILayout.Label(pilot.StopReason, pilot.Arrived ? wrapStyle : noteStyle);
+            if (!string.IsNullOrEmpty(pilot.SettingsCheck)) GUILayout.Label(pilot.SettingsCheck, wrapStyle);
         }
 
         // The delta-v expected at arrival, and a plain warning when it is below the 10 % reserve.

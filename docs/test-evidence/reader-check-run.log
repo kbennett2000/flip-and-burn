@@ -1,0 +1,202 @@
+# FlipAndBurn test run 2026-10-27T15:19:03Z
+# ---- phase main
+[LOG 09:08:51.221] AssemblyLoader: KSPAssembly 'FlipAndBurn' V0.1.0
+[LOG 09:08:51.222] AssemblyLoader: KSPAssembly 'FlipAndBurn.TestHarness' V0.1.0
+[LOG 09:08:51.245] AssemblyLoader: KSPAssembly 'MechJeb2' V2.15.3
+MechJeb2 v2.15.0.0 / v / v2.15.3.1
+[LOG 09:17:20.176] [HighLogic]: =========================== Scene Change : From LOADING to MAINMENU =====================
+[LOG 09:17:24.747] [FlipAndBurn] loaded
+[LOG 09:17:24.749] [FlipAndBurn.Test] step 1: harness active (-flipandburn-test given)
+[LOG 09:17:30.337] [FlipAndBurn.Test] proofs: readercheck
+[LOG 09:17:31.445] [FlipAndBurn.Test] step 2: loaded save 'FlipAndBurn-Test/persistent' (152 vessels, mode SANDBOX)
+[LOG 09:17:31.445] [FlipAndBurn.Test] step 2: switching to flight on 'Bebop Refueller' (vessel index 138)
+[LOG 09:17:58.128] [FlipAndBurn.Test] step 3: in flight on 'Bebop Refueller', ORBITING Kerbin, MechJeb core on part 'probeStackTorque', current stage 3
+[LOG 09:17:58.130] [FlipAndBurn.Test] step 3: MechJeb menu lists 'Flip and Burn': True
+[LOG 09:18:01.136] [FlipAndBurn.Test] diag: delta-v sources for 'Bebop Refueller' at UT 18377814381.751015, current stage 3
+[LOG 09:18:01.136] [FlipAndBurn.Test] diag mass: vessel.totalMass = 152.64251278340816 t
+[LOG 09:18:01.138] [FlipAndBurn.Test] diag resource: ElectricCharge = 1279675.4558297484 units, density 0 t/unit, 0 t
+[LOG 09:18:01.138] [FlipAndBurn.Test] diag resource: LqdDeuterium = 69089.4716558799 units, density 0.00016239999968092889 t/unit, 11.220130174870441 t
+[LOG 09:18:01.138] [FlipAndBurn.Test] diag resource: Megajoules = 416.30426718877334 units, density 0 t/unit, 0 t
+[LOG 09:18:01.138] [FlipAndBurn.Test] diag resource: MonoPropellant = 20819.910751808282 units, density 0.0040000001899898052 t/unit, 83.279646962803909 t
+[LOG 09:18:01.138] [FlipAndBurn.Test] diag resource: WasteHeat = 11027.155200939977 units, density 0 t/unit, 0 t
+[LOG 09:18:01.138] [FlipAndBurn.Test] diag engine: part=KspiEpsteinUDD module=ModuleEnginesFX ignited=True operational=True flameout=False maxThrust=4746.09326171875 kN thrustPercentage=100 vacuumIsp=281249.96875 s maxFuelFlow=0.0017207709606736898 includeinDVCalcs=False propellants=LqdDeuterium:1
+[LOG 09:18:01.141] [FlipAndBurn.Test] diag KSPIE FusionEngineController on KspiEpsteinUDD: part.mass=17.212501525878906 thrustMultiplier=0.31640625 ispMultiplier=0.5625 partMass=17.212499618530273 massThrustExp=0 massIspExp=0 ispThrottleExponent=0.5 maxThrustMk7=15000 thrustIspMk7=500000 timeDilation=0.99999993497512363 effectiveMaxThrustInKiloNewton=4746.0931327717017 maximizeThrust=True fuelLimit=100 speedLimit=1 EngineGenerationType=Mk7 EngineIsp=281250 MaximumThrust=4746.09375 RawEngineIsp=500000
+[LOG 09:18:02.147] [FlipAndBurn.Test] diag stock: ready=True TotalDeltaVVac=172910.46875 m/s TotalDeltaVActual=172910.46875 m/s
+[LOG 09:18:02.147] [FlipAndBurn.Test] diag stock stage 2: deltaVinVac=172910.453125 m/s thrustVac=4746.0927734375 kN ispVac=281249.96875 s startMass=184.64251708984375 t endMass=173.42239379882813 t fuelMass=126.49977874755859 t
+[LOG 09:18:02.147] [FlipAndBurn.Test] diag stock stage 1: deltaVinVac=0 m/s thrustVac=4746.0927734375 kN ispVac=281249.96875 s startMass=173.42239379882813 t endMass=173.42239379882813 t fuelMass=115.27964782714844 t
+[LOG 09:18:02.147] [FlipAndBurn.Test] diag stock stage 0: deltaVinVac=0 m/s thrustVac=4746.0927734375 kN ispVac=281249.96875 s startMass=173.42239379882813 t endMass=173.42239379882813 t fuelMass=115.27964782714844 t
+[LOG 09:18:02.670] [FlipAndBurn.Test] diag MechJeb: total vacuum delta-v=210575.94199148132 m/s
+[LOG 09:18:02.670] [FlipAndBurn.Test] diag MechJeb stage 0: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=141.42238208736956 t EndMass=141.42238208736956 t
+[LOG 09:18:02.670] [FlipAndBurn.Test] diag MechJeb stage 1: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=141.42238208736956 t EndMass=141.42238208736956 t
+[LOG 09:18:02.670] [FlipAndBurn.Test] diag MechJeb stage 2: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=141.42238208736956 t EndMass=141.42238208736956 t
+[LOG 09:18:02.670] [FlipAndBurn.Test] diag MechJeb stage 3: DeltaV=210575.94199148132 m/s Thrust=4746.092687225223 kN Isp=281249.96297695057 s StartMass=152.64251226224002 t EndMass=141.42238208736956 t
+[LOG 09:18:02.681] [FlipAndBurn.Test] diag FlipAndBurn: FullThrust=4746093.1326675219 N VacuumIsp=281249.98170866672 s IspThrottleExponent=0.5 StartMass=152642.51278340816 kg EndMass=141422.38260853774 kg
+[LOG 09:18:02.681] [FlipAndBurn.Test] diag FlipAndBurn: FullThrustDeltaV=210575.95179598723 m/s DeltaVAt1g=116051.27906717076 m/s MaxAcceleration=31.092865585893378 m/s^2
+[LOG 09:18:02.681] [FlipAndBurn.Test] diag FlipAndBurn engine: "Rocinante" Kerbstein Fusion Drive Thrust=4746093.1326675219 N VacuumIsp=281249.98170866672 s k=0.5 understood=True propellants=LqdDeuterium:1@0.00016239999968092889
+[LOG 09:18:02.681] [FlipAndBurn.Test] diag FlipAndBurn phase 1: Thrust=4746093.1326675219 N Isp=281249.98170866672 s StartMass=152642.51278340816 kg EndMass=141422.38260853774 kg
+[LOG 09:18:02.681] [FlipAndBurn.Test] diag FlipAndBurn: estimated=False stagesBelow=1 electricDemand=0 powerSupply=0 notes=
+[LOG 09:18:02.681] [FlipAndBurn.Test] diag ship orbit: ref=Kerbin sma=1356450.0068810172 ecc=0.0047827739644624575 inc=0.0026560497150003304 LAN=34.78365733949812 argPe=48.24483306161472 meanAnomalyAtEpoch=0.18445880144855245 epoch=18377814383.271049
+[LOG 09:18:02.682] [FlipAndBurn.Test] diag body Moho: Radius=250000 gravParameter=168609378654.50949 atmosphere=False atmosphereDepth=0 maxTerrain=8200 SOI=9646663.023328105 defaultParking=20000
+[LOG 09:18:02.682] [FlipAndBurn.Test] diag body Eve: Radius=700000 gravParameter=8171730229210.8721 atmosphere=True atmosphereDepth=90000 maxTerrain=9000 SOI=85109364.738244072 defaultParking=100000
+[LOG 09:18:02.682] [FlipAndBurn.Test] diag body Kerbin: Radius=600000 gravParameter=3531599999999.9995 atmosphere=True atmosphereDepth=70000 maxTerrain=8735 SOI=84159286.479630485 defaultParking=80000
+[LOG 09:18:02.682] [FlipAndBurn.Test] diag body Duna: Radius=320000 gravParameter=301363211975.09772 atmosphere=True atmosphereDepth=50000 maxTerrain=10500 SOI=47921949.369738035 defaultParking=60000
+[LOG 09:18:02.682] [FlipAndBurn.Test] diag body Dres: Radius=138000 gravParameter=21484488600 atmosphere=False atmosphereDepth=0 maxTerrain=7100 SOI=32832839.576776203 defaultParking=20000
+[LOG 09:18:02.682] [FlipAndBurn.Test] diag body Jool: Radius=6000000 gravParameter=282528004209995.25 atmosphere=True atmosphereDepth=200000 maxTerrain=0 SOI=2455985185.4234691 defaultParking=220000
+[LOG 09:18:02.682] [FlipAndBurn.Test] diag body Sarnus: Radius=5300000 gravParameter=82089701953000.016 atmosphere=True atmosphereDepth=580000 maxTerrain=0 SOI=2740126708.1575294 defaultParking=640000
+[LOG 09:18:02.682] [FlipAndBurn.Test] diag body Urlum: Radius=2177000 gravParameter=11944573769627.449 atmosphere=True atmosphereDepth=325000 maxTerrain=0 SOI=2562260673.0775681 defaultParking=360000
+[LOG 09:18:02.682] [FlipAndBurn.Test] diag body Neidon: Radius=2145000 gravParameter=14167881530302.5 atmosphere=True atmosphereDepth=260000 maxTerrain=0 SOI=4415723830.4910727 defaultParking=290000
+[LOG 09:18:02.682] [FlipAndBurn.Test] diag body Plock: Radius=189000 gravParameter=51844895008.2 atmosphere=False atmosphereDepth=0 maxTerrain=4200 SOI=612762335.91870821 defaultParking=20000
+[LOG 09:18:02.682] [FlipAndBurn.Test] step 5: opened the 'Flip and Burn' window
+[LOG 09:18:02.873] [FlipAndBurn.Test] step 6: selected Duna
+[LOG 09:18:10.064] [FlipAndBurn.Test] diag: delta-v sources for 'Bebop Refueller' at UT 18377814389.171185, current stage 3
+[LOG 09:18:10.064] [FlipAndBurn.Test] diag mass: vessel.totalMass = 152.64251278340816 t
+[LOG 09:18:10.065] [FlipAndBurn.Test] diag resource: ElectricCharge = 1279674.8622298045 units, density 0 t/unit, 0 t
+[LOG 09:18:10.065] [FlipAndBurn.Test] diag resource: LqdDeuterium = 69089.4716558799 units, density 0.00016239999968092889 t/unit, 11.220130174870441 t
+[LOG 09:18:10.065] [FlipAndBurn.Test] diag resource: Megajoules = 416.29887898030529 units, density 0 t/unit, 0 t
+[LOG 09:18:10.065] [FlipAndBurn.Test] diag resource: MonoPropellant = 20819.910751808282 units, density 0.0040000001899898052 t/unit, 83.279646962803909 t
+[LOG 09:18:10.065] [FlipAndBurn.Test] diag resource: WasteHeat = 10901.105972999523 units, density 0 t/unit, 0 t
+[LOG 09:18:10.065] [FlipAndBurn.Test] diag engine: part=KspiEpsteinUDD module=ModuleEnginesFX ignited=True operational=True flameout=False maxThrust=4746.09326171875 kN thrustPercentage=100 vacuumIsp=281249.96875 s maxFuelFlow=0.0017207709606736898 includeinDVCalcs=False propellants=LqdDeuterium:1
+[LOG 09:18:10.066] [FlipAndBurn.Test] diag KSPIE FusionEngineController on KspiEpsteinUDD: part.mass=17.212501525878906 thrustMultiplier=0.31640625 ispMultiplier=0.5625 partMass=17.212499618530273 massThrustExp=0 massIspExp=0 ispThrottleExponent=0.5 maxThrustMk7=15000 thrustIspMk7=500000 timeDilation=0.99999993492203787 effectiveMaxThrustInKiloNewton=4746.0931322678016 maximizeThrust=True fuelLimit=100 speedLimit=1 EngineGenerationType=Mk7 EngineIsp=281250 MaximumThrust=4746.09375 RawEngineIsp=500000
+[LOG 09:18:11.069] [FlipAndBurn.Test] diag stock: ready=True TotalDeltaVVac=172910.421875 m/s TotalDeltaVActual=172910.421875 m/s
+[LOG 09:18:11.069] [FlipAndBurn.Test] diag stock stage 2: deltaVinVac=172910.46875 m/s thrustVac=4746.0927734375 kN ispVac=281249.96875 s startMass=184.64251708984375 t endMass=173.42239379882813 t fuelMass=126.49977874755859 t
+[LOG 09:18:11.069] [FlipAndBurn.Test] diag stock stage 1: deltaVinVac=0 m/s thrustVac=4746.0927734375 kN ispVac=281249.96875 s startMass=173.42239379882813 t endMass=173.42239379882813 t fuelMass=115.27964782714844 t
+[LOG 09:18:11.069] [FlipAndBurn.Test] diag stock stage 0: deltaVinVac=0 m/s thrustVac=4746.0927734375 kN ispVac=281249.96875 s startMass=173.42239379882813 t endMass=173.42239379882813 t fuelMass=115.27964782714844 t
+[LOG 09:18:11.069] [FlipAndBurn.Test] diag MechJeb: total vacuum delta-v=210575.94199148132 m/s
+[LOG 09:18:11.069] [FlipAndBurn.Test] diag MechJeb stage 0: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=141.42238208736956 t EndMass=141.42238208736956 t
+[LOG 09:18:11.069] [FlipAndBurn.Test] diag MechJeb stage 1: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=141.42238208736956 t EndMass=141.42238208736956 t
+[LOG 09:18:11.069] [FlipAndBurn.Test] diag MechJeb stage 2: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=141.42238208736956 t EndMass=141.42238208736956 t
+[LOG 09:18:11.069] [FlipAndBurn.Test] diag MechJeb stage 3: DeltaV=210575.94199148132 m/s Thrust=4746.092687225223 kN Isp=281249.96297695057 s StartMass=152.64251226224002 t EndMass=141.42238208736956 t
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag FlipAndBurn: FullThrust=4746093.1322128354 N VacuumIsp=281249.9816951945 s IspThrottleExponent=0.5 StartMass=152642.51278340816 kg EndMass=141422.38260853774 kg
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag FlipAndBurn: FullThrustDeltaV=210575.95178590037 m/s DeltaVAt1g=116051.27906717075 m/s MaxAcceleration=31.092865582914612 m/s^2
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag FlipAndBurn engine: "Rocinante" Kerbstein Fusion Drive Thrust=4746093.1322128354 N VacuumIsp=281249.9816951945 s k=0.5 understood=True propellants=LqdDeuterium:1@0.00016239999968092889
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag FlipAndBurn phase 1: Thrust=4746093.1322128354 N Isp=281249.9816951945 s StartMass=152642.51278340816 kg EndMass=141422.38260853774 kg
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag FlipAndBurn: estimated=False stagesBelow=1 electricDemand=0 powerSupply=0 notes=
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag ship orbit: ref=Kerbin sma=1356450.0069582115 ecc=0.00478277403506063 inc=0.002656050610831425 LAN=34.783693985434979 argPe=48.244795549557814 meanAnomalyAtEpoch=0.19245272685126358 epoch=18377814389.991203
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag body Moho: Radius=250000 gravParameter=168609378654.50949 atmosphere=False atmosphereDepth=0 maxTerrain=8200 SOI=9646663.023328105 defaultParking=20000
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag body Eve: Radius=700000 gravParameter=8171730229210.8721 atmosphere=True atmosphereDepth=90000 maxTerrain=9000 SOI=85109364.738244072 defaultParking=100000
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag body Kerbin: Radius=600000 gravParameter=3531599999999.9995 atmosphere=True atmosphereDepth=70000 maxTerrain=8735 SOI=84159286.479630485 defaultParking=80000
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag body Duna: Radius=320000 gravParameter=301363211975.09772 atmosphere=True atmosphereDepth=50000 maxTerrain=10500 SOI=47921949.369738035 defaultParking=60000
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag body Dres: Radius=138000 gravParameter=21484488600 atmosphere=False atmosphereDepth=0 maxTerrain=7100 SOI=32832839.576776203 defaultParking=20000
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag body Jool: Radius=6000000 gravParameter=282528004209995.25 atmosphere=True atmosphereDepth=200000 maxTerrain=0 SOI=2455985185.4234691 defaultParking=220000
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag body Sarnus: Radius=5300000 gravParameter=82089701953000.016 atmosphere=True atmosphereDepth=580000 maxTerrain=0 SOI=2740126708.1575294 defaultParking=640000
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag body Urlum: Radius=2177000 gravParameter=11944573769627.449 atmosphere=True atmosphereDepth=325000 maxTerrain=0 SOI=2562260673.0775681 defaultParking=360000
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag body Neidon: Radius=2145000 gravParameter=14167881530302.5 atmosphere=True atmosphereDepth=260000 maxTerrain=0 SOI=4415723830.4910727 defaultParking=290000
+[LOG 09:18:11.251] [FlipAndBurn.Test] diag body Plock: Radius=189000 gravParameter=51844895008.2 atmosphere=False atmosphereDepth=0 maxTerrain=4200 SOI=612762335.91870821 defaultParking=20000
+[LOG 09:18:11.252] [FlipAndBurn.Test] reader check [Bebop Refueller, idle]: vessel.totalMass 152.64251278340816 t; LqdDeuterium 69089.4716558799 units
+[LOG 09:18:11.254] [FlipAndBurn.Test] reader check [Bebop Refueller, idle]: engine module: maxThrust 4746.09326 kN, Isp curve at vacuum 281249.96875 s, current throttle 0.000
+[LOG 09:18:11.254] [FlipAndBurn.Test] reader check [Bebop Refueller, idle]: reader (new): thrust 4746093.1322128354 N, vacuum Isp 281249.9816951945 s, throttle exponent 0.5, start 152642.51278340816 kg, end 141422.38260853774 kg; notes on engines: This ship has 1 more stage below the current one. Flip and Burn plans with the engines firing now and the fuel they can reach; the stages below aren't counted.
+[LOG 09:18:11.255] [FlipAndBurn.Test] reader check [Bebop Refueller, idle] 0.4 g: new 73397.3 m/s, old 73397.3 m/s; planner shows: Ship's delta-v = 116 km/s at 1.00 g; at full thrust = 211 km/s; Ship's max acceleration = 3.17 g
+[LOG 09:18:11.256] [FlipAndBurn.Test] reader check [Bebop Refueller, idle] 1.0 g: new 116051.3 m/s, old 116051.3 m/s; planner shows: Ship's delta-v = 116 km/s at 1.00 g; at full thrust = 211 km/s; Ship's max acceleration = 3.17 g
+[LOG 09:18:11.257] [FlipAndBurn.Test] reader check [Bebop Refueller, idle] 2.0 g: new 164121.3 m/s, old 164121.3 m/s; planner shows: Ship's delta-v = 116 km/s at 1.00 g; at full thrust = 211 km/s; Ship's max acceleration = 3.17 g
+[LOG 09:18:15.262] [FlipAndBurn.Test] reader check: drive firing at throttle 0.126: thrust 598.0 kN
+[LOG 09:18:15.262] [FlipAndBurn.Test] reader check [Bebop Refueller, firing at throttle 0.126]: vessel.totalMass 152.640493940562 t; LqdDeuterium 69077.033112150675 units
+[LOG 09:18:15.442] [FlipAndBurn.Test] reader check [Bebop Refueller, firing at throttle 0.126]: engine module: maxThrust 4746.09326 kN, Isp curve at vacuum 99833.8359375 s, current throttle 0.126
+[LOG 09:18:15.442] [FlipAndBurn.Test] reader check [Bebop Refueller, firing at throttle 0.126]: reader (new): thrust 4746093.1313673323 N, vacuum Isp 281249.98167014256 s, throttle exponent 0.5, start 152640.493940562 kg, end 141422.38378518922 kg; notes on engines: This ship has 1 more stage below the current one. Flip and Burn plans with the engines firing now and the fuel they can reach; the stages below aren't counted.
+[LOG 09:18:15.443] [FlipAndBurn.Test] reader check [Bebop Refueller, firing at throttle 0.126] 0.4 g: new 73384.3 m/s, old 26048.8 m/s; planner shows: Ship's delta-v = 164 km/s at 2.00 g; at full thrust = 211 km/s; Ship's max acceleration = 3.17 g
+[LOG 09:18:15.444] [FlipAndBurn.Test] reader check [Bebop Refueller, firing at throttle 0.126] 1.0 g: new 116030.8 m/s, old 41186.8 m/s; planner shows: Ship's delta-v = 164 km/s at 2.00 g; at full thrust = 211 km/s; Ship's max acceleration = 3.17 g
+[LOG 09:18:15.445] [FlipAndBurn.Test] reader check [Bebop Refueller, firing at throttle 0.126] 2.0 g: new 164092.3 m/s, old 58247.0 m/s; planner shows: Ship's delta-v = 164 km/s at 2.00 g; at full thrust = 211 km/s; Ship's max acceleration = 3.17 g
+[LOG 09:18:18.707] [FlipAndBurn.Test] step 7: loaded save 'FlipAndBurn-Test/persistent' (152 vessels, mode SANDBOX)
+[LOG 09:18:18.707] [FlipAndBurn.Test] step 7: switching to flight on 'CubeSat v3.2' (vessel index 150)
+[LOG 09:18:38.367] [FlipAndBurn.Test] step 8: in flight on 'CubeSat v3.2', ORBITING Kerbin, MechJeb core on part 'probeStackLarge', current stage 6
+[LOG 09:18:38.367] [FlipAndBurn.Test] step 8: MechJeb menu lists 'Flip and Burn': True
+[LOG 09:18:41.378] [FlipAndBurn.Test] diag: delta-v sources for 'CubeSat v3.2' at UT 18377814382.231026, current stage 6
+[LOG 09:18:41.378] [FlipAndBurn.Test] diag mass: vessel.totalMass = 21.495600692927837 t
+[LOG 09:18:41.378] [FlipAndBurn.Test] diag resource: ElectricCharge = 1699.8791044203372 units, density 0 t/unit, 0 t
+[LOG 09:18:41.378] [FlipAndBurn.Test] diag resource: LiquidFuel = 707.200940927854 units, density 0.004999999888241291 t/unit, 3.5360046256034061 t
+[LOG 09:18:41.378] [FlipAndBurn.Test] diag resource: Megajoules = 0.0004 units, density 0 t/unit, 0 t
+[LOG 09:18:41.378] [FlipAndBurn.Test] diag resource: Oxidizer = 864.35664455814538 units, density 0.004999999888241291 t/unit, 4.3217831261913444 t
+[LOG 09:18:41.378] [FlipAndBurn.Test] diag resource: SolidFuel = 24 units, density 0.0074999998323619366 t/unit, 0.17999999597668648 t
+[LOG 09:18:41.378] [FlipAndBurn.Test] diag resource: WasteHeat = 0 units, density 0 t/unit, 0 t
+[LOG 09:18:41.378] [FlipAndBurn.Test] diag engine: part=LiquidEngineLV-TX87 module=ModuleEngines ignited=False operational=False flameout=False maxThrust=400 kN thrustPercentage=100 vacuumIsp=310 s maxFuelFlow=0.1315762847661972 includeinDVCalcs=False propellants=LiquidFuel:0.89999997615814209,Oxidizer:1.1000000238418579
+[LOG 09:18:41.378] [FlipAndBurn.Test] diag engine: part=LiquidEngineKE-1 module=ModuleEngines ignited=True operational=True flameout=False maxThrust=1350 kN thrustPercentage=100 vacuumIsp=305 s maxFuelFlow=0.45134979486465454 includeinDVCalcs=False propellants=LiquidFuel:0.89999997615814209,Oxidizer:1.1000000238418579
+[LOG 09:18:41.378] [FlipAndBurn.Test] diag engine: part=sepMotor1 module=ModuleEngines ignited=False operational=False flameout=False maxThrust=18 kN thrustPercentage=100 vacuumIsp=154 s maxFuelFlow=0.01191876083612442 includeinDVCalcs=False propellants=SolidFuel:1
+[LOG 09:18:41.378] [FlipAndBurn.Test] diag engine: part=sepMotor1 module=ModuleEngines ignited=False operational=False flameout=False maxThrust=18 kN thrustPercentage=100 vacuumIsp=154 s maxFuelFlow=0.01191876083612442 includeinDVCalcs=False propellants=SolidFuel:1
+[LOG 09:18:41.378] [FlipAndBurn.Test] diag engine: part=sepMotor1 module=ModuleEngines ignited=False operational=False flameout=False maxThrust=18 kN thrustPercentage=100 vacuumIsp=154 s maxFuelFlow=0.01191876083612442 includeinDVCalcs=False propellants=SolidFuel:1
+[LOG 09:18:42.387] [FlipAndBurn.Test] diag stock: ready=True TotalDeltaVVac=2018.7811279296875 m/s TotalDeltaVActual=2018.7811279296875 m/s
+[LOG 09:18:42.387] [FlipAndBurn.Test] diag stock stage 6: deltaVinVac=699.54638671875 m/s thrustVac=1350 kN ispVac=305 s startMass=21.495601654052734 t endMass=17.012813568115234 t fuelMass=8.0377883911132813 t
+[LOG 09:18:42.387] [FlipAndBurn.Test] diag stock stage 5: deltaVinVac=1319.234619140625 m/s thrustVac=400 kN ispVac=310 s startMass=9.5865631103515625 t endMass=6.2115631103515625 t fuelMass=3.5550003051757813 t
+[LOG 09:18:42.387] [FlipAndBurn.Test] diag stock stage 4: deltaVinVac=0 m/s thrustVac=400 kN ispVac=310 s startMass=6.2115616798400879 t endMass=6.2115616798400879 t fuelMass=6.9028160964990093E-08 t
+[LOG 09:18:42.387] [FlipAndBurn.Test] diag stock stage 3: deltaVinVac=0 m/s thrustVac=400 kN ispVac=310 s startMass=6.2115616798400879 t endMass=6.2115616798400879 t fuelMass=3.3357601125771907E-08 t
+[LOG 09:18:42.387] [FlipAndBurn.Test] diag stock stage 2: deltaVinVac=0 m/s thrustVac=400 kN ispVac=310 s startMass=6.2115616798400879 t endMass=6.2115616798400879 t fuelMass=3.3357601125771907E-08 t
+[LOG 09:18:42.387] [FlipAndBurn.Test] diag stock stage 1: deltaVinVac=0 m/s thrustVac=0 kN ispVac=0 s startMass=1.899686336517334 t endMass=1.899686336517334 t fuelMass=3.3357601125771907E-08 t
+[LOG 09:18:42.387] [FlipAndBurn.Test] diag stock stage 0: deltaVinVac=0 m/s thrustVac=0 kN ispVac=0 s startMass=1.8996877670288086 t endMass=1.8996877670288086 t fuelMass=0 t
+[LOG 09:18:42.892] [FlipAndBurn.Test] diag MechJeb: total vacuum delta-v=2018.7812814163399 m/s
+[LOG 09:18:42.892] [FlipAndBurn.Test] diag MechJeb stage 0: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=1.8996875397861004 t EndMass=1.8996875397861004 t
+[LOG 09:18:42.892] [FlipAndBurn.Test] diag MechJeb stage 1: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=1.8996875397861004 t EndMass=1.8996875397861004 t
+[LOG 09:18:42.892] [FlipAndBurn.Test] diag MechJeb stage 2: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=6.2115626786094635 t EndMass=6.2115626786094635 t
+[LOG 09:18:42.892] [FlipAndBurn.Test] diag MechJeb stage 3: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=6.2115626786094635 t EndMass=6.2115626786094635 t
+[LOG 09:18:42.892] [FlipAndBurn.Test] diag MechJeb stage 4: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=6.2115626786094635 t EndMass=6.2115626786094635 t
+[LOG 09:18:42.892] [FlipAndBurn.Test] diag MechJeb stage 5: DeltaV=1319.2348402617097 m/s Thrust=400.00014722946753 kN Isp=310.00011775514952 s StartMass=9.5865625300211832 t EndMass=6.2115626786094635 t
+[LOG 09:18:42.892] [FlipAndBurn.Test] diag MechJeb stage 6: DeltaV=699.54644115463009 m/s Thrust=1350.0003490337292 kN Isp=305.00008356341732 s StartMass=21.495600303720639 t EndMass=17.012812823279233 t
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag FlipAndBurn: FullThrust=1350000 N VacuumIsp=305 s IspThrottleExponent=0 StartMass=21495.600692927837 kg EndMass=17012.813212486431 kg
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag FlipAndBurn: FullThrustDeltaV=699.546223686296 m/s DeltaVAt1g=699.546223686296 m/s MaxAcceleration=62.803548469532046 m/s^2
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag FlipAndBurn engine: Kerbodyne KE-1 "Mastodon" Liquid Fuel Engine Thrust=1350000 N VacuumIsp=305 s k=0 understood=True propellants=LiquidFuel:0.89999997615814209@0.004999999888241291,Oxidizer:1.1000000238418579@0.004999999888241291
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag FlipAndBurn phase 1: Thrust=1350000 N Isp=305 s StartMass=21495.600692927837 kg EndMass=17012.813212486431 kg
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag FlipAndBurn: estimated=False stagesBelow=2 electricDemand=0 powerSupply=0 notes=
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag ship orbit: ref=Kerbin sma=1822267.3782284479 ecc=0.00013738643971225944 inc=44.99999921253179 LAN=300.53653861481479 argPe=213.92199340685377 meanAnomalyAtEpoch=3.1541357032076021 epoch=18377814383.75106
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag body Moho: Radius=250000 gravParameter=168609378654.50949 atmosphere=False atmosphereDepth=0 maxTerrain=8200 SOI=9646663.023328105 defaultParking=20000
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag body Eve: Radius=700000 gravParameter=8171730229210.8721 atmosphere=True atmosphereDepth=90000 maxTerrain=9000 SOI=85109364.738244072 defaultParking=100000
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag body Kerbin: Radius=600000 gravParameter=3531599999999.9995 atmosphere=True atmosphereDepth=70000 maxTerrain=8735 SOI=84159286.479630485 defaultParking=80000
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag body Duna: Radius=320000 gravParameter=301363211975.09772 atmosphere=True atmosphereDepth=50000 maxTerrain=10500 SOI=47921949.369738035 defaultParking=60000
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag body Dres: Radius=138000 gravParameter=21484488600 atmosphere=False atmosphereDepth=0 maxTerrain=7100 SOI=32832839.576776203 defaultParking=20000
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag body Jool: Radius=6000000 gravParameter=282528004209995.25 atmosphere=True atmosphereDepth=200000 maxTerrain=0 SOI=2455985185.4234691 defaultParking=220000
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag body Sarnus: Radius=5300000 gravParameter=82089701953000.016 atmosphere=True atmosphereDepth=580000 maxTerrain=0 SOI=2740126708.1575294 defaultParking=640000
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag body Urlum: Radius=2177000 gravParameter=11944573769627.449 atmosphere=True atmosphereDepth=325000 maxTerrain=0 SOI=2562260673.0775681 defaultParking=360000
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag body Neidon: Radius=2145000 gravParameter=14167881530302.5 atmosphere=True atmosphereDepth=260000 maxTerrain=0 SOI=4415723830.4910727 defaultParking=290000
+[LOG 09:18:42.893] [FlipAndBurn.Test] diag body Plock: Radius=189000 gravParameter=51844895008.2 atmosphere=False atmosphereDepth=0 maxTerrain=4200 SOI=612762335.91870821 defaultParking=20000
+[LOG 09:18:42.893] [FlipAndBurn.Test] step 10: opened the 'Flip and Burn' window
+[LOG 09:18:42.970] [FlipAndBurn.Test] step 11: selected Duna
+[LOG 09:18:49.988] [FlipAndBurn.Test] diag: delta-v sources for 'CubeSat v3.2' at UT 18377814390.691219, current stage 6
+[LOG 09:18:49.988] [FlipAndBurn.Test] diag mass: vessel.totalMass = 21.495600692927837 t
+[LOG 09:18:49.988] [FlipAndBurn.Test] diag resource: ElectricCharge = 1699.2017625262347 units, density 0 t/unit, 0 t
+[LOG 09:18:49.988] [FlipAndBurn.Test] diag resource: LiquidFuel = 707.200940927854 units, density 0.004999999888241291 t/unit, 3.5360046256034061 t
+[LOG 09:18:49.988] [FlipAndBurn.Test] diag resource: Megajoules = 0.0004 units, density 0 t/unit, 0 t
+[LOG 09:18:49.988] [FlipAndBurn.Test] diag resource: Oxidizer = 864.35664455814538 units, density 0.004999999888241291 t/unit, 4.3217831261913444 t
+[LOG 09:18:49.988] [FlipAndBurn.Test] diag resource: SolidFuel = 24 units, density 0.0074999998323619366 t/unit, 0.17999999597668648 t
+[LOG 09:18:49.988] [FlipAndBurn.Test] diag resource: WasteHeat = 0 units, density 0 t/unit, 0 t
+[LOG 09:18:49.988] [FlipAndBurn.Test] diag engine: part=LiquidEngineLV-TX87 module=ModuleEngines ignited=False operational=False flameout=False maxThrust=400 kN thrustPercentage=100 vacuumIsp=310 s maxFuelFlow=0.1315762847661972 includeinDVCalcs=False propellants=LiquidFuel:0.89999997615814209,Oxidizer:1.1000000238418579
+[LOG 09:18:49.988] [FlipAndBurn.Test] diag engine: part=LiquidEngineKE-1 module=ModuleEngines ignited=True operational=True flameout=False maxThrust=1350 kN thrustPercentage=100 vacuumIsp=305 s maxFuelFlow=0.45134979486465454 includeinDVCalcs=False propellants=LiquidFuel:0.89999997615814209,Oxidizer:1.1000000238418579
+[LOG 09:18:49.988] [FlipAndBurn.Test] diag engine: part=sepMotor1 module=ModuleEngines ignited=False operational=False flameout=False maxThrust=18 kN thrustPercentage=100 vacuumIsp=154 s maxFuelFlow=0.01191876083612442 includeinDVCalcs=False propellants=SolidFuel:1
+[LOG 09:18:49.988] [FlipAndBurn.Test] diag engine: part=sepMotor1 module=ModuleEngines ignited=False operational=False flameout=False maxThrust=18 kN thrustPercentage=100 vacuumIsp=154 s maxFuelFlow=0.01191876083612442 includeinDVCalcs=False propellants=SolidFuel:1
+[LOG 09:18:49.988] [FlipAndBurn.Test] diag engine: part=sepMotor1 module=ModuleEngines ignited=False operational=False flameout=False maxThrust=18 kN thrustPercentage=100 vacuumIsp=154 s maxFuelFlow=0.01191876083612442 includeinDVCalcs=False propellants=SolidFuel:1
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag stock: ready=True TotalDeltaVVac=2018.78125 m/s TotalDeltaVActual=2018.78125 m/s
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag stock stage 6: deltaVinVac=699.546630859375 m/s thrustVac=1350 kN ispVac=305 s startMass=21.495601654052734 t endMass=17.012813568115234 t fuelMass=8.0377883911132813 t
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag stock stage 5: deltaVinVac=1319.234619140625 m/s thrustVac=400 kN ispVac=310 s startMass=9.5865631103515625 t endMass=6.2115631103515625 t fuelMass=3.5550003051757813 t
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag stock stage 4: deltaVinVac=0 m/s thrustVac=400 kN ispVac=310 s startMass=6.2115616798400879 t endMass=6.2115616798400879 t fuelMass=6.9028160964990093E-08 t
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag stock stage 3: deltaVinVac=0 m/s thrustVac=400 kN ispVac=310 s startMass=6.2115616798400879 t endMass=6.2115616798400879 t fuelMass=3.3357601125771907E-08 t
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag stock stage 2: deltaVinVac=0 m/s thrustVac=400 kN ispVac=310 s startMass=6.2115616798400879 t endMass=6.2115616798400879 t fuelMass=3.3357601125771907E-08 t
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag stock stage 1: deltaVinVac=0 m/s thrustVac=0 kN ispVac=0 s startMass=1.899686336517334 t endMass=1.899686336517334 t fuelMass=3.3357601125771907E-08 t
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag stock stage 0: deltaVinVac=0 m/s thrustVac=0 kN ispVac=0 s startMass=1.8996877670288086 t endMass=1.8996877670288086 t fuelMass=0 t
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag MechJeb: total vacuum delta-v=2018.7812814163399 m/s
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag MechJeb stage 0: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=1.8996875397861004 t EndMass=1.8996875397861004 t
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag MechJeb stage 1: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=1.8996875397861004 t EndMass=1.8996875397861004 t
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag MechJeb stage 2: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=6.2115626786094635 t EndMass=6.2115626786094635 t
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag MechJeb stage 3: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=6.2115626786094635 t EndMass=6.2115626786094635 t
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag MechJeb stage 4: DeltaV=0 m/s Thrust=0 kN Isp=0 s StartMass=6.2115626786094635 t EndMass=6.2115626786094635 t
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag MechJeb stage 5: DeltaV=1319.2348402617097 m/s Thrust=400.00014722946753 kN Isp=310.00011775514952 s StartMass=9.5865625300211832 t EndMass=6.2115626786094635 t
+[LOG 09:18:50.994] [FlipAndBurn.Test] diag MechJeb stage 6: DeltaV=699.54644115463009 m/s Thrust=1350.0003490337292 kN Isp=305.00008356341732 s StartMass=21.495600303720639 t EndMass=17.012812823279233 t
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag FlipAndBurn: FullThrust=1350000 N VacuumIsp=305 s IspThrottleExponent=0 StartMass=21495.600692927837 kg EndMass=17012.813212486431 kg
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag FlipAndBurn: FullThrustDeltaV=699.546223686296 m/s DeltaVAt1g=699.546223686296 m/s MaxAcceleration=62.803548469532046 m/s^2
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag FlipAndBurn engine: Kerbodyne KE-1 "Mastodon" Liquid Fuel Engine Thrust=1350000 N VacuumIsp=305 s k=0 understood=True propellants=LiquidFuel:0.89999997615814209@0.004999999888241291,Oxidizer:1.1000000238418579@0.004999999888241291
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag FlipAndBurn phase 1: Thrust=1350000 N Isp=305 s StartMass=21495.600692927837 kg EndMass=17012.813212486431 kg
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag FlipAndBurn: estimated=False stagesBelow=2 electricDemand=0 powerSupply=0 notes=
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag ship orbit: ref=Kerbin sma=1822267.3783013609 ecc=0.00013738640114700751 inc=44.999999212510836 LAN=300.53653861466904 argPe=213.92199686624767 meanAnomalyAtEpoch=3.160201581913316 epoch=18377814391.691242
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag body Moho: Radius=250000 gravParameter=168609378654.50949 atmosphere=False atmosphereDepth=0 maxTerrain=8200 SOI=9646663.023328105 defaultParking=20000
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag body Eve: Radius=700000 gravParameter=8171730229210.8721 atmosphere=True atmosphereDepth=90000 maxTerrain=9000 SOI=85109364.738244072 defaultParking=100000
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag body Kerbin: Radius=600000 gravParameter=3531599999999.9995 atmosphere=True atmosphereDepth=70000 maxTerrain=8735 SOI=84159286.479630485 defaultParking=80000
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag body Duna: Radius=320000 gravParameter=301363211975.09772 atmosphere=True atmosphereDepth=50000 maxTerrain=10500 SOI=47921949.369738035 defaultParking=60000
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag body Dres: Radius=138000 gravParameter=21484488600 atmosphere=False atmosphereDepth=0 maxTerrain=7100 SOI=32832839.576776203 defaultParking=20000
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag body Jool: Radius=6000000 gravParameter=282528004209995.25 atmosphere=True atmosphereDepth=200000 maxTerrain=0 SOI=2455985185.4234691 defaultParking=220000
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag body Sarnus: Radius=5300000 gravParameter=82089701953000.016 atmosphere=True atmosphereDepth=580000 maxTerrain=0 SOI=2740126708.1575294 defaultParking=640000
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag body Urlum: Radius=2177000 gravParameter=11944573769627.449 atmosphere=True atmosphereDepth=325000 maxTerrain=0 SOI=2562260673.0775681 defaultParking=360000
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag body Neidon: Radius=2145000 gravParameter=14167881530302.5 atmosphere=True atmosphereDepth=260000 maxTerrain=0 SOI=4415723830.4910727 defaultParking=290000
+[LOG 09:18:50.995] [FlipAndBurn.Test] diag body Plock: Radius=189000 gravParameter=51844895008.2 atmosphere=False atmosphereDepth=0 maxTerrain=4200 SOI=612762335.91870821 defaultParking=20000
+[LOG 09:18:50.995] [FlipAndBurn.Test] reader check [CubeSat v3.2, idle]: vessel.totalMass 21.495600692927837 t; LqdDeuterium 0 units
+[LOG 09:18:50.996] [FlipAndBurn.Test] reader check [CubeSat v3.2, idle]: engine module: maxThrust 1350 kN, Isp curve at vacuum 305 s, current throttle 0.000
+[LOG 09:18:50.996] [FlipAndBurn.Test] reader check [CubeSat v3.2, idle]: reader (new): thrust 1350000 N, vacuum Isp 305 s, throttle exponent 0, start 21495.600692927837 kg, end 17012.813212486431 kg; notes on engines: This ship has 2 more stages below the current one. Flip and Burn plans with the engines firing now and the fuel they can reach; the stages below aren't counted.
+[LOG 09:18:50.997] [FlipAndBurn.Test] reader check [CubeSat v3.2, idle] 0.4 g: new 699.5 m/s, old 699.5 m/s; planner shows: Ship's delta-v = 700 m/s at 2.00 g; at full thrust = 700 m/s; Ship's max acceleration = 6.40 g
+[LOG 09:18:50.998] [FlipAndBurn.Test] reader check [CubeSat v3.2, idle] 1.0 g: new 699.5 m/s, old 699.5 m/s; planner shows: Ship's delta-v = 700 m/s at 2.00 g; at full thrust = 700 m/s; Ship's max acceleration = 6.40 g
+[LOG 09:18:50.999] [FlipAndBurn.Test] reader check [CubeSat v3.2, idle] 2.0 g: new 699.5 m/s, old 699.5 m/s; planner shows: Ship's delta-v = 700 m/s at 2.00 g; at full thrust = 700 m/s; Ship's max acceleration = 6.40 g
+[LOG 09:18:50.999] [FlipAndBurn.Test] step 12: done, quitting KSP
+# Exception lines mentioning FlipAndBurn or MechJeb: 0
+# Stack frames in FlipAndBurn or MechJeb code: 0

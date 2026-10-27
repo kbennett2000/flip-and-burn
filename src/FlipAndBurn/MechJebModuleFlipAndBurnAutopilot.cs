@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Collections.Generic;
 using System.Linq;
 using FlipAndBurn.Core;
@@ -20,6 +21,7 @@ namespace FlipAndBurn
         public double DeltaVBudget;        // m/s, coast trips
         public double PlannedTripTime;     // s, from the planner
         public double DeltaVNeeded;        // m/s, from the planner (a coast trip's includes the guidance margin)
+        public double LossAllowance;       // m/s, coast trips: set aside for propellant lost while the engines are off
         public double StartDeltaV = double.NaN;   // m/s, the ship's delta-v at Start; NaN when fuel isn't counted
     }
 
@@ -52,10 +54,9 @@ namespace FlipAndBurn
         /// within 20 s. 10x was steady hot or cool.
         /// </summary>
         public static double MaxPhysicsRate = 10;
-        /// <summary>Hottest part, as a share of its temperature limit, above which physics warp is held to 4x / to 1x.</summary>
-        public const double WarmPart = 0.6, HotPart = 0.75;
-        /// <summary>Above this share of its temperature limit a part is about to fail: re-plan at 80 % of the acceleration.</summary>
-        public const double OverheatingPart = 0.9;
+        // The heat rules (warp held at 60 % and 75 % of a part's limit, a step-down at 90 %, and when the engines can't hold
+        // the acceleration) are in HeatGuard, shared with the rescue near the target and the simulator.
+        private readonly HeatGuard heatGuard = new HeatGuard();
         private const double SecondsBetweenWarpChanges = 1.0;   // real seconds
         /// <summary>Real seconds the ship must be loaded, active and off rails before a paused trip resumes (lets the scene settle).</summary>
         public const float ResumeSettleSeconds = 3f;
@@ -77,7 +78,7 @@ namespace FlipAndBurn
         private double playerMaxAcceleration, tripMaxAcceleration;
         private float settledSince = -1;
         private double startUT, plannedArrivalUT, flipStartUT = double.NaN, offCourseSince = double.NaN, mispointedSince = double.NaN,
-            noThrustSince = double.NaN, weakSince = double.NaN, noEngineSince = double.NaN, cooldownUntil = double.NaN, lastWarpChange, bestPointing = double.MaxValue;
+            noThrustSince = double.NaN, noEngineSince = double.NaN, lastWarpChange, bestPointing = double.MaxValue;
         private bool controlling;
 
         public MechJebModuleFlipAndBurnAutopilot(MechJebCore core) : base(core)
@@ -134,18 +135,151 @@ namespace FlipAndBurn
         public string ReserveNote { get; private set; }
 
         // The expected reserve from a plan, and why it is short if it is.
-        private void SetReserve(double reserve, double startDeltaV, string whyShort)
+        // tolerance: how far under 10 % before a coast trip says so (the live estimate is good to a few tenths of a percent).
+        private void SetReserve(double reserve, double startDeltaV, string whyShort, double tolerance = 0)
         {
             ReserveAtArrival = startDeltaV > 0 ? reserve : double.NaN;
             ReserveShare = startDeltaV > 0 ? reserve / startDeltaV : double.NaN;
-            ReserveNote = ReserveShare < Planner.Reserve - 1e-6
+            // A coast trip promises to keep 10 % in reserve; a full burn only has to have enough to arrive.
+            bool coast = trip?.Trip == TripType.CoastInTheMiddle;
+            ReserveNote = coast && ReserveShare < Planner.Reserve - 1e-6 - tolerance
                 ? $"The ship is expected to arrive with {Planner.FormatSpeed(Math.Max(0, reserve))} of delta-v, {ReserveShare * 100:0.0}% of what it " +
                   $"started with: less than the {Planner.Reserve * 100:0}% kept in reserve, because {whyShort}."
-                : null;
+                : !coast && reserve < 0
+                    ? $"The ship may run out of delta-v before it arrives: it is about {Planner.FormatSpeed(-reserve)} short, because {whyShort}. " +
+                      "Consider a lower acceleration or a coast trip: plan one from here in this window."
+                    : null;
+        }
+
+        /// <summary>The ship's delta-v now at <paramref name="acceleration"/> (m/s), as the planner reads it; NaN if unknown.</summary>
+        /// <remarks>
+        /// From the propellant on board and the engines as they read now. While Flip and Burn has the engines shut down (the
+        /// coast, a cut), they read as nothing: the last reading's engines and dry mass are used with the ship's mass now, so
+        /// propellant lost while coasting still shows.
+        /// </remarks>
+        public double DeltaVNow(double acceleration)
+        {
+            ShipReading reading = ShipPerformanceReader.Read(Vessel, out string problem);
+            if (problem == null && !reading.Report.NoThrust)
+            {
+                lastEngines = reading.Report.Performance;
+                return lastEngines.DeltaVAtAcceleration(acceleration);
+            }
+
+            if (lastEngines == null) return double.NaN;
+            double mass = Vessel.totalMass * 1000, dry = lastEngines.EndMass;
+            if (!(mass > dry)) return 0;
+            return new ShipPerformance(lastEngines.FullThrust, lastEngines.VacuumIsp, lastEngines.IspThrottleExponent, mass, dry).DeltaVAtAcceleration(acceleration);
+        }
+
+        private ShipPerformance lastEngines;
+
+        private float nextReserveCheck;
+        private bool reserveWarned;
+        // Why the reserve is shrinking, in plain words: propellant measured going while the engines were off, or else the
+        // trip using more delta-v than planned.
+        private string ReserveCause()
+        {
+            if (Loss.Measured && Loss.RateKgPerSecond > 0)
+                return $"propellant is going while the engines are off (about {Planner.FormatMass(Loss.KgPerDay(Planner.DayLength))} a day: boil-off, " +
+                       "or a drive's idle use)" + (record != null && record.LossAllowance > 0 ? ", faster than the trip allowed for" : "");
+            return "the trip is using more delta-v than planned (steering, or the engines less efficient than they read at Start)";
+        }
+
+        // ------------------------------------------------------------------ propellant lost while the engines are off
+
+        public const string LossNodeName = "FLIPANDBURN_LOSS";
+
+        /// <summary>
+        /// This ship's propellant lost while no engine fires (boil-off, a drive's idle use), measured whenever Flip and Burn is
+        /// flying a trip or its window is open, and saved with the ship. The planner allows for it on coast trips.
+        /// </summary>
+        public BackgroundLoss Loss { get; } = new BackgroundLoss();
+        private bool firedSinceLossSample;
+        private double nextLossSample;
+        private List<ModuleEngines> lossEngines;
+        private int lossPartCount = -1;
+        private const double LossSampleSeconds = 60;
+
+        /// <summary>Call every frame or physics step: notes any engine firing, and samples the propellant once a game minute.</summary>
+        public void SampleLoss(Vessel v)
+        {
+            if (v == null || !v.loaded) return;
+            if (lossEngines == null || lossPartCount != v.parts.Count)
+            {
+                lossEngines = v.FindPartModulesImplementing<ModuleEngines>();
+                lossPartCount = v.parts.Count;
+                firedSinceLossSample = true;   // the ship changed: start over from the next sample
+            }
+
+            foreach (ModuleEngines e in lossEngines)
+                if (e.EngineIgnited && (e.finalThrust > 0 || e.currentThrottle > 0)) { firedSinceLossSample = true; break; }
+            if (CheatOptions.InfinitePropellant) firedSinceLossSample = true;
+
+            double ut = Planetarium.GetUniversalTime();
+            if (ut < nextLossSample) return;
+            nextLossSample = ut + LossSampleSeconds;
+            double before = Loss.LostKg;
+            Loss.Sample(ut, PropellantKg(v), firedSinceLossSample);
+            firedSinceLossSample = false;
+            if (Loss.LostKg > before + 1e-9 && Loss.Measured)
+                Debug.Log($"[FlipAndBurn] propellant lost with the engines off: {Loss.LostKg:F3} kg over {Loss.ObservedSeconds / 3600:F1} game h " +
+                          $"({Loss.RateKgPerSecond * 3600:F4} kg/h)");
+        }
+
+        // The mass of every resource any engine on the ship burns (kg).
+        private double PropellantKg(Vessel v)
+        {
+            var names = new HashSet<int>();
+            foreach (ModuleEngines e in lossEngines)
+            foreach (Propellant p in e.propellants)
+            {
+                PartResourceDefinition def = PartResourceLibrary.Instance.GetDefinition(p.name);
+                if (def != null && def.density > 0) names.Add(def.id);
+            }
+
+            double kg = 0;
+            foreach (Part part in v.parts)
+            foreach (PartResource r in part.Resources)
+                if (names.Contains(r.info.id)) kg += r.amount * r.info.density * 1000;
+            return kg;
+        }
+
+        // The plan the reserve is checked against: the delta-v it needed from where it was made (Start, a resume, a re-plan),
+        // and the delta-v burned by then.
+        private double reservePlanNeeded = double.NaN, reservePlanUsedAt;
+
+        private void SetReservePlan(double needed, double usedAt)
+        {
+            reservePlanNeeded = needed;
+            reservePlanUsedAt = usedAt;
+        }
+
+        // Every 30 real seconds: the delta-v the ship has against what the plan still needs (ReserveWatch). Delta-v burned
+        // comes off both, so only propellant gone without thrust, or the engines doing worse than they read, moves it.
+        private void WatchReserve(GuidanceCommand cmd, Vessel v)
+        {
+            if (CheatOptions.InfinitePropellant || record == null || cmd.SafeOrbit || Time.realtimeSinceStartup < nextReserveCheck) return;
+            nextReserveCheck = Time.realtimeSinceStartup + 30;
+            double start = StartDeltaVOf(record);
+            double have = DeltaVNow(CurrentAcceleration);
+            if (!(start > 0) || double.IsNaN(reservePlanNeeded) || double.IsNaN(have)) return;
+            double allowanceLeft = record.LossAllowance * ReserveWatch.AllowanceShareLeft(cmd.TimeToArrival, trip.PlannedTripTime);
+            double reserve = ReserveWatch.ExpectedAtArrival(have, reservePlanNeeded, deltaVUsed - reservePlanUsedAt, allowanceLeft);
+            SetReserve(reserve, start, ReserveCause(), 0.005);
+            if (ReserveNote != null && !reserveWarned)
+            {
+                reserveWarned = true;
+                ScreenMessages.PostScreenMessage("Flip and Burn: " + ReserveNote, 15f, ScreenMessageStyle.UPPER_CENTER);
+                Debug.Log($"[FlipAndBurn] reserve below 10%: the ship has {have:F0} m/s; the plan needed {reservePlanNeeded:F0} m/s, " +
+                          $"{deltaVUsed - reservePlanUsedAt:F0} m/s burned since ({cmd.Phase}); set aside for boil-off {allowanceLeft:F0} m/s; " +
+                          $"expected at arrival {reserve:F0} m/s, {ReserveShare * 100:F2}% of {start:F0}");
+            }
         }
 
         // The ship's delta-v when the trip started: the budget is the rest after the reserve.
-        private double StartDeltaVOf(TripRecord r) => CheatOptions.InfinitePropellant || !(r.DeltaVBudget > 0) ? double.NaN : r.DeltaVBudget / (1 - Planner.Reserve);
+        private double StartDeltaVOf(TripRecord r) =>
+            CheatOptions.InfinitePropellant || !(r.DeltaVBudget > 0) ? double.NaN : (r.DeltaVBudget + r.LossAllowance) / (1 - Planner.Reserve);
 
         // ------------------------------------------------------------------ start and stop
 
@@ -185,7 +319,8 @@ namespace FlipAndBurn
             Arrived = false;
             Replans = 0;
             FlipSeconds = double.NaN;
-            flipStartUT = offCourseSince = mispointedSince = noThrustSince = weakSince = noEngineSince = cooldownUntil = double.NaN;
+            flipStartUT = offCourseSince = mispointedSince = noThrustSince = noEngineSince = double.NaN;
+            heatGuard.Reset();
             bestPointing = double.MaxValue;
 
             record = new TripRecord
@@ -197,14 +332,20 @@ namespace FlipAndBurn
                 Acceleration = start.Acceleration,
                 ParkingAltitude = start.ParkingAltitude,
                 DeltaVBudget = start.DeltaVBudget,
+                LossAllowance = start.LossAllowance,
                 StartUT = startUT,
                 PlannedArrivalUT = plannedArrivalUT,
                 LastFlownUT = startUT,
+                StartPlannedTripTime = start.PlannedTripTime,
             };
             PausedByPlayer = false;
             PauseNotice = null;
             Resumes = 0;
-            SetReserve(start.StartDeltaV - start.DeltaVNeeded, start.StartDeltaV, "the plan at Start needs it");
+            reserveWarned = false;
+            nextReserveCheck = 0;
+            lastEngines = null;
+            SetReserve(start.StartDeltaV - start.DeltaVNeeded - start.LossAllowance, start.StartDeltaV, "the plan at Start needs it");
+            SetReservePlan(start.DeltaVNeeded, 0);
             Engage();
             Debug.Log($"[FlipAndBurn] trip started to {start.Target.bodyName}: {start.Trip}, {start.Acceleration / TripCalculator.OneG:F2} g, " +
                       $"{start.Flip}, parking {start.ParkingAltitude:F0} m, turn rate {TurnRate * 180 / Math.PI:F2} deg/s");
@@ -419,6 +560,15 @@ namespace FlipAndBurn
         {
             base.OnLoad(local, type, global);
             // Only a fresh module picks a trip up: MechJeb also reloads its own capture of a module's settings.
+            // The loss measured on this ship, read once (MechJeb's own reload of a module's settings must not wind it back).
+            if (local != null && local.HasNode(LossNodeName) && !(Loss.ObservedSeconds > 0))
+            {
+                ConfigNode loss = local.GetNode(LossNodeName);
+                if (double.TryParse(loss.GetValue("lostKg"), NumberStyles.Float, CultureInfo.InvariantCulture, out double kg) &&
+                    double.TryParse(loss.GetValue("observedSeconds"), NumberStyles.Float, CultureInfo.InvariantCulture, out double seconds))
+                    Loss.Restore(kg, seconds);
+            }
+
             if (local == null || !local.HasNode(TripNodeName) || record != null || controlling) return;
             ConfigNode node = local.GetNode(TripNodeName);
             TripRecord r = TripRecord.FromValues(node.values.Cast<ConfigNode.Value>().Select(v => new KeyValuePair<string, string>(v.name, v.value)), out string problem);
@@ -442,6 +592,13 @@ namespace FlipAndBurn
             base.OnSave(local, type, global);
             // The thrust controller has saved by now (it runs first); give the trip its acceleration limit back.
             if (swappedForSave) AfterThrustSaved();
+            if (local != null && Loss.ObservedSeconds > 0)
+            {
+                ConfigNode loss = local.AddNode(LossNodeName);
+                loss.AddValue("lostKg", Loss.LostKg.ToString("R", CultureInfo.InvariantCulture));
+                loss.AddValue("observedSeconds", Loss.ObservedSeconds.ToString("R", CultureInfo.InvariantCulture));
+            }
+
             if (local == null || record == null) return;
             if (controlling) UpdateRecord(Planetarium.GetUniversalTime());
             ConfigNode node = local.AddNode(TripNodeName);
@@ -539,6 +696,7 @@ namespace FlipAndBurn
             }
 
             if (!Running) return;
+            SampleLoss(Vessel);
             Vessel v = Vessel;
             double ut = Planetarium.GetUniversalTime();
             StateVector state = KspShip.HeliocentricState(v, ut);
@@ -551,10 +709,23 @@ namespace FlipAndBurn
                 Facing = ToOrbitFrame(facingWorld),
             };
 
+            lastInput = input;
             GuidanceCommand cmd;
             try
             {
                 cmd = guidance.Update(input);
+                // The arrival watch: near the target, a trip that can't arrive cleanly makes the ship's orbit safe instead.
+                if (!cmd.SafeOrbit && !cmd.Circularizing && cmd.Phase != GuidancePhase.Done && v.mainBody == trip.Target)
+                {
+                    Orbit o = v.orbit;
+                    ArrivalIssue issue = ArrivalSafety.Check(new Vec3(o.pos.x, o.pos.y, o.pos.z), new Vec3(o.vel.x, o.vel.y, o.vel.z),
+                        trip.Target.gravParameter, SafeRadius(trip.Target), trip.Target.Radius + trip.ParkingAltitude, trip.Target.sphereOfInfluence,
+                        CurrentAcceleration, SustainableAcceleration(v));
+                    if (issue != ArrivalIssue.None && MakeOrbitSafe(issue == ArrivalIssue.Escaping
+                            ? $"it would fly past {Planner.BodyName(trip.Target)}"
+                            : $"it is falling toward {Planner.BodyName(trip.Target)} too fast to stop above the atmosphere at {Planner.FormatG(CurrentAcceleration / TripCalculator.OneG)}"))
+                        cmd = guidance.Update(input);
+                }
             }
             catch (Exception e)
             {
@@ -572,7 +743,8 @@ namespace FlipAndBurn
 
             if (cmd.Phase == GuidancePhase.Done)
             {
-                Stop("Arrived: the ship is in its parking orbit.", arrived: true);
+                if (cmd.SafeOrbit) FinishInSafeOrbit();
+                else Arrive(ut);
                 return;
             }
 
@@ -597,10 +769,12 @@ namespace FlipAndBurn
                     break;
                 case EngineAction.HoldAtZero:   // turning to the burn direction: no thrust until pointed
                     thrust.TargetThrottle = 0f;
+                    ZeroShipThrottle(v);
                     SetEngineThrottles(v, 0f);
                     break;
                 default:
                     thrust.TargetThrottle = 0f;
+                    ZeroShipThrottle(v);
                     CutEngines(v);
                     break;
             }
@@ -609,6 +783,7 @@ namespace FlipAndBurn
 
             Watchdog(cmd, ut, thrustWanted, pointed, flipping);
             if (!Running) return;
+            WatchReserve(cmd, v);
             Warp(cmd);
         }
 
@@ -639,6 +814,15 @@ namespace FlipAndBurn
             if (Time.realtimeSinceStartup - settledSince < ResumeSettleSeconds) return;
             settledSince = -1;
             Resume();
+        }
+
+        // The ship's own throttle to zero this step as well. MechJeb's throttle (from its previous target) may already have
+        // been handed to the ship this physics step, and an engine that updates after this module would copy it: in the
+        // game that left the engine at the old throttle for one step after the ship swung more than 5 degrees off.
+        private static void ZeroShipThrottle(Vessel v)
+        {
+            v.ctrlState.mainThrottle = 0;
+            if (v == FlightGlobals.ActiveVessel) FlightInputHandler.state.mainThrottle = 0;
         }
 
         private static void HoldEnginesAtZero(Vessel v)
@@ -709,7 +893,8 @@ namespace FlipAndBurn
             trip = new TripStart
             {
                 Target = target, Acceleration = record.ChosenAcceleration, Flip = record.Flip, Trip = record.Trip,
-                ParkingAltitude = record.ParkingAltitude, DeltaVBudget = record.DeltaVBudget, PlannedTripTime = record.PlannedArrivalUT - record.StartUT,
+                ParkingAltitude = record.ParkingAltitude, DeltaVBudget = record.DeltaVBudget,
+                PlannedTripTime = record.StartPlannedTripTime > 0 ? record.StartPlannedTripTime : record.PlannedArrivalUT - record.StartUT,
             };
             var config = new GuidanceConfig
             {
@@ -738,11 +923,16 @@ namespace FlipAndBurn
             StopReason = null;
             Arrived = false;
             FlipSeconds = double.NaN;
-            flipStartUT = offCourseSince = mispointedSince = noThrustSince = weakSince = noEngineSince = cooldownUntil = double.NaN;
+            flipStartUT = offCourseSince = mispointedSince = noThrustSince = noEngineSince = double.NaN;
+            heatGuard.Reset();
             bestPointing = double.MaxValue;
             PausedByPlayer = false;
             PauseNotice = null;
 
+            lastEngines = null;
+            reserveWarned = false;
+            nextReserveCheck = 0;
+            SetReservePlan(check.DeltaV, record.DeltaVUsed);
             SetReserve(check.ReserveAtArrival, startDeltaV, check.KeptArrival
                 ? "keeping the arrival it was flying to after the pause uses a sliver of it"
                 : "the ship has less delta-v left than the trip planned for");
@@ -843,6 +1033,117 @@ namespace FlipAndBurn
             }
         }
 
+        // ------------------------------------------------------------------ arriving (ADR 0003, "Arriving")
+
+        private GuidanceInput lastInput;
+
+        // The lowest safe radius over a planet: the top of its atmosphere, or its highest terrain, plus 1 km.
+        private static double SafeRadius(CelestialBody body) =>
+            Math.Max(body.Radius + (body.atmosphere ? body.atmosphereDepth : 0),
+                body.pqsController != null ? body.pqsController.radiusMax : body.Radius) + 1000;
+
+        /// <summary>
+        /// What the engines can keep up without overheating, for the arrival watch and the rescue (ADR 0003, "Arriving"):
+        /// with KSP's "ignore max temperature" cheat on, full thrust; otherwise only what the trip has proven it can hold, its
+        /// acceleration after any heat step-downs. (The Bebop Refueller's drive gives 3.17 g on paper but holds about 0.45 g
+        /// before it overheats; an exploded drive near the target is as bad as a crash.)
+        /// </summary>
+        private double SustainableAcceleration(Vessel v) =>
+            CheatOptions.IgnoreMaxTemperature ? FullThrustAcceleration(v) : Math.Min(FullThrustAcceleration(v), CurrentAcceleration);
+
+        /// <summary>
+        /// Near the target, a trip that can't go on isn't simply let go: it puts the ship into a safe circular orbit around
+        /// the target first, at the most the engines can keep up (and no more than <paramref name="cap"/>), with the heat guard
+        /// still running. Returns false when that isn't possible (not near the target, or no thrust), and the caller stops.
+        /// </summary>
+        private bool MakeOrbitSafe(string why, double cap = double.MaxValue)
+        {
+            if (guidance == null || trip?.Target == null || Vessel.mainBody != trip.Target) return false;
+            if (guidance.SafeOrbitReason != null) return true;
+            double full = Math.Min(SustainableAcceleration(Vessel), cap);
+            if (!(full > 0)) return false;
+            guidance.EnterSafeOrbit(lastInput, why, full);
+            string name = Planner.BodyName(trip.Target);
+            Notice = $"Flip and Burn can't finish in the planned parking orbit: {why}. It is putting the ship in a safe orbit around {name} instead.";
+            ScreenMessages.PostScreenMessage("Flip and Burn: " + Notice, 15f, ScreenMessageStyle.UPPER_CENTER);
+            Debug.Log($"[FlipAndBurn] safe orbit instead: {why}; full thrust {full:F2} m/s^2; altitude {Vessel.altitude:F0} m, orbit {Vessel.orbit.PeA:F0} x {Vessel.orbit.ApA:F0} m");
+            return true;
+        }
+
+        // The heat guard stepped down during the rescue: carry on making the safe orbit, at the lower acceleration.
+        private void EaseOffSafeOrbit(double acceleration, string why)
+        {
+            double was = guidance.SafeOrbitAcceleration;
+            guidance.SetSafeOrbitAcceleration(acceleration);
+            Notice = $"Making the orbit safe at {Planner.FormatG(acceleration / TripCalculator.OneG)} (was {Planner.FormatG(was / TripCalculator.OneG)}): {why}.";
+            ScreenMessages.PostScreenMessage("Flip and Burn: " + Notice, 10f, ScreenMessageStyle.UPPER_CENTER);
+            Debug.Log($"[FlipAndBurn] safe orbit eased off to {acceleration:F3} m/s^2 (was {was:F3}): {why}");
+        }
+
+        private string OrbitText(Orbit o) => $"{o.PeA / 1000:0.0} × {o.ApA / 1000:0.0} km";
+
+        // Arrived: say so, in plain words, with the orbit, the time against the plan, and the delta-v used and left.
+        private void Arrive(double ut)
+        {
+            Vessel v = Vessel;
+            string name = Planner.BodyName(trip.Target);
+            double took = ut - startUT;
+            double planned = record != null && record.StartPlannedTripTime > 0 ? record.StartPlannedTripTime : trip.PlannedTripTime;
+            double late = took - planned;
+            string vsPlan = Math.Abs(late) < 60 ? $"as planned at Start ({Planner.FormatTime(planned)})"
+                : $"{Planner.FormatTime(Math.Abs(late))} {(late > 0 ? "longer" : "shorter")} than planned at Start ({Planner.FormatTime(planned)})";
+            string fuel;
+            if (CheatOptions.InfinitePropellant)
+            {
+                fuel = $"It used {Planner.FormatSpeed(deltaVUsed)} of delta-v; fuel isn't counted (infinite propellant is on).";
+            }
+            else
+            {
+                double start = record != null ? StartDeltaVOf(record) : double.NaN;
+                double left = DeltaVNow(CurrentAcceleration);
+                fuel = double.IsNaN(left)
+                    ? $"It used {Planner.FormatSpeed(deltaVUsed)} of delta-v."
+                    : $"It used {Planner.FormatSpeed(deltaVUsed)} of delta-v and has {Planner.FormatSpeed(left)} left" +
+                      (start > 0 ? $", {left / start * 100:0.0}% of the {Planner.FormatSpeed(start)} it started with." : ".");
+                if (trip.Trip == TripType.CoastInTheMiddle && start > 0 && left < Planner.Reserve * start)
+                {
+                    // Burning costs what the plan said; anything else missing went other than for thrust.
+                    double burnedShare = deltaVUsed / start;
+                    fuel += $" That is less than the {Planner.Reserve * 100:0}% kept in reserve: " +
+                            (left < (1 - burnedShare) * start - 0.02 * start
+                                ? "propellant went other than for thrust during the trip (boil-off, or a drive's idle use), which the plan doesn't count."
+                                : "the trip needed more than planned.");
+                }
+                ArrivedDeltaVLeft = left;
+            }
+
+            ArrivedTripTime = took;
+            ArrivedPlannedTripTime = planned;
+            string report = $"Arrived at {name}: in a {OrbitText(v.orbit)} orbit (planned: {trip.ParkingAltitude / 1000:0} km, circular). " +
+                            $"The trip took {Planner.FormatTime(took)}, {vsPlan}. {fuel}";
+            Debug.Log($"[FlipAndBurn] arrived: periapsis {v.orbit.PeA:F0} m, apoapsis {v.orbit.ApA:F0} m, eccentricity {v.orbit.eccentricity:F5}, " +
+                      $"planned {trip.ParkingAltitude:F0} m; trip {took:F0} s, planned at Start {planned:F0} s; delta-v used {deltaVUsed:F0} m/s, left {ArrivedDeltaVLeft:F0} m/s");
+            Stop(report, arrived: true);
+            ScreenMessages.PostScreenMessage("Flip and Burn: " + report, 20f, ScreenMessageStyle.UPPER_CENTER);
+        }
+
+        /// <summary>For the test helper: the arrival's numbers.</summary>
+        public double ArrivedTripTime { get; private set; } = double.NaN;
+        public double ArrivedPlannedTripTime { get; private set; } = double.NaN;
+        public double ArrivedDeltaVLeft { get; private set; } = double.NaN;
+
+        // The safe orbit is made: stop, and say why and where the ship is.
+        private void FinishInSafeOrbit()
+        {
+            Vessel v = Vessel;
+            string name = Planner.BodyName(trip.Target), why = guidance.SafeOrbitReason;
+            string report = $"Flip and Burn couldn't finish in the planned {trip.ParkingAltitude / 1000:0} km parking orbit: {why}. It put the ship in a safe " +
+                            $"orbit around {name} instead, {OrbitText(v.orbit)}. Fly the last step yourself, or plan a new trip from here.";
+            Debug.Log($"[FlipAndBurn] safe orbit made: periapsis {v.orbit.PeA:F0} m, apoapsis {v.orbit.ApA:F0} m; {why}");
+            Stop(report);
+            ScreenMessages.PostScreenMessage("Flip and Burn: " + report, 20f, ScreenMessageStyle.UPPER_CENTER);
+        }
+
         // Stop with a plain reason when something goes wrong.
         private void Watchdog(GuidanceCommand cmd, double ut, bool thrustWanted, bool pointed, bool flipping)
         {
@@ -859,16 +1160,26 @@ namespace FlipAndBurn
             }
             else noEngineSince = double.NaN;
 
-            // A part close to its temperature limit: ease off before it fails.
-            if (thrustWanted && !flipping && HottestFraction > OverheatingPart && double.IsNaN(cooldownUntil))
+            // Heat (HeatGuard): a part close to its temperature limit eases off before it fails; engines that can't hold the
+            // acceleration at full throttle for a minute drop to what they can sustain. KSP Interstellar drives lose thrust
+            // when the ship overheats: the Bebop Refueller settles at 0.80 g when asked for 1 g (ADR 0002). A trip re-plans
+            // at the lower acceleration; the rescue near the target just burns at it.
+            bool fullThrottle = Vessel.ctrlState.mainThrottle >= 0.99f;
+            double holding = cmd.SafeOrbit ? guidance.SafeOrbitAcceleration : CurrentAcceleration;
+            HeatStepDown heat = heatGuard.Check(ut, HottestFraction, holding, cmd.Acceleration, MeasuredAcceleration, fullThrottle,
+                thrustWanted && !flipping, pointed, out double stepTo);
+            if (heat != HeatStepDown.None)
             {
-                cooldownUntil = ut + 60;
-                ReplanAtLowerAcceleration(ut, 0.8 * CurrentAcceleration,
-                    $"{HottestPart} reached {HottestFraction * 100:N0}% of its temperature limit");
+                double waste = ResourceFill("WasteHeat");
+                string why = heat == HeatStepDown.Overheating
+                    ? $"{HottestPart} reached {HottestFraction * 100:N0}% of its temperature limit"
+                    : waste > 0.9
+                        ? $"the ship is overheating (waste heat at {waste * 100:N0}%; KSP Interstellar drives lose thrust above 90%)"
+                        : "they give less thrust than expected";
+                if (cmd.SafeOrbit) EaseOffSafeOrbit(stepTo, why);
+                else ReplanAtLowerAcceleration(ut, stepTo, why);
                 return;
             }
-
-            if (!double.IsNaN(cooldownUntil) && ut > cooldownUntil) cooldownUntil = double.NaN;
 
             // Out of fuel: thrust wanted, ship pointed, throttle open, and the engines give almost nothing.
             bool infinite = CheatOptions.InfinitePropellant;
@@ -885,24 +1196,6 @@ namespace FlipAndBurn
             }
             else noThrustSince = double.NaN;
 
-            // Can't hold the acceleration: at full throttle the engines give clearly less than asked, for a minute, and it
-            // isn't a fuel problem (that's caught above). KSP Interstellar drives lose thrust when the ship overheats: the
-            // Bebop Refueller settles at 0.80 g when asked for 1 g. Drop to what the engines can sustain and re-plan (ADR 0002).
-            bool fullThrottle = Vessel.ctrlState.mainThrottle >= 0.99f;
-            if (thrustWanted && pointed && !flipping && fullThrottle && MeasuredAcceleration < 0.95 * cmd.Acceleration &&
-                MeasuredAcceleration >= 0.1 * cmd.Acceleration)
-            {
-                if (double.IsNaN(weakSince)) weakSince = ut;
-                if (ut - weakSince > 60)
-                {
-                    double heat = ResourceFill("WasteHeat");
-                    ReplanAtLowerAcceleration(ut, 0.95 * MeasuredAcceleration, heat > 0.9
-                        ? $"the ship is overheating (waste heat at {heat * 100:N0}%; KSP Interstellar drives lose thrust above 90%)"
-                        : "they give less thrust than expected");
-                    return;
-                }
-            }
-            else weakSince = double.NaN;
 
             // Turning: the flip, or holding the direction, takes far longer than the ship's turn rate allows.
             double halfTurn = Math.PI / Math.Max(1e-3, TurnRate);
@@ -947,10 +1240,12 @@ namespace FlipAndBurn
             double arrival = ut + cmd.TimeToArrival;
             bool slipping = cmd.Phase != GuidancePhase.Coast && cmd.TimeToArrival > 0 && cmd.Leg == cmd.LegCount &&
                             arrival - plannedArrivalUT > Math.Max(3600, 0.1 * (plannedArrivalUT - startUT));
-            if (cmd.NoSolution || slipping)
+            if (!cmd.SafeOrbit && (cmd.NoSolution || slipping))
             {
                 if (double.IsNaN(offCourseSince)) offCourseSince = ut;
-                if (ut - offCourseSince > 10)
+                if (ut - offCourseSince > 10 && !MakeOrbitSafe(cmd.NoSolution
+                        ? "the ship has drifted too far off course to reach the planned orbit"
+                        : $"the arrival has slipped by {Planner.FormatTime(arrival - plannedArrivalUT)}"))
                 {
                     Stop(cmd.NoSolution
                         ? "Stopped: the ship has drifted too far off course; Flip and Burn can't find a way to the target from here."
@@ -970,10 +1265,10 @@ namespace FlipAndBurn
             double heat = ResourceFill("WasteHeat");
             double was = CurrentAcceleration;
             double now = Math.Floor(sustainable / TripCalculator.OneG * 100) / 100 * TripCalculator.OneG;
-            weakSince = double.NaN;
             if (!(now > 0))
             {
-                Stop($"Stopped: the engines can't hold any useful acceleration ({why}).");
+                if (!MakeOrbitSafe($"the engines can't hold any useful acceleration ({why})"))
+                    Stop($"Stopped: the engines can't hold any useful acceleration ({why}).");
                 return;
             }
 
@@ -988,10 +1283,12 @@ namespace FlipAndBurn
             string g = Planner.FormatG(now / TripCalculator.OneG), gWas = Planner.FormatG(was / TripCalculator.OneG);
             if (!check.Feasible)
             {
-                Stop($"Stopped: the engines could only hold {g} ({why}), and the trip can't be finished at {g}: {ProblemText(check, trip.Target, now, trip.Trip)}.");
+                if (!MakeOrbitSafe($"the engines could only hold {g} ({why}), and the planned orbit can't be reached at {g}", now))
+                    Stop($"Stopped: the engines could only hold {g} ({why}), and the trip can't be finished at {g}: {ProblemText(check, trip.Target, now, trip.Trip)}.");
                 return;
             }
 
+            SetReservePlan(check.DeltaV, deltaVUsed);
             double remaining = check.RemainingTime;
             double newArrival = ut + remaining;
             double change = newArrival - plannedArrivalUT;
@@ -1168,12 +1465,12 @@ namespace FlipAndBurn
             float[] rates = wantRails ? tw.warpRates : tw.physicsWarpRates;
             double cap = wantPhysics ? MaxPhysicsRate : double.MaxValue;
             string heatNote = "";
-            if (wantPhysics && HottestFraction > HotPart)
+            if (wantPhysics && HottestFraction > HeatGuard.HotPart)
             {
                 cap = 1;
                 heatNote = $"; held at normal speed: {HottestPart} at {HottestFraction * 100:N0}% of its temperature limit";
             }
-            else if (wantPhysics && HottestFraction > WarmPart)
+            else if (wantPhysics && HottestFraction > HeatGuard.WarmPart)
             {
                 cap = Math.Min(cap, 4);
                 heatNote = $"; held to x4: {HottestPart} at {HottestFraction * 100:N0}% of its temperature limit";

@@ -46,7 +46,8 @@ namespace FlipAndBurn.Core.Tests
                 case "Jool 1g skew":      return Flights.Fly(name, KerbolSystem.Jool, 1.0, FlipManeuver.SkewFlip, 0, 220_000);
                 case "Duna Sun in way":   return Flights.Fly(name, KerbolSystem.Duna, 1.0, FlipManeuver.CutFlipRelight, DunaBehindSunUT, 60_000);
                 case "Duna 0.25g cut":    return Flights.Fly(name, KerbolSystem.Duna, 0.25, FlipManeuver.CutFlipRelight, 0, 60_000);
-                case "Duna 1g every step": return Flights.Fly(name, KerbolSystem.Duna, 1.0, FlipManeuver.CutFlipRelight, 0, 60_000, cruiseWarp: 1);
+                // Every physics step of a 20-hour trip, with the arrival watch each step: about 20 minutes (LongRunning).
+                case "Duna 1g every step": return Flights.Fly(name, KerbolSystem.Duna, 1.0, FlipManeuver.CutFlipRelight, 0, 60_000, cruiseWarp: 1, wallSeconds: 3600);
                 case "Duna coast Bebop":  return Flights.Fly(name, KerbolSystem.Duna, 1.0, FlipManeuver.CutFlipRelight, 0, 60_000,
                                               trip: TripType.CoastInTheMiddle, deltaVBudget: BebopBudget);
                 case "Jool coast Bebop":  return Flights.Fly(name, KerbolSystem.Jool, 1.0, FlipManeuver.CutFlipRelight, 0, 220_000,
@@ -100,7 +101,9 @@ namespace FlipAndBurn.Core.Tests
 
         private static void CheckBar(FlightResult r)
         {
+            Assert.False(r.TimedOut, "the simulation ran out of time: " + string.Join(" | ", r.PhaseLog));
             Assert.True(r.Finished, "the guidance never reported Done");
+            Assert.True(r.SafeOrbitReason == null, $"the arrival watch fired on a normal trip: {r.SafeOrbitReason}");
             Assert.True(r.FinalEccentricity < 0.05, $"eccentricity {r.FinalEccentricity:F4}");
             Assert.True(Math.Abs(r.FinalPeriapsisAltitude - r.ParkingAltitude) <= 0.1 * r.ParkingAltitude,
                 $"periapsis {r.FinalPeriapsisAltitude / 1000:F2} km vs {r.ParkingAltitude / 1000:F0} km");

@@ -1,0 +1,14 @@
+# Cheat check (infinite propellant, ignore max temperature) 2026-10-27T14:05:33Z
+## The harness's own readings
+trip B: coast trip to Duna at 0.4 g, no cheats; paused, quicksaved and quickloaded once on the way; infinite propellant False, ignore max temperature False, physics warp up to x10; arrival tolerance: periapsis and apoapsis within 5% of the parking altitude, both above the atmosphere; planner can start True
+trip B: infinite propellant cheat back off: True; ignore max temperature cheat back off: True
+## settings.cfg: lines mentioning a cheat or propellant, before and after the run
+before: 0
+after:  0
+## settings.cfg: every line KSP changed during the run (diff before -> after)
+(no changes)
+## Every save except FlipAndBurn-Test: files changed during the run
+files fingerprinted: 5162
+(no changes)
+## Every save except FlipAndBurn-Test: lines mentioning InfinitePropellant
+0 files

@@ -111,6 +111,12 @@ namespace FlipAndBurn.Core.Guidance
 
         /// <summary>Coast trips, while coasting: how far the ship's velocity is from the one that arrives on time (m/s).</summary>
         public double CourseError;
+
+        /// <summary>
+        /// The trip couldn't arrive cleanly and is making the ship's orbit around the target safe instead (ADR 0003,
+        /// "Arriving"). With <see cref="GuidancePhase.Done"/>: the ship is in that safe orbit.
+        /// </summary>
+        public bool SafeOrbit;
     }
 
     /// <summary>
@@ -142,6 +148,7 @@ namespace FlipAndBurn.Core.Guidance
         private Vec3 wellVelocity, wellPosition;
         private StateVector coastEnd;         // coast trips: the arrival point (relative to the target), fixed at the coast's start
         private bool correcting;              // coast trips: in a course correction burn
+        private double brakeAtUT = double.NaN; // coast trips: braking start, latched once it is near (it may only come earlier)
         private bool correctionBurning;       // ... and the engine was on last step
         private Vec3 correctionDirection;
         private bool circularizing;
@@ -175,6 +182,7 @@ namespace FlipAndBurn.Core.Guidance
 
         public GuidanceCommand Update(GuidanceInput input)
         {
+            if (safeOrbit) return SafeOrbitStep(input);
             if (circularizing) return Circularize(input);
 
             if (!initialized) Initialize(input);
@@ -225,6 +233,7 @@ namespace FlipAndBurn.Core.Guidance
                     // Fix the arrival point now, so it doesn't slide around during the coast.
                     coastEnd = ParkingArrival.Relative(config.Target, coastArrivalUT, currentPosition, ParkingRadius, config.EquatorNormal);
                     plannedBrakingTime = arcs.T2;
+                    brakeAtUT = double.NaN;
                     phase = GuidancePhase.Coast;
                 }
                 else
@@ -336,6 +345,16 @@ namespace FlipAndBurn.Core.Guidance
 
             plannedBrakingTime = tb;
             double coastLeft = tau - tb;
+            // Once braking is near, latch its start: it may come earlier, never later. Close to it the coast plan is
+            // ill-conditioned at high speed (the time left is the square root of a small difference of large numbers: at
+            // 320 km/s a 2 m/s error moves it by two minutes), and left free the time left recedes step after step while the
+            // course error balloons, so braking never starts (ADR 0003, "Arriving"). The braking law corrects what is left.
+            if (!double.IsNaN(brakeAtUT) || coastLeft < CorrectionCutoff)
+            {
+                brakeAtUT = double.IsNaN(brakeAtUT) ? input.UT + coastLeft : Math.Min(brakeAtUT, input.UT + coastLeft);
+                coastLeft = brakeAtUT - input.UT;
+            }
+
             // Due within half the last step (a physics step at most when not warping): start braking now.
             if (tooLate || coastLeft <= Math.Max(0.5 * step, 1e-3)) return false;
 
@@ -417,6 +436,80 @@ namespace FlipAndBurn.Core.Guidance
             cmd.Direction = (up * radial + along * tangential).Normalized();
             cmd.Acceleration = a;
             cmd.TimeToArrival = Math.Abs(excess) / a;
+            return cmd;
+        }
+
+        // ------------------------------------------------------------------ a safe orbit instead
+
+        private bool safeOrbit;
+        private double safeOrbitAcceleration;
+
+        /// <summary>Why the trip is making a safe orbit instead of the parking orbit (null if it isn't).</summary>
+        public string SafeOrbitReason { get; private set; }
+
+        /// <summary>
+        /// The trip can't arrive cleanly (falling too fast to stop above the atmosphere, flying past, or the plan has failed
+        /// near the target): from now on, put the ship into a circular orbit around the target instead, wherever it can
+        /// stop, and no lower than the parking orbit, burning at <paramref name="acceleration"/> (the engines' full thrust).
+        /// </summary>
+        public void EnterSafeOrbit(GuidanceInput input, string reason, double acceleration)
+        {
+            if (safeOrbit) return;
+            safeOrbitAcceleration = acceleration > 0 ? acceleration : config.Acceleration;
+            SafeOrbitReason = reason;
+            safeOrbit = true;
+            circularizing = false;
+            phase = GuidancePhase.FinalApproach;
+        }
+
+        /// <summary>The acceleration the safe orbit is being made at (m/s^2), or NaN.</summary>
+        public double SafeOrbitAcceleration => safeOrbit ? safeOrbitAcceleration : double.NaN;
+
+        /// <summary>The heat guard stepped down: make the safe orbit at this lower acceleration from now on.</summary>
+        public void SetSafeOrbitAcceleration(double acceleration)
+        {
+            if (safeOrbit && acceleration > 0) safeOrbitAcceleration = acceleration;
+        }
+
+        // Steer the velocity straight to circular at the current radius (the cheapest way to a safe orbit from here), climbing
+        // gently if below the parking orbit. Done once the orbit is circular, at or above the parking orbit.
+        private GuidanceCommand SafeOrbitStep(GuidanceInput input)
+        {
+            var cmd = new GuidanceCommand { Phase = GuidancePhase.FinalApproach, Leg = legIndex + 1, LegCount = Math.Max(1, legs.Count), SafeOrbit = true };
+            if (phase == GuidancePhase.Done)
+            {
+                cmd.Phase = GuidancePhase.Done;
+                cmd.Direction = input.Facing;
+                return cmd;
+            }
+
+            double a = safeOrbitAcceleration, mu = config.Target.GravParameter;
+            StateVector planet = config.Target.Ephemeris.StateAt(input.UT);
+            Vec3 r = input.Position - planet.Position, v = input.Velocity - planet.Velocity;
+            double rl = r.Length;
+            Vec3 up = r / rl;
+            double vr = Vec3.Dot(v, up);
+            Vec3 vtVec = v - up * vr;
+            double vt = vtVec.Length;
+            Vec3 along = vt > 1e-3 ? vtVec / vt : Vec3.Cross(Vec3.Cross(up, config.EquatorNormal), up).Normalized();
+            if (along.LengthSquared < 0.5) along = Vec3.Cross(up, new Vec3(1, 0, 0)).Normalized();
+
+            // Below the parking orbit: climb at up to 50 m/s, slowing as it gets there.
+            double climb = rl < ParkingRadius ? Math.Min(50, 0.02 * (ParkingRadius - rl) + 1) : 0;
+            Vec3 wanted = along * Math.Sqrt(mu / rl) + up * climb;
+            Vec3 error = wanted - v;
+            double off = error.Length;
+            if (off < 0.5 && climb == 0)
+            {
+                phase = GuidancePhase.Done;
+                cmd.Phase = GuidancePhase.Done;
+                cmd.Direction = input.Facing;
+                return cmd;
+            }
+
+            cmd.Direction = error / off;
+            cmd.Acceleration = Math.Min(a, off / 2);   // full thrust, easing off over the last few m/s
+            cmd.TimeToArrival = off / a;
             return cmd;
         }
 

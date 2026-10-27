@@ -173,6 +173,13 @@ namespace FlipAndBurn.Core.Tests
         public int Steps, Legs;
         public double ParkingAltitude, Acceleration;
         public readonly List<string> PhaseLog = new List<string>();
+        /// <summary>Set if the arrival watch fired: the trip made a safe orbit instead of the parking orbit.</summary>
+        public string SafeOrbitReason;
+        public bool EndedInSafeOrbit;
+        /// <summary>The closest the trip came to the arrival watch's firing line: the largest fall share seen (fires above RescueMargin).</summary>
+        public double WatchPeakShare;
+        /// <summary>The simulation hit its real-time limit (<see cref="Flights.MaxWallSeconds"/>).</summary>
+        public bool TimedOut;
         /// <summary>Where the ship was when the flight ended (finished, or stopped by <c>stopAfterSeconds</c>).</summary>
         public double EndUT;
         public Vec3 EndPosition, EndVelocity, EndFacing;
@@ -183,6 +190,20 @@ namespace FlipAndBurn.Core.Tests
 
     public static class Flights
     {
+        /// <summary>The lowest safe altitude over a planet in the simulator: KSP's atmosphere tops (Duna 50 km, Eve 90 km, Jool 200 km, Kerbin 70 km), plus 1 km.</summary>
+        public static double TargetSafeAltitude(PlanetRecord p)
+        {
+            switch (p.Name)
+            {
+                case "Duna": return 51_000;
+                case "Eve": return 91_000;
+                case "Jool": return 201_000;
+                case "Kerbin": return 71_000;
+                case "Laythe": return 51_000;
+                default: return 10_000;   // airless: clear of the terrain
+            }
+        }
+
         /// <summary>Physics warp in a full burn's cruise (0.02 s x 100 = 2 s steps; KSP physics warp does the same).</summary>
         public const double DefaultCruiseWarp = 100;
 
@@ -192,6 +213,12 @@ namespace FlipAndBurn.Core.Tests
                 if (p != null && (sim.Position - p.Orbit.StateAt(sim.UT).Position).Length < p.SphereOfInfluence) return false;
             return true;
         }
+
+        /// <summary>
+        /// No simulated trip may take more real time than this (s) unless its caller allows more: a hang fails fast instead
+        /// of stalling the suite.
+        /// </summary>
+        public const double MaxWallSeconds = 180;
 
         /// <summary>Longest on-rails step while coasting (s).</summary>
         public const double MaxRailsStep = 3600;
@@ -204,7 +231,8 @@ namespace FlipAndBurn.Core.Tests
         public static FlightResult Fly(string name, PlanetRecord target, double accelG, FlipManeuver flip, double startUT,
             double parkingAltitude, double cruiseWarp = DefaultCruiseWarp, double turnRateDegPerSec = 5, double maxTimeFactor = 4,
             double stopAfterSeconds = double.MaxValue, double traceFrom = double.MaxValue, double traceTo = double.MaxValue, double traceEvery = 50, Action<GuidanceConfig> configure = null,
-            TripType trip = TripType.FullBurn, double deltaVBudget = 0, Action<ShipSimulator> start = null)
+            TripType trip = TripType.FullBurn, double deltaVBudget = 0, Action<ShipSimulator> start = null, bool watch = true,
+            double wallSeconds = MaxWallSeconds)
         {
             PlanetRecord kerbin = KerbolSystem.Kerbin;
             double a = accelG * TripCalculator.OneG;
@@ -276,10 +304,37 @@ namespace FlipAndBurn.Core.Tests
             bool lastDeparting = false, lastCirc = false, lastCorr = false;
             while (sim.UT < limit)
             {
-                GuidanceCommand cmd = guidance.Update(new GuidanceInput
+                // A hang fails fast: no simulated trip may take more than this many real seconds.
+                if (wall.Elapsed.TotalSeconds > wallSeconds)
                 {
-                    UT = sim.UT, Position = sim.Position, Velocity = sim.Velocity, Facing = sim.Facing,
-                });
+                    result.TimedOut = true;
+                    result.PhaseLog.Add($"stopped: over {wallSeconds} s of real time at {sim.UT - startUT:F0} s into the trip, phase {lastPhase}");
+                    break;
+                }
+
+                var input = new GuidanceInput { UT = sim.UT, Position = sim.Position, Velocity = sim.Velocity, Facing = sim.Facing };
+                GuidanceCommand cmd = guidance.Update(input);
+
+                // The arrival watch, as the autopilot runs it: a normal trip must never trip it.
+                if (watch && !cmd.Circularizing && !cmd.SafeOrbit && cmd.Phase != GuidancePhase.Done)
+                {
+                    StateVector tp0 = target.Orbit.StateAt(sim.UT);
+                    if ((sim.Position - tp0.Position).Length < target.SphereOfInfluence)
+                        result.WatchPeakShare = Math.Max(result.WatchPeakShare, ArrivalSafety.FallShare(sim.Position - tp0.Position, sim.Velocity - tp0.Velocity,
+                            target.GravParameter, target.Radius + TargetSafeAltitude(target), ArrivalSafety.RescueHeadroom * a));
+                    ArrivalIssue issue = ArrivalSafety.Check(sim.Position - tp0.Position, sim.Velocity - tp0.Velocity, target.GravParameter,
+                        target.Radius + TargetSafeAltitude(target), targetPlanet.Radius + parkingAltitude, target.SphereOfInfluence, a,
+                        ArrivalSafety.RescueHeadroom * a);
+                    if (issue != ArrivalIssue.None)
+                    {
+                        Vec3 rr0 = sim.Position - tp0.Position, vv0 = sim.Velocity - tp0.Velocity;
+                        double vrad = Vec3.Dot(vv0, rr0.Normalized());
+                        result.SafeOrbitReason = $"{issue} at {sim.UT - startUT:F0} s: altitude {(rr0.Length - target.Radius) / 1000:F1} km, vr {vrad:F1} m/s, " +
+                                                 $"v {vv0.Length:F1} m/s, phase {cmd.Phase}, tgo {cmd.TimeToArrival:F1} s, acc {cmd.Acceleration:F3}";
+                        guidance.EnterSafeOrbit(input, issue.ToString(), ArrivalSafety.RescueHeadroom * a);
+                        cmd = guidance.Update(input);
+                    }
+                }
 
                 if (cmd.Phase != lastPhase || cmd.Leg != lastLeg || cmd.Departing != lastDeparting || cmd.Circularizing != lastCirc || cmd.Correcting != lastCorr)
                 {
@@ -306,6 +361,7 @@ namespace FlipAndBurn.Core.Tests
                 if (cmd.Phase == GuidancePhase.Done)
                 {
                     result.Finished = true;
+                    result.EndedInSafeOrbit = cmd.SafeOrbit;
                     break;
                 }
 

@@ -42,6 +42,17 @@ namespace FlipAndBurn.Core.Tests
         }
 
         [Fact]
+        public void SameValues_InANewArray_AfterAQuickload()
+        {
+            float[] player = { 1, 2, 3, 4 };
+            WarpRatesSnapshot saved = WarpRatesSnapshot.Take(player);
+            Assert.True(saved.SameValues(new float[] { 1, 2, 3, 4 }));
+            Assert.False(saved.SameValues(new float[] { 1, 4, 10, 25 }));
+            Assert.False(saved.SameValues(new float[] { 1, 2, 3 }));
+            Assert.False(saved.SameValues(null));
+        }
+
+        [Fact]
         public void Take_NoRates_Null()
         {
             Assert.Null(WarpRatesSnapshot.Take(null));

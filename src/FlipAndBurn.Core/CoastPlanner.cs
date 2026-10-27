@@ -124,6 +124,35 @@ namespace FlipAndBurn.Core
         }
 
         /// <summary>
+        /// The fastest coast trip that still keeps the reserve when propellant is lost while the engines aren't firing
+        /// (boil-off, ADR 0002): the loss over the whole trip time costs delta-v, so the burns get less of the budget. A
+        /// slower trip loses more, so the trip time and the loss are settled together.
+        /// </summary>
+        /// <param name="ship">The ship's engines and propellant, to turn the loss into delta-v.</param>
+        /// <param name="lossKgPerSecond">The measured background loss.</param>
+        /// <param name="lossDeltaV">The delta-v the loss costs over the trip planned (m/s).</param>
+        public static CoastPlan PlanAllowingForLoss(TripRequest request, double deltaVBudget, ShipPerformance ship, double lossKgPerSecond,
+            out double lossDeltaV)
+        {
+            lossDeltaV = 0;
+            CoastPlan plan = Plan(request, deltaVBudget);
+            if (ship == null || !(lossKgPerSecond > 0) || !plan.Feasible) return plan;
+            for (int i = 0; i < 6; i++)
+            {
+                double cost = BackgroundLoss.DeltaVCost(ship, request.Acceleration, lossKgPerSecond * plan.TripTime);
+                CoastPlan next = Plan(request, deltaVBudget - cost);
+                lossDeltaV = cost;
+                if (!next.Feasible) return next;
+                bool settled = Math.Abs(next.TripTime - plan.TripTime) < 1e-3 * plan.TripTime;
+                plan = next;
+                if (settled) break;
+            }
+
+            plan.Budget = deltaVBudget;
+            return plan;
+        }
+
+        /// <summary>
         /// The burn-coast-burn trip that arrives at <paramref name="arrivalUT"/>, and whether its burns fit the budget the
         /// way <see cref="Plan"/>'s do (the guidance margin under it). A resumed trip keeps flying to the arrival it was
         /// already flying to when this fits (ADR 0004): a fresh "fastest" plan from part-way through the trip can land up
