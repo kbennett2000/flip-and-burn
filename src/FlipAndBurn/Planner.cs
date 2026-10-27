@@ -72,6 +72,8 @@ namespace FlipAndBurn
             ParkingAltitude = ParkingAltitude(Target),
             DeltaVBudget = (1 - Reserve) * lastAvailable,
             PlannedTripTime = Trip == TripType.CoastInTheMiddle && Coast != null ? Coast.TripTime : Plan?.TripTime ?? 0,
+            DeltaVNeeded = Trip == TripType.CoastInTheMiddle && Coast != null ? Coast.DeltaVNeeded : Plan?.TotalDeltaV ?? 0,
+            StartDeltaV = InfinitePropellant ? double.NaN : lastAvailable,
         };
 
         private double nextRefresh;

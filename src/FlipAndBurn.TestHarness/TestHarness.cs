@@ -65,6 +65,16 @@ namespace FlipAndBurn.TestHarness
             Log("proofs: " + (string.IsNullOrEmpty(wanted) ? "all" : wanted));
             string save = SaveFile;
 
+            // KSP quit and launched again during the resume proof (build.sh): load the save made mid-trip.
+            if (Environment.GetEnvironmentVariable("FLIPANDBURN_PHASE") == "relaunch")
+            {
+                yield return ProofResumeAfterRelaunch();
+                if (failed) yield break;
+                Log("step " + step + ": done, quitting KSP");
+                Application.Quit();
+                yield break;
+            }
+
             // Diagnostic: does the engine cut at Abort with the temperature cheat on / after 25x warp / with neither?
             if (Want("cuttest"))
             {
@@ -131,6 +141,18 @@ namespace FlipAndBurn.TestHarness
                 var ok = new CaptureResult();
                 yield return ProofCoast(flown, ok);
                 if (!ok.Ok) yield break;
+            }
+
+            // Cycle 10: the trip carries on after leaving the ship, saving and loading (ADR 0004). build.sh then relaunches
+            // KSP for the save made mid-trip, and loads that save once more with Flip and Burn removed.
+            if (Want("resume"))
+            {
+                var flown = new Flown();
+                yield return PlanOnShip(ResumeShip, null, null, flown, save);
+                if (!flown.Ok) yield break;
+                var ok = new CaptureResult();
+                yield return ProofResume(flown, ok);
+                if (!ok.Ok || failed) yield break;
             }
 
             Log("step " + step + ": done, quitting KSP");

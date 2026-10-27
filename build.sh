@@ -5,6 +5,9 @@
 #   ./build.sh test     Build, install, then run the in-flight test: install the dev-only test harness, launch KSP
 #                       with -flipandburn-test, wait for the harness to finish, and remove the harness again.
 #                       Writes the screenshots, the harness log and the cheat check to docs/test-evidence/.
+#                       FLIPANDBURN_PROOFS picks proofs (rates,resume,overheat,flip,coast,cuttest; default all but
+#                       cuttest). With "resume", KSP is launched twice more: once to load the save made mid-trip, and
+#                       once with Flip and Burn removed from GameData to load it again (put back afterwards).
 #
 # KSPDir comes from local.props (copy local.props.example to start).
 set -euo pipefail
@@ -16,6 +19,7 @@ config=Release
 
 plugin_project="src/FlipAndBurn/FlipAndBurn.csproj"
 harness_project="src/FlipAndBurn.TestHarness/FlipAndBurn.TestHarness.csproj"
+savecheck_project="src/FlipAndBurn.SaveCheck/FlipAndBurn.SaveCheck.csproj"
 
 if [[ ! -f local.props ]]; then
     echo "local.props is missing. Copy local.props.example to local.props and set KSPDir." >&2
@@ -25,12 +29,15 @@ fi
 ksp_dir="$(dotnet msbuild "$plugin_project" -nologo -getProperty:KSPDir)"
 plugin_dest="$ksp_dir/GameData/FlipAndBurn/Plugins"
 harness_dir="$ksp_dir/GameData/FlipAndBurnTestHarness"
+savecheck_dir="$ksp_dir/GameData/FlipAndBurnSaveCheck"
 
 remove_harness() {
-    if [[ -e "$harness_dir" ]]; then
-        rm -rf "$harness_dir"
-        echo "Removed test harness from $harness_dir"
-    fi
+    for dir in "$harness_dir" "$savecheck_dir"; do
+        if [[ -e "$dir" ]]; then
+            rm -rf "${dir:?}"
+            echo "Removed test helper from $dir"
+        fi
+    done
 }
 
 install_plugin() {
@@ -62,12 +69,15 @@ test_save="$ksp_dir/saves/FlipAndBurn-Test"
 mj_settings="$ksp_dir/GameData/MechJeb2/Plugins/PluginData/MechJeb2"
 shot_dir="$ksp_dir/FlipAndBurnTest"
 # FLIPANDBURN_SHOTS overrides the list when FLIPANDBURN_PROOFS runs only some of the proofs.
-read -r -a expected_shots <<< "${FLIPANDBURN_SHOTS:-planner-bebop-2g.png a-1-overheat-replanned.png a-2-overheat-replanned-again.png a-3-overheat-after-abort.png f-1-before-flip.png f-2-during-flip.png f-3-after-flip.png f-4-after-abort.png b-1-coast.png b-2-after-abort.png}"
+read -r -a expected_shots <<< "${FLIPANDBURN_SHOTS:-planner-bebop-2g.png a-1-overheat-replanned.png a-2-overheat-replanned-again.png a-3-overheat-after-abort.png f-1-before-flip.png f-2-during-flip.png f-3-after-flip.png f-4-after-abort.png b-1-coast.png b-2-after-abort.png r-0-paused.png r-1-resumed-after-space-center.png r-2-resumed-after-quickload.png r-3-resumed-after-switching-back.png r-4-no-trip-after-abort-reload.png r-5-resumed-after-relaunch.png}"
 [[ "${FLIPANDBURN_SHOTS:-}" == none ]] && expected_shots=()   # a check that takes no screenshots
 evidence="$repo/docs/test-evidence"
 stall_seconds=120
 max_launches=4          # first launch plus up to 3 relaunches after a stall
 overall_timeout=14400   # seconds (the autopilot proof warps to the flip of a 3-day trip)
+proofs="${FLIPANDBURN_PROOFS:-}"
+want_resume=0
+if [[ -z "$proofs" || ",$proofs," == *",resume,"* ]]; then want_resume=1; fi
 
 if pgrep -x KSP.x86_64 >/dev/null; then
     echo "KSP is already running. Close it first." >&2
@@ -80,10 +90,13 @@ fi
 
 install_plugin
 dotnet build "$harness_project" -c "$config" -nologo
+dotnet build "$savecheck_project" -c "$config" -nologo
 
 # Start every run from the same game state: the test save's quicksave.
 cp -p "$test_save/quicksave.sfs" "$test_save/persistent.sfs"
 cp -p "$test_save/quicksave.loadmeta" "$test_save/persistent.loadmeta"
+# The resume proof's own saves (all in the test copy); a stale one must not stand in for this run's.
+rm -f "${test_save:?}"/fab-*.sfs "${test_save:?}"/fab-*.loadmeta
 
 # MechJeb rewrites its settings files when a flight runs. Snapshot them so the test leaves Kris's settings as they were.
 # KSP also rewrites settings.cfg, and the harness may change graphics settings while it runs.
@@ -109,6 +122,12 @@ cleanup() {
         pkill -9 -x KSP.x86_64 2>/dev/null || true
     fi
     remove_harness
+    # The run with Flip and Burn removed: put it back, whatever happened.
+    if [[ -d "$backup_dir/plugin" ]]; then
+        mkdir -p "$plugin_dest"
+        cp -p "$backup_dir/plugin/"*.dll "$plugin_dest/"
+        echo "Put Flip and Burn back in $plugin_dest"
+    fi
     if [[ -d "$backup_dir/MechJeb2" ]]; then
         rm -rf "$mj_settings"
         cp -a "$backup_dir/MechJeb2" "$mj_settings"
@@ -116,7 +135,7 @@ cleanup() {
     fi
     if [[ -f "$backup_dir/BetterTimeWarp.cfg" ]]; then
         # It stamps the save time in a comment; anything else changing would mean its warp presets changed.
-        if cmp -s <(grep -v '^//' "$backup_dir/BetterTimeWarp.cfg") <(grep -v '^//' "$btw_settings" 2>/dev/null); then
+        if cmp -s <(grep -v -E '^//|^\s*$' "$backup_dir/BetterTimeWarp.cfg") <(grep -v -E '^//|^\s*$' "$btw_settings" 2>/dev/null); then
             echo "BetterTimeWarp settings unchanged by the run (apart from its save-time comment)"
         else
             echo "BetterTimeWarp settings CHANGED during the run:"
@@ -133,11 +152,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$harness_dir/Plugins"
-cp "src/FlipAndBurn.TestHarness/bin/$config/FlipAndBurn.TestHarness.dll" "$harness_dir/Plugins/"
-echo "Installed test harness -> $harness_dir/Plugins/"
 mkdir -p "$shot_dir"
-rm -f "$shot_dir"/*.png
+rm -f "${shot_dir:?}"/*.png
 
 # Fallback screenshot from outside the game, used when the harness says its in-game capture came out blank.
 # KSP runs as an X11 window (XWayland on GNOME), which ffmpeg's x11grab can read. $1 is the file to write.
@@ -163,80 +179,121 @@ external_capture() {
 }
 declare -A external_done=()
 
+# KSP rewrites KSP.log on every launch: each phase's log is kept and the results read them all.
+phase_logs=()
+
 launch() {
-    (cd "$ksp_dir" && nohup "$ksp_bin" -flipandburn-test >/dev/null 2>&1 &)
-    echo "$(date +%T) Launched KSP with -flipandburn-test (launch $1 of at most $max_launches)"
+    (cd "$ksp_dir" && FLIPANDBURN_PHASE="$2" nohup "$ksp_bin" -flipandburn-test >/dev/null 2>&1 &)
+    echo "$(date +%T) Launched KSP with -flipandburn-test, phase $2 (launch $1 of at most $max_launches)"
 }
 
-start=$(date +%s)
-launches=1
-launch $launches
-sleep 5
-last_size=-1
-still=0
-last_report=$start
-
-while true; do
-    now=$(date +%s)
-    if (( now - start > overall_timeout )); then
-        echo "Gave up after ${overall_timeout}s." >&2
-        break
-    fi
-
-    if grep -a -q -E '\[FlipAndBurn.Test\] step [0-9]+: done' "$ksp_log" 2>/dev/null; then
-        echo "$(date +%T) Harness finished; waiting for KSP to exit"
-        for _ in $(seq 1 120); do pgrep -x KSP.x86_64 >/dev/null || break; sleep 1; done
-        if pgrep -x KSP.x86_64 >/dev/null; then
-            echo "KSP did not exit on its own; stopping it"
-            pkill -x KSP.x86_64 || true
-            sleep 10
-            pkill -9 -x KSP.x86_64 2>/dev/null || true
-        fi
-        break
-    fi
-
-    while IFS= read -r request; do
-        [[ -n "$request" && -z "${external_done[$request]:-}" ]] || continue
-        external_capture "$request"
-        external_done[$request]=1
-    done < <(grep -a -o 'external capture requested: .*\.png' "$ksp_log" 2>/dev/null | sed 's/^external capture requested: //')
-
-    if ! pgrep -x KSP.x86_64 >/dev/null; then
-        echo "$(date +%T) KSP exited before the harness finished." >&2
-        break
-    fi
-
-    size=$(stat -c %s "$ksp_log" 2>/dev/null || echo 0)
-    if [[ "$size" == "$last_size" ]]; then still=$((still + 5)); else still=0; last_size=$size; fi
-    if (( still >= stall_seconds )) && grep -a -q '\[FlipAndBurn.Test\] step 1' "$ksp_log"; then
-        # Past the main menu this is not the known startup lock-up; relaunching would just repeat it.
-        echo "$(date +%T) KSP.log has not grown for ${stall_seconds}s after the harness started. Stopping KSP." >&2
-        echo "Last log line: $(tail -1 "$ksp_log" | cut -c1-200)" >&2
-        break
-    fi
-    if (( still >= stall_seconds )); then
-        if (( launches >= max_launches )); then
-            echo "KSP stalled $launches times; giving up." >&2
+# Launch KSP for one phase ($1: main, relaunch or nomod) and wait for the helper to finish. Fails if it didn't.
+run_phase() {
+    local phase="$1" launches=1 last_size=-1 still=0 last_report finished=0 now size
+    last_report=$(date +%s)
+    launch $launches "$phase"
+    sleep 5
+    while true; do
+        now=$(date +%s)
+        if (( now - run_start > overall_timeout )); then
+            echo "Gave up after ${overall_timeout}s." >&2
             break
         fi
-        echo "$(date +%T) KSP.log has not grown for ${stall_seconds}s (startup lock-up). Killing and relaunching."
+
+        if grep -a -q -E '\[FlipAndBurn.Test\] step [0-9]+: done' "$ksp_log" 2>/dev/null; then
+            echo "$(date +%T) Phase $phase finished; waiting for KSP to exit"
+            for _ in $(seq 1 120); do pgrep -x KSP.x86_64 >/dev/null || break; sleep 1; done
+            if pgrep -x KSP.x86_64 >/dev/null; then
+                echo "KSP did not exit on its own; stopping it"
+                pkill -x KSP.x86_64 || true
+                sleep 10
+                pkill -9 -x KSP.x86_64 2>/dev/null || true
+            fi
+            finished=1
+            break
+        fi
+
+        while IFS= read -r request; do
+            [[ -n "$request" && -z "${external_done[$request]:-}" ]] || continue
+            external_capture "$request"
+            external_done[$request]=1
+        done < <(grep -a -o 'external capture requested: .*\.png' "$ksp_log" 2>/dev/null | sed 's/^external capture requested: //')
+
+        if ! pgrep -x KSP.x86_64 >/dev/null; then
+            echo "$(date +%T) KSP exited before the helper finished (phase $phase)." >&2
+            break
+        fi
+
+        size=$(stat -c %s "$ksp_log" 2>/dev/null || echo 0)
+        if [[ "$size" == "$last_size" ]]; then still=$((still + 5)); else still=0; last_size=$size; fi
+        if (( still >= stall_seconds )) && grep -a -q '\[FlipAndBurn.Test\] step 1' "$ksp_log"; then
+            # Past the main menu this is not the known startup lock-up; relaunching would just repeat it.
+            echo "$(date +%T) KSP.log has not grown for ${stall_seconds}s after the helper started. Stopping KSP." >&2
+            echo "Last log line: $(tail -1 "$ksp_log" | cut -c1-200)" >&2
+            break
+        fi
+        if (( still >= stall_seconds )); then
+            if (( launches >= max_launches )); then
+                echo "KSP stalled $launches times; giving up." >&2
+                break
+            fi
+            echo "$(date +%T) KSP.log has not grown for ${stall_seconds}s (startup lock-up). Killing and relaunching."
+            pkill -x KSP.x86_64 || true
+            for _ in $(seq 1 20); do pgrep -x KSP.x86_64 >/dev/null || break; sleep 1; done
+            pkill -9 -x KSP.x86_64 2>/dev/null || true
+            sleep 2
+            launches=$((launches + 1))
+            launch $launches "$phase"
+            sleep 5
+            still=0
+            last_size=-1
+        fi
+
+        if (( now - last_report >= 120 )); then
+            echo "$(date +%T) still running (phase $phase): $(wc -l < "$ksp_log") log lines; last: $(tail -1 "$ksp_log" | cut -c1-120)"
+            last_report=$now
+        fi
+        sleep 5
+    done
+    if pgrep -x KSP.x86_64 >/dev/null; then
         pkill -x KSP.x86_64 || true
         for _ in $(seq 1 20); do pgrep -x KSP.x86_64 >/dev/null || break; sleep 1; done
         pkill -9 -x KSP.x86_64 2>/dev/null || true
-        sleep 2
-        launches=$((launches + 1))
-        launch $launches
-        sleep 5
-        still=0
-        last_size=-1
     fi
+    cp "$ksp_log" "$backup_dir/ksp-$phase.log" 2>/dev/null || true
+    phase_logs+=("$backup_dir/ksp-$phase.log")
+    (( finished )) && ! grep -a -q '\[FlipAndBurn.Test\] FAILED' "$ksp_log"
+}
 
-    if (( now - last_report >= 120 )); then
-        echo "$(date +%T) still running: $(wc -l < "$ksp_log") log lines; last: $(tail -1 "$ksp_log" | cut -c1-120)"
-        last_report=$now
-    fi
-    sleep 5
-done
+run_start=$(date +%s)
+
+# Phase 1: the proofs.
+mkdir -p "$harness_dir/Plugins"
+cp "src/FlipAndBurn.TestHarness/bin/$config/FlipAndBurn.TestHarness.dll" "$harness_dir/Plugins/"
+echo "Installed test harness -> $harness_dir/Plugins/"
+main_ok=0
+run_phase main && main_ok=1
+
+if (( want_resume && main_ok )) && [[ -f "$test_save/fab-midtrip.sfs" ]]; then
+    # Phase 2: KSP quit; launch it again and load the save made mid-trip.
+    run_phase relaunch || true
+
+    # Phase 3: the same save with Flip and Burn removed from GameData (put back straight after, and by cleanup if this
+    # script is stopped part-way).
+    remove_harness
+    mkdir -p "$backup_dir/plugin"
+    mv "$plugin_dest/FlipAndBurn.dll" "$plugin_dest/FlipAndBurn.Core.dll" "$backup_dir/plugin/"
+    echo "Removed Flip and Burn from $plugin_dest for the save check"
+    mkdir -p "$savecheck_dir/Plugins"
+    cp "src/FlipAndBurn.SaveCheck/bin/$config/FlipAndBurn.SaveCheck.dll" "$savecheck_dir/Plugins/"
+    run_phase nomod || true
+    remove_harness
+    cp -p "$backup_dir/plugin/"*.dll "$plugin_dest/"
+    rm -rf "${backup_dir:?}/plugin"
+    echo "Put Flip and Burn back in $plugin_dest"
+elif (( want_resume )); then
+    echo "The main phase didn't finish cleanly or made no mid-trip save: skipping the relaunch and mod-removed phases." >&2
+fi
 
 # ---------------------------------------------------------------- results
 
@@ -247,7 +304,7 @@ cheat_log="$evidence/cheat-check.log"
 {
     echo "# Cheat check (infinite propellant, ignore max temperature) $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "## The harness's own readings"
-    grep -a -E '\[FlipAndBurn.Test\].*(infinite propellant|InfinitePropellant|max temperature)' "$ksp_log" | sed 's/^.*\[FlipAndBurn.Test\] //' || true
+    cat "${phase_logs[@]}" | grep -a -E '\[FlipAndBurn.Test\].*(infinite propellant|InfinitePropellant|max temperature)' | sed 's/^.*\[FlipAndBurn.Test\] //' || true
     echo "## settings.cfg: lines mentioning a cheat or propellant, before and after the run"
     echo "before: $(grep -c -i -E 'cheat|propellant' "$backup_dir/settings.cfg" || true)"
     echo "after:  $(grep -c -i -E 'cheat|propellant' "$ksp_dir/settings.cfg" || true)"
@@ -266,15 +323,27 @@ grep -q -E '^after:  0$' "$cheat_log" || { echo "settings.cfg mentions a cheat a
 summary="$evidence/test-run.log"
 {
     echo "# FlipAndBurn test run $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    grep -a -E "KSPAssembly '(FlipAndBurn|FlipAndBurn.TestHarness|MechJeb2)'|^MechJeb2 v|From LOADING to MAINMENU|\[FlipAndBurn\]|\[FlipAndBurn.Test\]" "$ksp_log" | grep -a -v 'NullReferenceException' || true
+    for log in "${phase_logs[@]}"; do
+        echo "# ---- phase $(basename "$log" .log | sed 's/^ksp-//')"
+        grep -a -E "KSPAssembly '(FlipAndBurn|FlipAndBurn.TestHarness|FlipAndBurn.SaveCheck|MechJeb2)'|^MechJeb2 v|From LOADING to MAINMENU|\[FlipAndBurn\]|\[FlipAndBurn.Test\]" "$log" | grep -a -v 'NullReferenceException' || true
+    done
     # (The harness's own [FlipAndBurn.Test] lines are left out: they may report another mod's failure by name.)
-    echo "# Exception lines mentioning FlipAndBurn or MechJeb: $(grep -a -i exception "$ksp_log" | grep -a -v '\[FlipAndBurn.Test\]' | grep -c -i -E 'flipandburn|mechjeb|mumech' || true)"
-    echo "# Stack frames in FlipAndBurn or MechJeb code: $(grep -a -c -E '(at |\()(MuMech|FlipAndBurn|MechJebLib)[.:]' "$ksp_log" || true)"
+    echo "# Exception lines mentioning FlipAndBurn or MechJeb: $(cat "${phase_logs[@]}" | grep -a -i exception | grep -a -v '\[FlipAndBurn.Test\]' | grep -c -i -E 'flipandburn|mechjeb|mumech' || true)"
+    echo "# Stack frames in FlipAndBurn or MechJeb code: $(cat "${phase_logs[@]}" | grep -a -c -E '(at |\()(MuMech|FlipAndBurn|MechJebLib)[.:]' || true)"
 } > "$summary"
 cat "$summary"
 
 ok=1
-grep -a -q '\[FlipAndBurn.Test\] FAILED' "$ksp_log" && ok=0
+(( main_ok )) || ok=0
+cat "${phase_logs[@]}" | grep -a -q '\[FlipAndBurn.Test\] FAILED' && ok=0
+if (( want_resume )); then
+    for phase in relaunch nomod; do
+        if ! grep -a -q -E '\[FlipAndBurn.Test\] step [0-9]+: done' "$backup_dir/ksp-$phase.log" 2>/dev/null; then
+            echo "Phase $phase didn't finish" >&2
+            ok=0
+        fi
+    done
+fi
 if grep -q -E '^# (Exception lines|Stack frames).*: [1-9]' "$summary"; then ok=0; fi
 
 # Keep full resolution so small UI text stays readable, but as JPEG (about 2.5 MB instead of 10 MB at 4K) so the repo
@@ -294,6 +363,17 @@ for name in "${expected_shots[@]}"; do
     else
         cp "$src" "$evidence/$name"
         echo "Screenshot copied to $evidence/$name"
+    fi
+done
+
+# Screenshots a proof takes only when it can (the resume proof's second ship): kept when present, not required.
+for src in "$shot_dir"/*.png; do
+    [[ -f "$src" ]] || continue
+    name="$(basename "$src")"
+    [[ " ${expected_shots[*]} " == *" $name "* ]] && continue
+    base="${name%.png}"
+    if command -v ffmpeg >/dev/null; then
+        ffmpeg -hide_banner -loglevel error -y -i "$src" -q:v 2 "$evidence/$base.jpg" && echo "Extra screenshot saved to $evidence/$base.jpg"
     fi
 done
 

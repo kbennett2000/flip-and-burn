@@ -251,9 +251,7 @@ runs.
 - **Losing the engine** (none running while thrust is wanted, for 5 s) stops the trip whatever the cheats, with a plain
   reason.
 
-### Next: carrying on after a reload
+### Carrying on after a reload
 
-A trip doesn't survive the game being saved and loaded: MechJeb doesn't save the autopilot's enabled state, and the
-guidance's plan lives only in memory. After a reload the window shows that no trip is running and says a trip must be
-started again. Saving the trip (target, settings, the fixed arrival time of a coast trip) with the vessel and resuming
-it is the next item.
+Done in cycle 10: a trip is saved with the ship, pauses when the player leaves it, and resumes, re-planned, when they
+come back or load a save made during the trip. See ADR 0004.

@@ -44,7 +44,20 @@ Pressing **Start** hands the ship to Flip and Burn ([ADR 0003](docs/adr/0003-gui
 - **Abort** cuts the throttle, stops warp, releases control and puts the player's MechJeb settings back exactly.
 - Flip and Burn also stops by itself, and says why, if fuel runs out, the ship can't turn fast enough, or it drifts too
   far off course.
-- A trip doesn't carry on after the game is saved and loaded yet; the window says so.
+- **A trip carries on** after saving, loading and leaving the ship ([ADR 0004](docs/adr/0004-trip-carries-on.md)).
+  Leaving the ship any way (Space Center, Tracking Station, another ship, quitting) pauses the trip: the engine is
+  off, the ship coasts, and the player's MechJeb settings and warp rates are back. Coming back to the ship, or loading
+  a save made during the trip, resumes it by itself, re-planned from where the ship is: it says how long the player
+  was away and how that moved the arrival, and points the ship before the engine fires. If the trip can no longer be
+  finished from there, nothing fires and the window says why.
+- **Pause** cuts the engine and keeps the trip. KSP won't save, switch ships or leave flight while a ship accelerates
+  at more than 0.1 g, so this is how to leave during a burn. **Resume** carries on in place.
+- A short pause doesn't move the arrival: a coast trip keeps the arrival it was flying to, as long as the ship is still
+  expected to arrive with at least 9 % of the delta-v it started with. The window shows the reserve expected at arrival,
+  and says so in plain words if it is below the 10 % kept back.
+- **Abort** ends the trip for good: nothing comes back when a later save is loaded.
+- **Without Flip and Burn:** a save made mid-trip and loaded without the mod keeps the ship and simply loses the trip.
+  The ship loads as it was and coasts, and nothing resumes. Putting the mod back later doesn't bring that trip back.
 
 See [docs/adr/0001-plug-into-mechjeb-as-addon.md](docs/adr/0001-plug-into-mechjeb-as-addon.md) for how it plugs into
 MechJeb.
@@ -113,10 +126,15 @@ When KSP reaches the main menu, `KSP.log` should contain `[FlipAndBurn] loaded`.
    - (r) the player's warp rates and throttle: Start a coast trip at 0.4 g, a minute of burn, Abort; the physics warp rates and
      MechJeb's throttle users must be as before Start, and the ship must follow the player's throttle. Then Start
      again and leave for the Space Center mid-trip, and fly again: the rates must be the player's there too.
+   - (resume) a coast trip at 0.4 g that carries on: a minute of burn, Pause, the Space Center and back, a quicksave,
+     more burn and a quickload, another ship (with a trip of its own) and back, a save made mid-trip, then Abort, a
+     quicksave and a quickload that bring nothing back. Each leave goes through KSP's own code for that button, and
+     only when KSP would allow it. This script then launches KSP again to load the save made mid-trip, and once more
+     with Flip and Burn removed from GameData (put back straight after) to show the save still loads.
 
    It screenshots each stage and logs the acceleration, pointing error, engine throttle, warp, waste heat and hottest
    part every few seconds. It checks MechJeb's settings files before Start and after Abort. Only the harness turns the
-   cheats on, only in those runs, and turns them off again. `FLIPANDBURN_PROOFS=rates,overheat,flip,coast` picks which
+   cheats on, only in those runs, and turns them off again. `FLIPANDBURN_PROOFS=rates,resume,overheat,flip,coast` picks which
    proofs to run (`FLIPANDBURN_SHOTS` lists the screenshots expected, or `none`). Then it quits KSP.
    It moves the Flip and Burn window to an empty part of the screen first, because MechJeb opens every window at
    the same spot. The harness reads the finished frame itself; if that comes out blank (it sometimes does on
