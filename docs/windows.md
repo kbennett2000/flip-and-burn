@@ -25,6 +25,10 @@ Open it from MechJeb's menu (the **MechJeb** tab, on the right edge of the scree
    note replaces the buttons. See [flip styles](ways-to-fly.md#flip-styles).
 5. **Parking orbit:** the height of the circular orbit to finish in, in km. Each planet gets a sensible default, just
    above its atmosphere and mountains. Change it if you like.
+
+   Below it (newer than this picture): **Max physics warp**, **10x**, **25x** or **50x**, how fast the game may run
+   while the engine burns. 10x is the default and is remembered. 25x and 50x add a yellow warning line. See
+   [max physics warp](ways-to-fly.md#max-physics-warp).
 6. **The trip:** what this trip takes (the rows are listed below).
 7. **Your ship:** what your ship can do (the rows are listed below).
 8. **Notes, in yellow:** anything you should know, like a stage below this one not being counted, or why the trip can't
@@ -90,7 +94,8 @@ second). If the batteries would run low before the burning is done, the trip low
 overheating, and says so.
 
 Messages in yellow appear above the buttons when something needs your attention: the trip resumed, the acceleration
-stepped down, the reserve dropped below 10%, and so on.
+stepped down, the reserve dropped below 10%, physics warp dropped back to 10x because the ship looked unstable, and so
+on.
 
 ### The phases
 

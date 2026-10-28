@@ -37,6 +37,11 @@ namespace FlipAndBurn
         [Persistent(pass = (int)Pass.GLOBAL)]
         public int TripTypeIndex;
 
+        /// <summary>"Max physics warp": 10x (the default), 25x or 50x (PhysicsWarpChoice).</summary>
+        [UsedImplicitly]
+        [Persistent(pass = (int)Pass.GLOBAL)]
+        public int PhysicsWarpIndex;
+
         private readonly EditableDoubleMult parkingAltitudeKm = new EditableDoubleMult(0, 1000);
         private string parkingAltitudeFor;
 
@@ -359,6 +364,12 @@ namespace FlipAndBurn
             CelestialBody target = Planner.Target;
             if (target != null)
                 GuiUtils.SimpleTextBox($"Parking orbit at {Planner.BodyName(target)}", parkingAltitudeKm, "km", 60);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Max physics warp");
+            PhysicsWarpIndex = GUILayout.Toolbar(PhysicsWarpChoice.Clamp(PhysicsWarpIndex), PhysicsWarpChoice.Names);
+            GUILayout.EndHorizontal();
+            string warpWarning = PhysicsWarpChoice.Warning(PhysicsWarpIndex);
+            if (warpWarning != null) GUILayout.Label(warpWarning, noteStyle ?? wrapStyle);
             GUILayout.Space(6);
         }
 

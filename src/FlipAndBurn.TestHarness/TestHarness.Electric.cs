@@ -158,7 +158,7 @@ namespace FlipAndBurn.TestHarness
                 if (!module.Planner.CanStart) { Fail("electric", "neither trip can be started: " + string.Join(" | ", module.Planner.Notes)); failed = true; yield break; }
             }
 
-            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 25;
+            MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = 25;
             string problem = module.PressStart();
             if (problem != null) { Fail("electric", "Start refused: " + problem); failed = true; yield break; }
             MechJebModuleFlipAndBurnAutopilot pilot = module.Autopilot;
@@ -184,7 +184,7 @@ namespace FlipAndBurn.TestHarness
                 module.PressAbort();
                 yield return new WaitForSecondsRealtime(3f);
                 statusEvery = 2f;
-                MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 10;
+                MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = 10;
                 yield break;
             }
 
@@ -197,7 +197,7 @@ namespace FlipAndBurn.TestHarness
             yield return Shot("electric-4-arrived.png", g);
             yield return MapShot(g, "electric-5-arrived-map.png");
             statusEvery = 2f;
-            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 10;
+            MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = 10;
         }
 
         // A field or property of a mod's module by name (exact case), or null.

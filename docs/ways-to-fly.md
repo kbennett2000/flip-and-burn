@@ -40,6 +40,22 @@ Big drives get hot. If a part gets close to its temperature limit, Flip and Burn
 This is normal with powerful drives. KSP Interstellar's fusion drives, for example, can push far harder on paper than
 their radiators can keep up with for long. Flip and Burn finds the acceleration your ship can really sustain.
 
+## Max physics warp
+
+While the engine burns, Flip and Burn speeds the game up with **physics warp**. The **Max physics warp** buttons in
+the planner set how far it goes: **10x** (the default), **25x** or **50x**. Your choice is remembered for next time.
+
+- **10x** is steady on big ships, hot or cool. Start here.
+- **25x and 50x** get you there in less real time, but KSP's physics gets rougher the faster it runs: big ships can
+  wobble or shake apart, and hot engines heat up faster than they can cool. A yellow line under the buttons says so.
+
+The protections work at every setting:
+
+- **The heat rules above** still hold warp to 4× when a part is warm (60%) and stop it when a part is hot (75%).
+- **If the ship looks unstable** at 25x or 50x, Flip and Burn drops back to **10x** for the rest of the trip and tells
+  you why. It watches for parts heating up fast (on their way to 60% within about ten seconds), a part breaking off,
+  and the ship wobbling when it should be holding steady.
+
 ## Full burn, or coast in the middle
 
 The **Trip** buttons in the planner choose between these.
