@@ -1,15 +1,12 @@
-# Cheat check (infinite propellant, ignore max temperature) 2026-10-27T04:12:39Z
+# Cheat check (infinite propellant, ignore max temperature) 2026-10-28T12:55:09Z
 ## The harness's own readings
-step 7: (a) flip run, full burn to Duna at 1 g, infinite propellant True, ignore max temperature True, planner can start: True
-step 14: infinite propellant cheat back off: True; ignore max temperature cheat back off: True
-step 20: (b) coast trip to Duna at 0.4 g, infinite propellant False, ignore max temperature False, planner can start: True
 ## settings.cfg: lines mentioning a cheat or propellant, before and after the run
 before: 0
 after:  0
 ## settings.cfg: every line KSP changed during the run (diff before -> after)
 (no changes)
 ## Every save except FlipAndBurn-Test: files changed during the run
-files fingerprinted: 5162
+files fingerprinted: 5163
 (no changes)
 ## Every save except FlipAndBurn-Test: lines mentioning InfinitePropellant
 0 files
