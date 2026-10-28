@@ -53,6 +53,8 @@ namespace FlipAndBurn.Core
         public double ElectricDemand { get; internal set; }
         public double PowerSupply { get; internal set; }
         public double PowerLimit { get; internal set; } = 1;
+        /// <summary>All the thrust comes from engines that burn only electric charge: <see cref="ShipPerformance.Electric"/> has the power.</summary>
+        public bool ElectricOnly { get; internal set; }
     }
 
     /// <summary>
@@ -83,11 +85,15 @@ namespace FlipAndBurn.Core
         /// <param name="shipMass">The whole ship now (kg).</param>
         /// <param name="powerSupply">ElectricCharge the ship makes per second (solar panels, generators).</param>
         /// <param name="batteryCharge">ElectricCharge stored now.</param>
+        /// <param name="power">The ship's power in full (replaces the two above when given).</param>
         public static ShipEngineReport Combine(IList<EngineReading> engines, IDictionary<string, double> resources, double shipMass,
-            double powerSupply = 0, double batteryCharge = 0)
+            double powerSupply = 0, double batteryCharge = 0, ShipPower power = null)
         {
             var report = new ShipEngineReport();
             var usable = new List<Burner>();
+            power ??= new ShipPower { Stored = batteryCharge, Capacity = batteryCharge, Steady = powerSupply };
+            powerSupply = power.SupplyAt(double.NaN);
+            batteryCharge = power.Stored;
 
             foreach (EngineReading e in engines ?? new List<EngineReading>())
             {
@@ -102,7 +108,19 @@ namespace FlipAndBurn.Core
                 double mixDensity = e.Propellants.Sum(p => p.Ratio * p.Density) * 1000;   // kg per unit of mix
                 if (!(mixDensity > 0))
                 {
-                    report.Notes.Add($"{e.Name} burns nothing with mass, so Flip and Burn can't work out its delta-v. It isn't counted.");
+                    // Burns only electric charge: no mass leaves the ship. KSP draws a massless mix at "mass flow x ratio"
+                    // (the flow in tonnes a second), so the charge is proportional to thrust.
+                    double ecRatio = e.Propellants.Where(p => p.Resource == ElectricCharge).Sum(p => p.Ratio);
+                    if (!(ecRatio > 0))
+                    {
+                        report.Notes.Add($"{e.Name} burns nothing with mass, so Flip and Burn can't work out its delta-v. It isn't counted.");
+                        continue;
+                    }
+
+                    if (!e.Understood) report.Estimated = true;
+                    var electric = new Burner(e, 0) { Massless = true };
+                    electric.ElectricPerSecond = e.Thrust / (e.VacuumIsp * ShipPerformance.StandardGravity) / 1000 * ecRatio;
+                    usable.Add(electric);
                     continue;
                 }
 
@@ -119,6 +137,20 @@ namespace FlipAndBurn.Core
                 usable.Add(b);
             }
 
+            // Only engines that burn electric charge alone: the trip is limited by electricity, not fuel (ShipPower).
+            if (usable.Count > 0 && usable.All(b => b.Massless))
+            {
+                report.ElectricDemand = usable.Sum(b => b.ElectricPerSecond);
+                report.PowerSupply = powerSupply;
+                report.ElectricOnly = true;
+                if (report.Estimated)
+                    report.Notes.Add($"Flip and Burn doesn't know how {string.Join(", ", usable.Where(b => !b.Engine.Understood).Select(b => b.Engine.Name).Distinct())} " +
+                                     "works, so it uses KSP's own figures for it. These numbers are estimates.");
+                var drive = new ElectricDrive(usable.Sum(b => b.Thrust), report.ElectricDemand, power);
+                report.Performance = new ShipPerformance(drive, shipMass);
+                return report;
+            }
+
             // Electric engines: the power supply limits their sustained thrust.
             double demand = usable.Sum(b => b.ElectricPerSecond);
             report.ElectricDemand = demand;
@@ -131,12 +163,12 @@ namespace FlipAndBurn.Core
                 {
                     foreach (Burner b in usable.Where(b => b.ElectricPerSecond > 0)) b.Scale(limit);
                     string battery = batteryCharge > 0 && demand > powerSupply
-                        ? $" The batteries ({batteryCharge.ToString("N0", Inv)} EC) would run them at full thrust for only about " +
-                          $"{(batteryCharge / (demand - powerSupply)).ToString("N0", Inv)} s."
+                        ? $" The batteries ({batteryCharge.ToString("N0", Inv)} electric charge) would run them at full thrust for only about " +
+                          $"{(batteryCharge / (demand - powerSupply)).ToString("N0", Inv)} s, so they aren't counted."
                         : "";
                     report.Notes.Add(limit > 0
-                        ? $"The electric engines need {demand.ToString("N1", Inv)} EC/s at full thrust, but the ship's power supply makes " +
-                          $"{powerSupply.ToString("N1", Inv)} EC/s, so they can hold only {(limit * 100).ToString("N0", Inv)}% of full thrust. " +
+                        ? $"The electric engines need {demand.ToString("N1", Inv)} electric charge a second at full thrust, but the ship makes " +
+                          $"{powerSupply.ToString("N1", Inv)} a second, so they can hold only {(limit * 100).ToString("N0", Inv)}% of full thrust. " +
                           "The numbers here use that." + battery
                         : "The electric engines have no power supply (no working solar panels or generators), so they can't hold any thrust for a trip." + battery);
                 }
@@ -172,7 +204,8 @@ namespace FlipAndBurn.Core
             var phases = new List<BurnPhase>();
             double mass = shipMass;
             var active = burners.Where(b => b.Rates.Keys.All(r => left[r] > 0)).ToList();
-            if (active.Count == 0)
+            // Engines that burn only electric charge push without using fuel; the fuel engines decide when the burn ends.
+            if (active.All(b => b.Rates.Count == 0))
             {
                 // No fuel at all: thrust still counts (for the acceleration readout), delta-v is zero.
                 phases.Add(Phase(burners, mass, mass));
@@ -186,6 +219,7 @@ namespace FlipAndBurn.Core
                 foreach (KeyValuePair<string, double> kv in b.Rates)
                     rates[kv.Key] = (rates.TryGetValue(kv.Key, out double r) ? r : 0) + kv.Value;
 
+                if (!rates.Any(kv => kv.Value > 0)) break;   // only electric engines left: no fuel to burn (not counted)
                 double time = rates.Where(kv => kv.Value > 0).Min(kv => left[kv.Key] / kv.Value);
                 double used = active.Sum(b => b.MassFlow) * time;
                 phases.Add(Phase(active, mass, mass - used));
@@ -214,6 +248,7 @@ namespace FlipAndBurn.Core
         {
             public readonly EngineReading Engine;
             public double Thrust, MassFlow, ElectricPerSecond;
+            public bool Massless;   // burns only electric charge
             public readonly Dictionary<string, double> Rates = new Dictionary<string, double>();   // units/s at full thrust
 
             public Burner(EngineReading engine, double massFlow)

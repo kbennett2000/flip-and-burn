@@ -244,6 +244,12 @@ namespace FlipAndBurn
             }
 
             DrawReserve(pilot);
+            if (pilot.UsesElectricCharge && !double.IsNaN(pilot.ChargeShare))
+            {
+                GuiUtils.SimpleLabel("Electric charge stored", $"{pilot.ChargeShare * 100:0}% (never below {ShipPower.FloorShare * 100:0}%)");
+                GuiUtils.SimpleLabel("  made / used", $"{Readout.Charge(pilot.ChargeMade)} / {Readout.ChargeRate(pilot.ChargeUsed)}");
+            }
+
             GUILayout.Label("Warp: " + pilot.WarpStatus, wrapStyle);
             if (pilot.Notice != null)
             {

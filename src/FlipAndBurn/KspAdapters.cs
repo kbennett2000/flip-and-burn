@@ -51,6 +51,8 @@ namespace FlipAndBurn
         /// <summary>Stages still to fire below the current one (with engines or decouplers in them).</summary>
         public int StagesBelow;
         public List<EngineReading> Engines = new List<EngineReading>();
+        /// <summary>The ship's electric power (read when an engine burns electric charge).</summary>
+        public ShipPower Power = new ShipPower();
     }
 
     /// <summary>
@@ -130,9 +132,9 @@ namespace FlipAndBurn
                 reading.Engines.Add(r);
             }
 
-            double supply = 0, battery = 0;
-            if (electric) PowerSupply(vessel, out supply, out battery);
-            reading.Report = ShipEngines.Combine(reading.Engines, resources, shipMass, supply, battery);
+            ShipPower power = electric ? ReadPower(vessel) : new ShipPower();
+            reading.Power = power;
+            reading.Report = ShipEngines.Combine(reading.Engines, resources, shipMass, power: power);
             if (reading.Report.NoThrust && reading.Report.Notes.Count == 0)
                 problem = "The active engines report no thrust.";
             return reading;
@@ -235,17 +237,26 @@ namespace FlipAndBurn
         }
 
         /// <summary>
-        /// ElectricCharge made per second right now by stock solar panels (and modules built on them), generators such as
-        /// RTGs, and running converters such as fuel cells; and the charge stored. Other mods' power plants aren't counted.
+        /// The ship's electric power (ShipPower): charge stored and the batteries' capacity; charge made a second by
+        /// generators, RTGs and reactors (stock ModuleGenerator, which Kris's Jibar reactors use, and KSP Interstellar's own
+        /// generators); solar panels, rated at Kerbin's distance from the Sun so the planner can scale them; and fuel cells
+        /// (running converters that burn fuel), with how long their fuel lasts.
         /// </summary>
-        private static void PowerSupply(Vessel vessel, out double supply, out double battery)
+        public static ShipPower ReadPower(Vessel vessel)
         {
-            supply = 0;
-            battery = 0;
+            var power = new ShipPower();
+            double home = FlightGlobals.GetHomeBody()?.orbit?.semiMajorAxis ?? double.NaN;
+            power.SolarDistance = home;
+            double fuelCellEnergy = 0;
             foreach (Part part in vessel.parts)
             {
                 PartResource ec = part.Resources.Get(ShipEngines.ElectricCharge);
-                if (ec != null) battery += ec.amount;
+                if (ec != null)
+                {
+                    power.Stored += ec.amount;
+                    power.Capacity += ec.maxAmount;
+                }
+
                 foreach (PartModule m in part.Modules)
                 {
                     try
@@ -253,15 +264,63 @@ namespace FlipAndBurn
                         switch (m)
                         {
                             case ModuleDeployableSolarPanel panel when panel.resourceName == ShipEngines.ElectricCharge:
-                                supply += Math.Max(0, panel.flowRate);
+                                // Rated output in full sunlight at Kerbin's distance (KSP: rate x sun angle x efficiency x flux / flux at home).
+                                double rated = panel.chargeRate * Math.Max(0, panel.efficiencyMult);
+                                if (panel.deployState == ModuleDeployablePart.DeployState.EXTENDED || !panel.useAnimation)
+                                    power.Solar += rated;
+                                else if (panel.deployState == ModuleDeployablePart.DeployState.RETRACTED && rated > 0)
+                                    power.SwitchedOff.Add(new PowerSource { Kind = PowerSourceKind.SolarPanel, Rate = rated });
                                 break;
-                            case ModuleGenerator gen when gen.generatorIsActive || gen.isAlwaysActive:
-                                foreach (ModuleResource r in gen.resHandler.outputResources)
-                                    if (r.name == ShipEngines.ElectricCharge) supply += r.rate;
+                            case ModuleGenerator gen:
+                            {
+                                double rate = gen.resHandler.outputResources.Where(r => r.name == ShipEngines.ElectricCharge).Sum(r => r.rate);
+                                if (!(rate > 0)) break;
+                                double lasts = FuelSeconds(part, gen.resHandler.inputResources.Select(r => (r.name, r.rate)));
+                                if (gen.generatorIsActive || gen.isAlwaysActive)
+                                {
+                                    if (double.IsPositiveInfinity(lasts)) power.Steady += rate;
+                                    else fuelCellEnergy += rate * lasts;
+                                }
+                                else
+                                {
+                                    power.SwitchedOff.Add(new PowerSource
+                                    {
+                                        Kind = part.partInfo.title.IndexOf("reactor", StringComparison.OrdinalIgnoreCase) >= 0
+                                            ? PowerSourceKind.Reactor : PowerSourceKind.Generator,
+                                        Rate = rate, Seconds = lasts,
+                                    });
+                                }
+
                                 break;
-                            case ModuleResourceConverter conv when conv.IsActivated:
-                                foreach (ResourceRatio r in conv.outputList)
-                                    if (r.ResourceName == ShipEngines.ElectricCharge) supply += r.Ratio;
+                            }
+                            case BaseConverter conv:
+                            {
+                                double make = conv.outputList.Where(r => r.ResourceName == ShipEngines.ElectricCharge).Sum(r => r.Ratio);
+                                if (!(make > 0)) break;
+                                // Burns fuel (has inputs with mass): a fuel cell, counted only while its fuel lasts.
+                                double seconds = FuelSeconds(part, conv.inputList.Select(r => (r.ResourceName, r.Ratio)));
+                                if (conv.IsActivated || conv.AlwaysActive)
+                                {
+                                    if (double.IsPositiveInfinity(seconds)) power.Steady += make;
+                                    else fuelCellEnergy += make * seconds;
+                                }
+                                else
+                                {
+                                    power.SwitchedOff.Add(new PowerSource
+                                    {
+                                        Kind = double.IsPositiveInfinity(seconds) ? PowerSourceKind.Generator : PowerSourceKind.FuelCell,
+                                        Rate = make, Seconds = seconds,
+                                    });
+                                }
+
+                                break;
+                            }
+                            default:
+                                power.Steady += KspiGeneratorOutput(m);
+                                // A KSP Interstellar reactor that's off: its generator reads nothing, and what it would make
+                                // depends on the reactor's heat, so it's named without a figure.
+                                if (IsKspiReactor(m) && !KspiReactorOn(m))
+                                    power.SwitchedOff.Add(new PowerSource { Kind = PowerSourceKind.Reactor });
                                 break;
                         }
                     }
@@ -271,6 +330,69 @@ namespace FlipAndBurn
                     }
                 }
             }
+
+            // Fuel cells as one: their energy, delivered at their combined rate.
+            double fuelCellRate = vessel.parts.SelectMany(p => p.Modules.OfType<BaseConverter>())
+                .Where(c => (c.IsActivated || c.AlwaysActive) && c.inputList.Any(i => (PartResourceLibrary.Instance.GetDefinition(i.ResourceName)?.density ?? 0) > 0))
+                .Sum(c => c.outputList.Where(r => r.ResourceName == ShipEngines.ElectricCharge).Sum(r => r.Ratio))
+                + vessel.parts.SelectMany(p => p.Modules.OfType<ModuleGenerator>())
+                    .Where(g => (g.generatorIsActive || g.isAlwaysActive) &&
+                                g.resHandler.inputResources.Any(i => (PartResourceLibrary.Instance.GetDefinition(i.name)?.density ?? 0) > 0))
+                    .Sum(g => g.resHandler.outputResources.Where(r => r.name == ShipEngines.ElectricCharge).Sum(r => r.rate));
+            power.FuelCellRate = fuelCellRate;
+            power.FuelCellSeconds = fuelCellRate > 0 ? fuelCellEnergy / fuelCellRate : 0;
+            return power;
+        }
+
+        // How long the fuel (inputs with mass) of a part that makes electric charge lasts (s); infinite if it burns nothing.
+        private static double FuelSeconds(Part part, IEnumerable<(string name, double rate)> inputs)
+        {
+            double seconds = double.PositiveInfinity;
+            foreach ((string name, double rate) in inputs)
+            {
+                PartResourceDefinition def = PartResourceLibrary.Instance.GetDefinition(name);
+                if (def == null || !(def.density > 0) || !(rate > 0)) continue;
+                part.GetConnectedResourceTotals(def.id, out double amount, out double _, true);
+                seconds = Math.Min(seconds, amount / rate);
+            }
+
+            return seconds;
+        }
+
+        // The reactor's own IsEnabled field, read by reflection: KSP's field list finds names without regard to case, and
+        // every part module has an "isEnabled" of its own.
+        private static bool KspiReactorOn(PartModule m)
+        {
+            for (Type t = m.GetType(); t != null && t != typeof(PartModule); t = t.BaseType)
+            {
+                FieldInfo f = t.GetField("IsEnabled", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+                if (f != null) return f.GetValue(m) is true;
+            }
+
+            return true;
+        }
+
+        private static bool IsKspiReactor(PartModule m)
+        {
+            for (Type t = m.GetType(); t != null && t != typeof(PartModule); t = t.BaseType)
+                if (t.Name == "InterstellarReactor") return true;
+            return false;
+        }
+
+        // A KSP Interstellar generator's electric output (charge a second): its maximumElectricPower, in megawatts (one
+        // megawatt is 1,000 electric charge a second). 0 for any other module.
+        private static double KspiGeneratorOutput(PartModule m)
+        {
+            for (Type t = m.GetType(); t != null && t != typeof(PartModule); t = t.BaseType)
+            {
+                if (t.Name != "FNGenerator") continue;
+                FieldInfo f = t.GetField("maximumElectricPower", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (f == null) return 0;
+                double mw = Convert.ToDouble(f.GetValue(m));
+                return mw > 0 ? mw * 1000 : 0;
+            }
+
+            return 0;
         }
 
         /// <summary>Stages below the current one that still have engines or decouplers in them.</summary>

@@ -13,7 +13,22 @@ namespace FlipAndBurn.Core.Tests
         [InlineData(73_397, "73.4 km/s")]
         [InlineData(116_051, "116 km/s")]
         [InlineData(692_603, "693 km/s")]
+        [InlineData(double.PositiveInfinity, "unlimited")]
         public void Speed(double v, string shown) => Assert.Equal(shown, Readout.Speed(v));
+
+        [Theory]
+        [InlineData(318.7, "319")]
+        [InlineData(12_500, "12,500")]
+        [InlineData(191_194, "191,194")]
+        [InlineData(9_640_482, "9.6 million")]
+        [InlineData(5.5, "5.5")]
+        public void Charge(double v, string shown) => Assert.Equal(shown, Readout.Charge(v));
+
+        [Theory]
+        [InlineData(23_187, "23,187 a second")]
+        [InlineData(0, "nothing")]
+        [InlineData(0.01, "nothing")]
+        public void ChargeRate(double v, string shown) => Assert.Equal(shown, Readout.ChargeRate(v));
 
         [Theory]
         // needed, available -> as written, and the shortfall is the difference of the two written numbers

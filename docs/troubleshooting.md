@@ -49,6 +49,26 @@ The engines were overheating. Flip and Burn stepped down to an acceleration the 
 the trip, and told you the new arrival time. See [Ways to fly](ways-to-fly.md#what-overheating-does). More radiators or
 a lower starting acceleration avoid it.
 
+### My electric engines aren't counted, or the delta-v is too small
+
+Engines that run only on electric charge are limited by power, not fuel (see
+[Engines that run on electricity](engines.md#engines-that-run-on-electricity)). Check that:
+
+- **The generators or reactors are switched on.** One that's off makes nothing, so the planner doesn't count it. The
+  planner's notes name any that are off and say what turning them on would change.
+- **The solar panels are deployed.** Folded panels don't count, and deployed ones are counted at the trip's farthest
+  point from the Sun, so they count for less on a trip outward.
+- **The batteries are charged.** The planner uses what's stored now, minus the last 10% it always keeps.
+
+A lower acceleration helps a lot: the notes say the acceleration your ship's own power keeps up with, and at that or
+less the delta-v is unlimited.
+
+### The acceleration went down, and the message says the batteries were running low
+
+The ship was using electric charge faster than it makes it, and the batteries would have reached the last 10% before
+the burning was done. Flip and Burn lowered the acceleration to what the ship's own power keeps up with, re-planned and
+carried on. Switch on more generators, or plan at the acceleration the planner suggests.
+
 ### It stopped, or put me in a "safe orbit" instead of the planned one
 
 Something made the planned arrival impossible, so it did the safe thing instead. The message in the window says what

@@ -575,6 +575,7 @@ namespace FlipAndBurn.TestHarness
             int s = step;
             yield return Capture(step, file, r, () =>
             {
+                if (f?.Module == null) { Log($"screenshot {file}"); return; }
                 MechJebModuleFlipAndBurnAutopilot p = f.Module.Autopilot;
                 Log($"screenshot {file}: phase {p.Last?.Phase} running {p.Running} pointing {p.PointingError:F2} accel {p.MeasuredAcceleration:F3} warp {p.WarpStatus} stop '{p.StopReason}'");
             });

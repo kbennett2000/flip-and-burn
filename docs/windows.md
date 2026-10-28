@@ -54,6 +54,12 @@ Below Start, the window shows how the last trip ended (arrived, aborted, or why 
 | **Ship's delta-v** | Your ship's fuel budget, as a speed, at the acceleration you chose |
 | **at full thrust** | The same at full throttle. It can differ, because some drives (like KSP Interstellar's) are more efficient at full throttle. |
 | **Ship's max acceleration** | The hardest the engines can push the ship right now |
+| **Electric charge made** | Only for engines that run on electricity: what the ship's generators and solar panels make each second (see [Engines that run on electricity](engines.md#engines-that-run-on-electricity)) |
+| **engines need at …** | The electric charge the engines use each second at the acceleration you chose |
+| **stored** | The electric charge in the batteries now, and how full they are |
+
+For a ship with engines that run on electricity, the delta-v row ends in **(powered)** when the ship's own power keeps up
+(the delta-v is then "unlimited") or **(batteries)** when the batteries limit it.
 
 ## The trip window
 
@@ -77,6 +83,11 @@ Below Start, the window shows how the last trip ended (arrived, aborted, or why 
    speed (turning to the burn direction)".
 9. **Pause** and **Abort.** Pause cuts the engine and keeps the trip; Abort ends it. See
    [saving, pausing and switching ships](saving-and-pausing.md).
+
+For a ship with engines that run on electricity, two more rows show the power: **Electric charge stored** (how full the
+batteries are; Flip and Burn never takes them below 10%) and **made / used** (the electric charge made and used each
+second). If the batteries would run low before the burning is done, the trip lowers the acceleration, as it does for
+overheating, and says so.
 
 Messages in yellow appear above the buttons when something needs your attention: the trip resumed, the acceleration
 stepped down, the reserve dropped below 10%, and so on.
@@ -114,6 +125,7 @@ When the ship is parked, the window and an on-screen message say how it went:
 </p>
 
 The orbit it ended in, how long the trip took against the plan, and how much delta-v it used and has left. The last line
-confirms your MechJeb settings are back as they were before the trip.
+confirms your MechJeb settings are back as they were before the trip. A ship with engines that run on electricity also
+gets a line on its power: that its own power kept the engines going, and how full its batteries are.
 
 Next: [ways to fly →](ways-to-fly.md)

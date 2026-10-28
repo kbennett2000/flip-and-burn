@@ -55,7 +55,7 @@ namespace FlipAndBurn.Core
         /// </summary>
         public static double DeltaVCost(ShipPerformance ship, double acceleration, double lostKg)
         {
-            if (ship == null || !(lostKg > 0)) return 0;
+            if (ship == null || !(lostKg > 0) || ship.Electric != null) return 0;   // electric ships burn no propellant
             double propellant = ship.StartMass - ship.EndMass;
             double left = Math.Max(0, propellant - lostKg);
             var lighter = new ShipPerformance(ship.FullThrust, ship.VacuumIsp, ship.IspThrottleExponent, ship.EndMass + left, ship.EndMass);
