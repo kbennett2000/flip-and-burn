@@ -185,6 +185,13 @@ namespace FlipAndBurn.TestHarness
                 if (failed) yield break;
             }
 
+            // Kris's Jibar Electric RCS Block under TweakScale: 50 %, 100 %, 200 % (only when asked: "jibarscale").
+            if ((wanted ?? "").Split(',').Contains("jibarscale"))
+            {
+                yield return ProofJibarScale();
+                if (failed) yield break;
+            }
+
             if ((wanted ?? "").Split(',').Contains("docstart"))
             {
                 yield return ProofDocStart();

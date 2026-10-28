@@ -221,10 +221,10 @@ namespace FlipAndBurn.TestHarness
             if (afterLoad.Ok) Log("jibar rcs: WORKS AFTER TIME WARP AND AFTER SAVE AND RELOAD; IDLE DRAWS NOTHING BEYOND THE PROBE CORE");
         }
 
-        // Fire the block along one axis for 10 game seconds: the electric charge used, the plasma, the module's thrust,
+        // Fire the block along one axis for 10 game seconds (or as given): the electric charge used, the plasma, the module's thrust,
         // and the push measured. One block on one side spins this small craft, so the push turns with it: measured frame
         // by frame (each frame's change of velocity less gravity's; KSP's own accelerometer for comparison).
-        private IEnumerator FireBlock(string label, Vector3 axis, string shot, CaptureResult result)
+        private IEnumerator FireBlock(string label, Vector3 axis, string shot, CaptureResult result, double seconds = 10)
         {
             Vessel v = FlightGlobals.ActiveVessel;
             ModuleRCS rcs = v.FindPartModulesImplementing<ModuleRCS>().FirstOrDefault(m => m.part.partInfo.name == JibarRcs);
@@ -240,7 +240,7 @@ namespace FlipAndBurn.TestHarness
             int samples = 0;
             Vector3d prevVel = v.obt_velocity;
             double prevUT = ut0;
-            while (Planetarium.GetUniversalTime() - ut0 < 10)
+            while (Planetarium.GetUniversalTime() - ut0 < seconds)
             {
                 yield return new WaitForFixedUpdate();
                 double ut = Planetarium.GetUniversalTime();
@@ -260,6 +260,8 @@ namespace FlipAndBurn.TestHarness
             }
 
             double ut1 = Planetarium.GetUniversalTime(), ec1 = Amount(v, "ElectricCharge"), pl1 = Amount(v, "JibarPlasma");
+            lastPlasmaStart = pl0;
+            lastPlasmaEnd = pl1;
             double dt = ut1 - ut0, n = Math.Max(1, samples), thrust = thrustSum / n, accel = accelSum / n, felt = feltSum / n;
             double spin = spinSum / n * 180 / Math.PI;
             double ecRate = (ec0 - ec1) / dt, expected = ChargePerKn * thrust;
