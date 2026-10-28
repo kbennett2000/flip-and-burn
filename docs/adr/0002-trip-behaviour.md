@@ -329,3 +329,53 @@ Kris asked for the window and every message to read cleanly for a first-time pla
     climbing out: 1.10, 1.44 and 0.10 points.
   - *The warning* comes only when the realistic figure is under 10 %. It keeps the last plan's reason while the figure
     is within a point of that plan's, and names a new cause only when it falls further.
+
+## Addendum (2026-10-27): engines that burn only electric charge (cycle 13)
+
+Kris's Jibar Side Thruster GIANT burns electric charge and nothing else, so the planner used to say it "burns nothing
+with mass" and left it out. A ship of them now plans and flies.
+
+- **What the engines draw.** KSP draws a propellant with no mass at "mass flow × ratio": an engine of thrust F (kN) and
+  Isp I asks for F / (I g0) × ratio units a second. The GIANT (3000 kN, Isp 320, ratio 200000) needs 63.7 electric
+  charge a second per kN, 191,194 at full thrust, in proportion at part throttle (`ElectricDrive`; measured in game,
+  below).
+- **What the ship has** (`ShipPower`, read by `KspAdapters.ReadPower`): the charge stored and the battery capacity;
+  charge made steadily (stock generators and RTGs that are running, converters that burn nothing, KSP Interstellar
+  generators at their rated output); solar panels that are deployed; fuel cells, counted only for as long as their fuel
+  lasts.
+- **Power parts that are switched off** (Kris, product owner: the Nuclear Deep Space Probe's reactor was off in his
+  save, a case players will hit). The reader lists them: generators, converters and fuel cells that are off, folded
+  solar panels, and KSP Interstellar reactors that are off. When turning them on would change the plan, the planner says
+  so in plain words (`PowerAdvice`): "… Turn it on and this trip needs no battery limit" when their known output would
+  keep up; "… goes from A to B" when it would only stretch the batteries. A KSP Interstellar reactor's output depends
+  on its heat and isn't known while it's off, so the note gives the figure that matters instead: "if the ship then makes
+  N a second of electric charge or more, this trip needs no battery limit".
+- **Solar is planned at its weakest:** at the farthest the trip goes from the Sun (the ship now, or the target's
+  farthest point from the Sun), falling with the square of the distance. Shadow isn't planned for; the notes say so.
+- **The floor.** The trip never uses the last 10 % of the battery capacity: the probe core, reaction wheels and
+  steering need it. Stored charge above the floor, plus what the fuel cells can still make, is what a trip may use.
+- **Unlimited, or limited by the batteries.**
+  - If what the ship makes keeps up with what the engines need at the chosen acceleration, the delta-v is unlimited:
+    "Powered all the way…", a full burn always fits, and there's no budget or reserve to keep.
+  - Otherwise the batteries cover the difference for T = usable / (need − made) seconds, so the delta-v is a × T (no
+    mass leaves the ship). That feeds the same planner as fuel: a full burn if it fits, otherwise the fastest coast
+    trip within it, with the same 10 % reserve (here, 10 % of that delta-v: charge, not fuel, kept back). A note gives
+    the acceleration the ship's own power sustains.
+- **Ships with fuel engines and electric ones** count the electric engines only at the share of full thrust the power
+  sustains (as for the stock ion engine before), and an electric engine alone once the fuel is gone counts for nothing
+  (the fuel planner can't use unlimited delta-v of a part-ship).
+- **During a trip, power is watched like heat.** Once a second the batteries' fall and the engines' draw are measured.
+  If the batteries would reach the floor before the burning still to do is over (three checks in a row), the trip
+  steps down to 95 % of what the ship's own power sustains, re-plans and tells the player, as for overheating. If the
+  ship makes nothing of its own, there is no lower acceleration that helps, so it stops (or makes the orbit safe) with
+  that reason.
+- **The window** shows "Electric charge stored" (and that it never goes below 10 %) and the charge made and used a
+  second; the arrival report says the ship's own power kept the engines going, and the batteries' share.
+- **Proof so far** (`docs/test-evidence/cycle-13-measurements.md`): on the Nuclear Deep Space Probe the planner's figure
+  matched KSP's own draw to 0.1 electric charge a second at full thrust (573,590) and at 30 % (172,077). The power maths,
+  the floor, solar at the weakest point, fuel cells and the switched-off note are unit-tested (`ShipPowerTests`). Kris
+  stopped in-game runs before a whole trip, a step-down for power or the switched-off note was seen in the game; he is
+  testing those himself.
+- **The test script stopped one run itself** (18:52): KSP starts its new KSP.log a while after launch, and build.sh read
+  the previous run's "step N: done" line as this run finished, then stopped KSP. build.sh now empties KSP.log before
+  each launch.

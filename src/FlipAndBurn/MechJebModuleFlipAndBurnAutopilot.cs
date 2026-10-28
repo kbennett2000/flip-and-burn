@@ -22,6 +22,8 @@ namespace FlipAndBurn
         public double PlannedTripTime;     // s, from the planner
         public double DeltaVNeeded;        // m/s, from the planner (a coast trip's includes the guidance margin)
         public double LossAllowance;       // m/s, coast trips: set aside for propellant lost while the engines are off
+        public bool Electric;              // the engines burn only electric charge
+        public bool PoweredAllTheWay;      // ... and the ship's own power keeps them going: no delta-v limit
         public double StartDeltaV = double.NaN;   // m/s, the ship's delta-v at Start; NaN when fuel isn't counted
     }
 
@@ -247,6 +249,82 @@ namespace FlipAndBurn
             return kg;
         }
 
+        // ------------------------------------------------------------------ electric charge (cycle 13)
+
+        /// <summary>Some running engine burns electric charge (alone, or with a propellant).</summary>
+        public bool UsesElectricCharge { get; private set; }
+        /// <summary>For the window: the batteries' share, and charge made and used a second (NaN until measured).</summary>
+        public double ChargeShare { get; private set; } = double.NaN;
+        public double ChargeMade { get; private set; } = double.NaN;
+        public double ChargeUsed { get; private set; } = double.NaN;
+
+        // When the burning left isn't known: step down this long before the batteries would reach the floor (game seconds).
+        // Not again for a minute after a step.
+        private const double PowerLeadSeconds = 120;
+        private double lastChargeUT = double.NaN, lastStored, powerCooldownUntil;
+        private int powerShortChecks;
+        private float nextPowerCheck;
+
+        private static void ReadCharge(Vessel v, out double stored, out double capacity)
+        {
+            stored = capacity = 0;
+            foreach (Part p in v.parts)
+            {
+                PartResource ec = p.Resources.Get(ShipEngines.ElectricCharge);
+                if (ec == null) continue;
+                stored += ec.amount;
+                capacity += ec.maxAmount;
+            }
+        }
+
+        private static bool BurnsElectricCharge(Vessel v) =>
+            v.FindPartModulesImplementing<ModuleEngines>().Any(e => e.EngineIgnited && e.propellants.Any(p => p.name == ShipEngines.ElectricCharge));
+
+        // Once a real second: how fast the batteries are falling. If they'd reach the floor before the burning is done, drop to
+        // the acceleration the ship's own power sustains (measured: what the engines draw, less how fast the batteries fall),
+        // re-plan, tell the player and keep flying, as for overheating. Measured, so it works the same for engines that burn
+        // only electric charge and for engines that burn it with a propellant. Returns true when it acted.
+        private bool WatchPower(double ut, GuidanceCommand cmd, bool burning)
+        {
+            if (!UsesElectricCharge || Time.realtimeSinceStartup < nextPowerCheck) return false;
+            nextPowerCheck = Time.realtimeSinceStartup + 1;
+            Vessel v = Vessel;
+            ReadCharge(v, out double stored, out double capacity);
+            double used = 0;
+            foreach (ModuleEngines e in v.FindPartModulesImplementing<ModuleEngines>())
+            foreach (Propellant p in e.propellants)
+                if (p.name == ShipEngines.ElectricCharge && TimeWarp.fixedDeltaTime > 0) used += p.currentRequirement / TimeWarp.fixedDeltaTime;
+            double drain = double.IsNaN(lastChargeUT) || !(ut > lastChargeUT) ? 0 : (lastStored - stored) / (ut - lastChargeUT);
+            lastChargeUT = ut;
+            lastStored = stored;
+            ChargeShare = capacity > 0 ? stored / capacity : double.NaN;
+            ChargeUsed = used;
+            ChargeMade = Math.Max(0, used - drain);
+            double floor = ShipPower.FloorShare * capacity;
+            if (!burning || cmd.SafeOrbit || ut < powerCooldownUntil || !(drain > 0) || !(used > 0)) return false;
+            // Short only if the batteries would reach the floor before the burning still to do is over (a battery-limited
+            // plan ends its last burn with charge to spare, its reserve); three checks in a row, so a moment's dip isn't enough.
+            double toFloor = (stored - floor) / drain;
+            double burnLeft = guidance?.BurnTimeLeft ?? double.NaN;
+            if (toFloor > (double.IsNaN(burnLeft) ? PowerLeadSeconds : burnLeft))
+            {
+                powerShortChecks = 0;
+                return false;
+            }
+
+            if (++powerShortChecks < 3) return false;
+            powerShortChecks = 0;
+
+            powerCooldownUntil = ut + 60;
+            double sustainable = 0.95 * CurrentAcceleration * ChargeMade / used;
+            string why = $"the batteries were running low: the ship makes {Readout.ChargeRate(ChargeMade)} of electric charge, and the engines " +
+                         $"were using {Readout.ChargeRate(used)} (Flip and Burn keeps the last {ShipPower.FloorShare * 100:0}% for the probe core and steering)";
+            Debug.Log($"[FlipAndBurn] power: stored {stored:F0} of {capacity:F0} (floor {floor:F0}), falling {drain:F1}/s, engines use {used:F1}/s, " +
+                      $"made {ChargeMade:F1}/s; floor in {toFloor:F0} s: stepping down from {CurrentAcceleration:F3} to {sustainable:F3} m/s^2");
+            ReplanAtLowerAcceleration(ut, sustainable, why);
+            return true;
+        }
+
         // The plan the reserve is checked against: the delta-v it needed from where it was made (Start, a resume, a re-plan),
         // and the delta-v burned by then.
         private double reservePlanNeeded = double.NaN, reservePlanUsedAt;
@@ -390,6 +468,11 @@ namespace FlipAndBurn
         /// <summary>Take the ship: the player's settings and warp rates saved, the trip's in, MechJeb's controls joined.</summary>
         private void Engage()
         {
+            UsesElectricCharge = BurnsElectricCharge(Vessel);
+            lastChargeUT = double.NaN;
+            powerShortChecks = 0;
+            powerCooldownUntil = 0;
+            ChargeShare = ChargeMade = ChargeUsed = double.NaN;
             SaveSettings();
             MechJebModuleThrustController thrust = Core.Thrust;
             playerLimitAcceleration = tripLimitAcceleration = thrust.LimitAcceleration;
@@ -1138,7 +1221,12 @@ namespace FlipAndBurn
             string vsPlan = Math.Abs(late) < 60 ? $"as planned at Start ({Planner.FormatTime(planned)})"
                 : $"{Planner.FormatTime(Math.Abs(late))} {(late > 0 ? "longer" : "shorter")} than planned at Start ({Planner.FormatTime(planned)})";
             string fuel;
-            if (CheatOptions.InfinitePropellant)
+            // Powered all the way (said at Start, or seen now: a resumed trip doesn't carry the flag).
+            if (trip.PoweredAllTheWay || double.IsPositiveInfinity(DeltaVNow(CurrentAcceleration)))
+            {
+                fuel = $"It used {Planner.FormatSpeed(deltaVUsed)} of delta-v; the ship's own power kept the engines going all the way.";
+            }
+            else if (CheatOptions.InfinitePropellant)
             {
                 fuel = $"It used {Planner.FormatSpeed(deltaVUsed)} of delta-v; fuel isn't counted (infinite propellant is on).";
             }
@@ -1164,6 +1252,13 @@ namespace FlipAndBurn
 
             ArrivedTripTime = took;
             ArrivedPlannedTripTime = planned;
+            if (UsesElectricCharge)
+            {
+                ReadCharge(v, out double stored, out double capacity);
+                if (capacity > 0)
+                    fuel += $" Its batteries are at {stored / capacity * 100:0}% (Flip and Burn never uses the last {ShipPower.FloorShare * 100:0}%).";
+            }
+
             string report = $"Arrived at {name}: in a {OrbitText(v.orbit)} orbit (planned: {trip.ParkingAltitude / 1000:0} km, circular). " +
                             $"The trip took {Planner.FormatTime(took)}, {vsPlan}. {fuel}";
             Debug.Log($"[FlipAndBurn] arrived: periapsis {v.orbit.PeA:F0} m, apoapsis {v.orbit.ApA:F0} m, eccentricity {v.orbit.eccentricity:F5}, " +
@@ -1204,6 +1299,9 @@ namespace FlipAndBurn
                 }
             }
             else noEngineSince = double.NaN;
+
+            // Power: engines that burn electric charge never take the batteries below the last 10%.
+            if (WatchPower(ut, cmd, thrustWanted && pointed && !flipping)) return;
 
             // Heat (HeatGuard): a part close to its temperature limit eases off before it fails; engines that can't hold the
             // acceleration at full throttle for a minute drop to what they can sustain. KSP Interstellar drives lose thrust

@@ -82,11 +82,15 @@ namespace FlipAndBurn
             Flip = Flip == FlipStyle.SkewFlip ? FlipManeuver.SkewFlip : FlipManeuver.CutFlipRelight,
             Trip = Trip,
             ParkingAltitude = ParkingAltitude(Target),
-            DeltaVBudget = (1 - Reserve) * lastAvailable - (Trip == TripType.CoastInTheMiddle ? LossAllowance : 0),
+            // A ship whose own power keeps it going has no delta-v limit: nothing to budget, and no reserve to keep.
+            DeltaVBudget = double.IsPositiveInfinity(lastAvailable) ? 0
+                : (1 - Reserve) * lastAvailable - (Trip == TripType.CoastInTheMiddle ? LossAllowance : 0),
             LossAllowance = Trip == TripType.CoastInTheMiddle ? LossAllowance : 0,
             PlannedTripTime = Trip == TripType.CoastInTheMiddle && Coast != null ? Coast.TripTime : Plan?.TripTime ?? 0,
             DeltaVNeeded = Trip == TripType.CoastInTheMiddle && Coast != null ? Coast.DeltaVNeeded : Plan?.TotalDeltaV ?? 0,
-            StartDeltaV = InfinitePropellant ? double.NaN : lastAvailable,
+            StartDeltaV = InfinitePropellant || double.IsPositiveInfinity(lastAvailable) ? double.NaN : lastAvailable,
+            Electric = Ship?.Electric != null,
+            PoweredAllTheWay = Ship?.Electric != null && double.IsPositiveInfinity(lastAvailable),
         };
 
         private double nextRefresh;
@@ -163,6 +167,8 @@ namespace FlipAndBurn
             ShipReading reading = ShipPerformanceReader.Read(vessel, out string engineProblem);
             Reading = reading;
             Ship = reading.Report.Performance;
+            ElectricDrive drive = Ship?.Electric;
+            if (drive != null) drive.WeakestSunDistance = WeakestSunDistance(vessel);
             if (engineProblem == null && reading.Report.NoThrust)
                 engineProblem = "None of the active engines can push the ship in space.";
             double requested = AccelerationG * OneG;
@@ -171,11 +177,13 @@ namespace FlipAndBurn
             if (engineProblem == null)
             {
                 available = Ship.DeltaVAtAcceleration(requested);
+                string source = drive == null ? "" : double.IsPositiveInfinity(available) ? " (powered)" : " (batteries)";
                 ShipRows.Add(Row("Ship's delta-v", available > 0
-                    ? $"{FormatSpeed(available)} at {FormatG(AccelerationG)}{estimate}"
+                    ? $"{FormatSpeed(available)} at {FormatG(AccelerationG)}{source}{estimate}"
                     : "—"));
                 ShipRows.Add(Row("  at full thrust", FormatSpeed(Ship.FullThrustDeltaV) + estimate));
                 ShipRows.Add(Row("Ship's max acceleration", FormatMaxG(Ship.MaxAcceleration) + estimate));
+                if (drive != null && requested <= Ship.MaxAcceleration) AddPower(drive, requested, available);
             }
 
             Notes.AddRange(reading.Report.Notes);
@@ -294,6 +302,13 @@ namespace FlipAndBurn
                 return;
             }
 
+            if (double.IsPositiveInfinity(available))
+            {
+                Notes.Insert(0, "This ship's own power keeps its engines going all the way, so there's nothing to save by coasting: " +
+                                "choose \"Full burn\", the faster trip.");
+                return;
+            }
+
             Coast = CoastPlanFor(request, (1 - Reserve) * available);
             if (!Coast.Feasible)
             {
@@ -318,6 +333,59 @@ namespace FlipAndBurn
             if (lossNote != null) Notes.Add(lossNote);
             if (Coast.CoastTime < 1)
                 Notes.Add("This ship has the delta-v for a full burn, so there's nothing to coast: \"Full burn\" is the same trip.");
+        }
+
+        // Engines that burn only electric charge: what the ship makes, what the engines need, and what that means.
+        private void AddPower(ElectricDrive drive, double acceleration, double available)
+        {
+            ShipPower p = drive.Power;
+            double need = drive.ChargeFor(acceleration * Ship.StartMass), make = drive.Supply;
+            ShipRows.Add(Row("Electric charge made", Readout.ChargeRate(make)));
+            ShipRows.Add(Row($"  engines need at {FormatG(AccelerationG)}", Readout.ChargeRate(need)));
+            ShipRows.Add(Row("  stored", p.Capacity > 0 ? $"{Readout.Charge(p.Stored)} ({p.Stored / p.Capacity * 100:0}%)" : Readout.Charge(p.Stored)));
+            if (double.IsPositiveInfinity(available))
+            {
+                Notes.Add($"Powered all the way: the ship makes {Readout.ChargeRate(make)} of electric charge, and the engines need " +
+                          $"{Readout.ChargeRate(need)} at {FormatG(AccelerationG)}, so fuel isn't a limit.");
+            }
+            else
+            {
+                double seconds = drive.BurnTime(acceleration * Ship.StartMass);
+                string burning = seconds < 60 ? $"{seconds:0} seconds" : FormatTime(seconds);
+                Notes.Add(make < 0.05
+                    ? $"The engines need {Readout.ChargeRate(need)} of electric charge at {FormatG(AccelerationG)}, and the ship makes none of " +
+                      $"its own, so the batteries alone last about {burning} of burning. "
+                    : $"The engines need {Readout.ChargeRate(need)} of electric charge at {FormatG(AccelerationG)}, and the ship makes " +
+                      $"{Readout.ChargeRate(make)}. The batteries make up the difference for about {burning} of burning. ");
+                Notes[Notes.Count - 1] += $"Flip and Burn never takes them below the last 10% ({Readout.Charge(p.Floor)}), which keeps the probe core and steering working.";
+                double sustained = drive.SustainableAcceleration(Ship.StartMass);
+                Notes.Add(sustained >= 0.01 * OneG
+                    ? $"At {FormatMaxG(sustained)} or less, the ship's own power keeps up with the engines and the batteries aren't needed."
+                    : "The ship makes almost no electric charge of its own: switch on its generators or reactors, or deploy its solar panels.");
+            }
+
+            string off = PowerAdvice.SwitchedOffNote(drive, Ship.StartMass, acceleration);
+            if (off != null) Notes.Add(off);
+
+            if (p.Solar > 0)
+            {
+                double far = drive.WeakestSunDistance;
+                Notes.Add($"Solar panels are counted at the trip's farthest point from the Sun, where they make " +
+                          $"{Readout.ChargeRate(p.SolarAt(far))} in sunlight. In a planet's shadow they make nothing.");
+            }
+
+            if (p.FuelCellEnergy > 0)
+                Notes.Add($"Fuel cells add {Readout.Charge(p.FuelCellEnergy)} electric charge before their fuel runs out.");
+        }
+
+        // The farthest the trip takes the ship from the Sun: where it is now, or the target's farthest point from the Sun.
+        private double WeakestSunDistance(Vessel vessel)
+        {
+            CelestialBody sun = Planetarium.fetch.Sun;
+            double here = (vessel.GetWorldPos3D() - sun.position).magnitude;
+            CelestialBody target = Target;
+            double there = target != null && target.orbit != null && target.referenceBody == sun ? target.orbit.ApR : here;
+            return Math.Max(here, there);
         }
 
         // A coast plan takes a tenth of a second or so, so reuse it for a while unless an input changed.

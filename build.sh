@@ -100,7 +100,7 @@ shot_dir="$ksp_dir/FlipAndBurnTest"
 read -r -a expected_shots <<< "${FLIPANDBURN_SHOTS:-planner-bebop-2g.png a-1-overheat-replanned.png a-2-overheat-replanned-again.png a-3-overheat-after-abort.png f-1-before-flip.png f-2-during-flip.png f-3-after-flip.png f-4-after-abort.png b-1-coast.png b-2-after-abort.png r-0-paused.png r-1-resumed-after-space-center.png r-2-resumed-after-quickload.png r-3-resumed-after-switching-back.png r-4-no-trip-after-abort-reload.png r-5-resumed-after-relaunch.png}"
 [[ "${FLIPANDBURN_SHOTS:-}" == none ]] && expected_shots=()   # a check that takes no screenshots
 evidence="$repo/docs/test-evidence"
-stall_seconds=120
+stall_seconds="${FLIPANDBURN_STALL_SECONDS:-120}"   # KSP.log silent this long counts as a stall
 max_launches=4          # first launch plus up to 3 relaunches after a stall
 overall_timeout=14400   # seconds (the autopilot proof warps to the flip of a 3-day trip)
 proofs="${FLIPANDBURN_PROOFS:-}"
@@ -226,6 +226,9 @@ declare -A external_done=()
 phase_logs=()
 
 launch() {
+    # Empty the last run's log first: KSP only starts its own a while after launch, and until then the old one's
+    # "step N: done" line would read as this phase finished (it stopped a run that way on 2026-10-27, 18:52).
+    : > "$ksp_log"
     (cd "$ksp_dir" && FLIPANDBURN_PHASE="$2" nohup "$ksp_bin" -flipandburn-test >/dev/null 2>&1 &)
     echo "$(date +%T) Launched KSP with -flipandburn-test, phase $2 (launch $1 of at most $max_launches)"
 }

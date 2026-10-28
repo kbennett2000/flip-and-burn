@@ -136,7 +136,7 @@ namespace FlipAndBurn.Core.Tests
             Assert.Equal(0.5, r.PowerLimit, 9);
             Assert.Equal(1000 / 1100.0, r.Performance.MaxAcceleration, 9);
             Assert.Equal(4200 * G0 * Math.Log(1.1), r.Performance.FullThrustDeltaV, 6);
-            Assert.Contains(r.Notes, n => n.Contains("power supply") && n.Contains("50%"));
+            Assert.Contains(r.Notes, n => n.Contains("electric charge a second") && n.Contains("ship makes") && n.Contains("50%"));
         }
 
         [Fact]

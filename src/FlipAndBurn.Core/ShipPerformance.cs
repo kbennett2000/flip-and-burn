@@ -64,6 +64,19 @@ namespace FlipAndBurn.Core
             if (phases.Count == 0) throw new ArgumentException("at least one phase", nameof(burnPhases));
         }
 
+        /// <summary>
+        /// A ship pushed only by engines that burn electric charge: its mass never changes, and its delta-v comes from its
+        /// power (<see cref="Electric"/>).
+        /// </summary>
+        public ShipPerformance(ElectricDrive drive, double mass)
+            : this(new[] { new BurnPhase(drive?.FullThrust ?? 0, double.PositiveInfinity, 0, mass, mass) })
+        {
+            Electric = drive;
+        }
+
+        /// <summary>Set when all the thrust comes from engines that burn only electric charge; null otherwise.</summary>
+        public ElectricDrive Electric { get; }
+
         public bool HasThrust => FullThrust > 0 && VacuumIsp > 0 && StartMass > 0;
 
         /// <summary>Highest acceleration the ship can make right now (m/s^2).</summary>
@@ -75,6 +88,7 @@ namespace FlipAndBurn.Core
             get
             {
                 if (!HasThrust) return 0;
+                if (Electric != null) return Electric.DeltaVAt(MaxAcceleration, StartMass);
                 double dv = 0;
                 foreach (BurnPhase p in phases)
                     if (p.Thrust > 0 && p.VacuumIsp > 0 && p.EndMass > 0 && p.EndMass < p.StartMass)
@@ -97,6 +111,7 @@ namespace FlipAndBurn.Core
         {
             if (!HasThrust || !(acceleration > 0)) return 0;
             if (acceleration > MaxAcceleration * (1 + 1e-12)) return 0;
+            if (Electric != null) return Electric.DeltaVAt(acceleration, StartMass);
 
             double dv = 0;
             foreach (BurnPhase p in phases)
