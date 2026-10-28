@@ -43,6 +43,15 @@ That's on purpose. Flip and Burn drops out of warp in good time before anything 
 braking, a course correction, arriving. It also holds warp down while parts are warm, so you can see what's happening.
 The **Warp** line in the trip window always says why.
 
+### I chose 25x or 50x, but the trip runs at 10x
+
+Flip and Burn saw the ship looking unstable at the higher warp: parts heating up fast, a part breaking off, or the ship
+wobbling when it should hold steady. It dropped back to 10x for the rest of the trip, and the yellow message says which.
+Next time, try 25x rather than 50x, or stay at 10x for big or hot ships. See
+[max physics warp](ways-to-fly.md#max-physics-warp).
+
+Warp held at 4x, or stopped, is the heat rule instead: a part is warm or hot. The **Warp** line says which part.
+
 ### The acceleration went down on its own, and the arrival got later
 
 The engines were overheating. Flip and Burn stepped down to an acceleration the ship can keep up, re-planned the rest of

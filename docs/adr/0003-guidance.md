@@ -365,3 +365,21 @@ the same step it holds the engine at zero or cuts it.
 
 Done in cycle 10: a trip is saved with the ship, pauses when the player leaves it, and resumes, re-planned, when they
 come back or load a save made during the trip. See ADR 0004.
+
+## Max physics warp (2026-10-27, cycle 13)
+
+Kris asked for a faster physics warp option. The planner has **Max physics warp: 10x (default), 25x, 50x**
+(`PhysicsWarpChoice`), remembered per player with MechJeb's global settings. 25x and 50x show one warning line ("Faster
+physics warp can shake big ships apart or overheat engines…"). The trip hands the game the rates x1, x4, x10 and the top
+rate (25 for the 10x choice, capped at 10, exactly as before).
+
+- **The heat rules don't change:** x4 above 60 % of a part's limit, normal speed above 75 %, at every setting.
+- **A stability guard** (`WarpStabilityGuard`), checked once a real second above x10, drops physics warp to x10 for the
+  rest of the trip and tells the player why: the hottest part climbing fast enough to reach 60 % within 10 real seconds;
+  a part breaking off; or the ship turning faster than 3° a second, two checks in a row, while the guidance isn't
+  turning it (outside the flip, pointing within 2°). It latches for the trip rather than climbing back, because what
+  shook the ship once will shake it again.
+- The test helper's warp override is now `TestMaxPhysicsRate` (NaN: the player's choice).
+- **Proof:** unit tests (`PhysicsWarpTests`). Not yet flown in the game at 25x or 50x with the guard: Kris is testing
+  it himself. The earlier measurement (the "Time warp" section above) still stands: 25x steady with the Bebop cool, its drive lost within 20 s at 25x
+  while hot (which the 60 %/75 % heat rules and now the heating-fast check are there for).

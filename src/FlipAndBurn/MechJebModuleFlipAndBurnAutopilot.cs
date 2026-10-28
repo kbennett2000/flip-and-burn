@@ -48,14 +48,18 @@ namespace FlipAndBurn
     {
         /// <summary>Outside the flip, thrust only when pointing within this many degrees of the commanded direction.</summary>
         public const double PointingTolerance = 5;
-        /// <summary>Physics warp rates Flip and Burn uses while thrusting (x1 first), and the highest it will use.</summary>
-        public static float[] PhysicsRates = { 1, 4, 10, 25 };
         /// <summary>
-        /// Highest physics warp used, measured on Kris's machine with the Bebop Refueller (ADR 0003, "Time warp"): 25x was
-        /// steady while the ship was cool, but with the ship running hot its Kerbstein drive overheated and exploded at 25x
-        /// within 20 s. 10x was steady hot or cool.
+        /// Highest physics warp: the player's "Max physics warp" in the planner (10x by default; ADR 0003, "Time warp", and
+        /// the cycle 13 addendum). 10x was steady hot or cool on Kris's machine with the Bebop Refueller; 25x was steady
+        /// while the ship was cool, but with it running hot its Kerbstein drive overheated and exploded at 25x within 20 s,
+        /// which is why the heat rules and <see cref="WarpStabilityGuard"/> hold warp down at every setting.
         /// </summary>
-        public static double MaxPhysicsRate = 10;
+        public double MaxPhysicsRate => !double.IsNaN(TestMaxPhysicsRate) ? TestMaxPhysicsRate
+            : PhysicsWarpChoice.RateFor(Core.GetComputerModule<MechJebModuleFlipAndBurn>()?.PhysicsWarpIndex ?? PhysicsWarpChoice.Default);
+        /// <summary>For the test helper only: overrides the player's choice (NaN: the player's choice).</summary>
+        public static double TestMaxPhysicsRate = double.NaN;
+        private readonly WarpStabilityGuard stability = new WarpStabilityGuard();
+        private float nextStabilityCheck;
         // The heat rules (warp held at 60 % and 75 % of a part's limit, a step-down at 90 %, and when the engines can't hold
         // the acceleration) are in HeatGuard, shared with the rescue near the target and the simulator.
         private readonly HeatGuard heatGuard = new HeatGuard();
@@ -482,7 +486,9 @@ namespace FlipAndBurn
             // The trip uses its own physics warp rates (the stock 4x top rate is far too slow for a trip). The player's are
             // put back exactly at every way a trip can end or pause: Abort, arrival, a self-stop, Pause, leaving the ship.
             playerPhysicsRates = TimeWarp.fetch != null ? WarpRatesSnapshot.Take(TimeWarp.fetch.physicsWarpRates) : null;
-            tripPhysicsRates = (float[])PhysicsRates.Clone();
+            tripPhysicsRates = PhysicsWarpChoice.PhysicsRatesFor(MaxPhysicsRate);
+            stability.Reset(Vessel.parts.Count);
+            nextStabilityCheck = 0;
             if (TimeWarp.fetch != null)
             {
                 TimeWarp.SetRate(0, true);
@@ -1610,6 +1616,13 @@ namespace FlipAndBurn
             float[] rates = wantRails ? tw.warpRates : tw.physicsWarpRates;
             double cap = wantPhysics ? MaxPhysicsRate : double.MaxValue;
             string heatNote = "";
+            WatchStability(cmd);
+            if (wantPhysics && stability.Tripped && cap > WarpStabilityGuard.SafeRate)
+            {
+                cap = WarpStabilityGuard.SafeRate;
+                heatNote = $"; held to {PhysicsWarpChoice.Format(cap)}: {stability.Reason}";
+            }
+
             if (wantPhysics && HottestFraction > HeatGuard.HotPart)
             {
                 cap = 1;
@@ -1648,6 +1661,28 @@ namespace FlipAndBurn
             WarpStatus = rate > 1.01f
                 ? $"{kind} x{rate:0.#} ({d.Reason}{heatNote})"
                 : $"normal speed ({d.Reason}{heatNote})";
+        }
+
+        // Once a real second, above x10: temperatures climbing fast, a part breaking off or the ship wobbling drop physics
+        // warp to x10 for the rest of the trip, and the player is told why (WarpStabilityGuard).
+        private void WatchStability(GuidanceCommand cmd)
+        {
+            if (Time.realtimeSinceStartup < nextStabilityCheck) return;
+            nextStabilityCheck = Time.realtimeSinceStartup + 1;
+            Vessel v = Vessel;
+            float rate = TimeWarp.CurrentRate;
+            bool physics = TimeWarp.WarpMode == TimeWarp.Modes.LOW;
+            bool turning = cmd.Phase == GuidancePhase.Flip || PointingError > 2;
+            double turnRate = v.angularVelocity.magnitude * 180 / Math.PI;
+            if (!stability.Check(Time.realtimeSinceStartup, physics ? rate : 1, HottestFraction, HottestPart, v.parts.Count, turnRate, turning)) return;
+
+            if (TimeWarp.CurrentRate > WarpStabilityGuard.SafeRate + 0.01f) TimeWarp.SetRate(0, true);
+            Notice = $"Physics warp dropped back to {PhysicsWarpChoice.Format(WarpStabilityGuard.SafeRate)} for the rest of the trip: " +
+                     $"{stability.Reason}.";
+            noticePhase = null;
+            ScreenMessages.PostScreenMessage("Flip and Burn: " + Notice, 15f, ScreenMessageStyle.UPPER_CENTER);
+            Debug.Log($"[FlipAndBurn] stability: at physics warp x{rate:0.#}: {stability.Reason}; held to x10 for the rest of the trip " +
+                      $"(hottest {HottestPart} {HottestFraction * 100:F1}%, parts {v.parts.Count}, turning {turnRate:F2} deg/s, pointing off {PointingError:F2})");
         }
 
         // ------------------------------------------------------------------ frames

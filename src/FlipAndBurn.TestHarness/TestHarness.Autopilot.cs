@@ -174,7 +174,7 @@ namespace FlipAndBurn.TestHarness
             module.AccelerationG.Val = 1.0;
             CheatOptions.InfinitePropellant = true;
             CheatOptions.IgnoreMaxTemperature = ignoreTemperature;
-            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 1;
+            MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = 1;
             yield return new WaitForSecondsRealtime(SettleSeconds);
             Log($"cut test {label}: ignore max temperature {CheatOptions.IgnoreMaxTemperature}, warp x{warp}");
             LogBeforeStart(f);
@@ -199,7 +199,7 @@ namespace FlipAndBurn.TestHarness
 
             CheatOptions.InfinitePropellant = false;
             CheatOptions.IgnoreMaxTemperature = false;
-            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 10;
+            MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = 10;
         }
 
         // ------------------------------------------------------------------ (a) overheating
@@ -272,7 +272,7 @@ namespace FlipAndBurn.TestHarness
             MechJebModuleFlipAndBurnAutopilot pilot = module.Autopilot;
             CheatOptions.InfinitePropellant = false;
             // Back to the shipped warp limit (the flip run raised it with overheating ignored).
-            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 10;
+            MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = 10;
             // No cheats: a real trip, so at an acceleration the Bebop can hold without overheating.
             module.AccelerationG.Val = CoastAcceleration;
             module.SelectTripType(TripType.CoastInTheMiddle);
@@ -532,7 +532,7 @@ namespace FlipAndBurn.TestHarness
             }
 
             TimeWarp.fetch.physicsWarpRates[3] = rate;
-            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = rate;
+            MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = rate;
         }
 
         private static void LogAfterAbort(Flown f)
