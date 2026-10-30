@@ -171,6 +171,27 @@ namespace FlipAndBurn.TestHarness
                 if (failed) yield break;
             }
 
+            // Cycle 13: engines that burn only electric charge (only when asked: "electric").
+            if ((wanted ?? "").Split(',').Contains("electric"))
+            {
+                yield return ProofElectric();
+                if (failed) yield break;
+            }
+
+            // Kris's Jibar Electric RCS Block (his part, not Flip and Burn's): loads, listed, fires (only when asked: "jibarrcs").
+            if ((wanted ?? "").Split(',').Contains("jibarrcs"))
+            {
+                yield return ProofJibarRcs();
+                if (failed) yield break;
+            }
+
+            // Kris's Jibar Electric RCS Block under TweakScale: 50 %, 100 %, 200 % (only when asked: "jibarscale").
+            if ((wanted ?? "").Split(',').Contains("jibarscale"))
+            {
+                yield return ProofJibarScale();
+                if (failed) yield break;
+            }
+
             if ((wanted ?? "").Split(',').Contains("docstart"))
             {
                 yield return ProofDocStart();

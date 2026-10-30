@@ -9,7 +9,19 @@ namespace FlipAndBurn.Core
         private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
         /// <summary>A speed: "850 m/s", "7.34 km/s", "73.4 km/s", "116 km/s".</summary>
-        public static string Speed(double metresPerSecond) => Speed(metresPerSecond, StepFor(metresPerSecond));
+        public static string Speed(double metresPerSecond) =>
+            double.IsPositiveInfinity(metresPerSecond) ? "unlimited" : Speed(metresPerSecond, StepFor(metresPerSecond));
+
+        /// <summary>A rate of electric charge: "850 a second", "12,500 a second", "1.9 million a second".</summary>
+        public static string ChargeRate(double perSecond) => Math.Abs(perSecond) < 0.05 ? "nothing" : Charge(perSecond) + " a second";
+
+        /// <summary>An amount of electric charge: "850", "12,500", "9.6 million".</summary>
+        public static string Charge(double amount)
+        {
+            double a = Math.Abs(amount);
+            if (a >= 1e6) return (amount / 1e6).ToString(a >= 1e8 ? "N0" : "N1", Inv) + " million";
+            return amount.ToString(a >= 100 ? "N0" : "N1", Inv);
+        }
 
         /// <summary>
         /// What the trip needs, what the ship has, and the shortfall, written to the same precision (the largest number's),

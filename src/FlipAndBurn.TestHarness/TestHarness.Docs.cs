@@ -70,7 +70,7 @@ namespace FlipAndBurn.TestHarness
             yield return DocBoilOff(h);
             CheatOptions.InfinitePropellant = false;
             CheatOptions.IgnoreMaxTemperature = false;
-            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 10;
+            MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = 10;
             Log("docs: cheats back off: infinite propellant " + CheatOptions.InfinitePropellant + ", ignore max temperature " + CheatOptions.IgnoreMaxTemperature);
         }
 
@@ -96,7 +96,7 @@ namespace FlipAndBurn.TestHarness
             yield return DocBoilOff(h, alsoPowerStore: true);
             CheatOptions.InfinitePropellant = false;
             CheatOptions.IgnoreMaxTemperature = false;
-            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 10;
+            MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = 10;
             Log("docs: cheats back off: infinite propellant " + CheatOptions.InfinitePropellant + ", ignore max temperature " + CheatOptions.IgnoreMaxTemperature);
         }
 
@@ -120,7 +120,7 @@ namespace FlipAndBurn.TestHarness
             MechJebModuleFlipAndBurn module = f.Module;
             CheatOptions.InfinitePropellant = false;
             CheatOptions.IgnoreMaxTemperature = true;
-            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 25;
+            MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = 25;
             module.AccelerationG.Val = 1.0;
             module.SelectTripType(TripType.CoastInTheMiddle);
             module.Replan();
@@ -212,7 +212,7 @@ namespace FlipAndBurn.TestHarness
             MechJebModuleFlipAndBurn module = f.Module;
             CheatOptions.InfinitePropellant = true;
             CheatOptions.IgnoreMaxTemperature = true;
-            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 25;
+            MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = 25;
             module.FlipStyleIndex = style;
             module.AccelerationG.Val = 3.0;
             module.SelectTripType(TripType.FullBurn);

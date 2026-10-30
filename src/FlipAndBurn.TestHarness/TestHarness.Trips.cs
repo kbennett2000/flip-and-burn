@@ -151,7 +151,7 @@ namespace FlipAndBurn.TestHarness
             ResetStepWatch();
             CheatOptions.InfinitePropellant = spec.InfinitePropellant;
             CheatOptions.IgnoreMaxTemperature = spec.IgnoreMaxTemperature;
-            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = spec.MaxPhysicsRate;
+            MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = spec.MaxPhysicsRate;
             module.FlipStyleIndex = spec.FlipStyle;
             module.AccelerationG.Val = spec.AccelG;
             module.SelectTripType(spec.Trip);
@@ -261,7 +261,7 @@ namespace FlipAndBurn.TestHarness
             yield return CheckArrival(spec, cur, settingsBefore, startUT);
             CheatOptions.InfinitePropellant = false;
             CheatOptions.IgnoreMaxTemperature = false;
-            MechJebModuleFlipAndBurnAutopilot.MaxPhysicsRate = 10;
+            MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = 10;
             Log($"trip {spec.Name}: infinite propellant cheat back off: {!CheatOptions.InfinitePropellant}; ignore max temperature cheat back off: {!CheatOptions.IgnoreMaxTemperature}");
             statusEvery = 2f;
             outcome.Ok = !failed;
