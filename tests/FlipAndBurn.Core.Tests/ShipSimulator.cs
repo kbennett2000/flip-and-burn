@@ -287,6 +287,7 @@ namespace FlipAndBurn.Core.Tests
 
             TargetPlanet targetPlanet = target.AsTarget();
             targetPlanet.SphereOfInfluence = target.SphereOfInfluence;
+            targetPlanet.IsCentralBody = target.IsCentre;
             TargetPlanet departure = system != null ? system.DepartureFor() : kerbin.AsTarget();
             if (system == null)
             {
@@ -364,7 +365,7 @@ namespace FlipAndBurn.Core.Tests
                 GuidanceCommand cmd = guidance.Update(input);
 
                 // The arrival watch, as the autopilot runs it: a normal trip must never trip it.
-                if (watch && !cmd.Circularizing && !cmd.SafeOrbit && cmd.Phase != GuidancePhase.Done)
+                if (watch && !cmd.Circularizing && !cmd.SafeOrbit && cmd.Phase != GuidancePhase.Done && ArrivalSafety.Watching(target.IsCentre, cmd.Phase))
                 {
                     StateVector tp0 = target.Ephemeris.StateAt(sim.UT);
                     if ((sim.Position - tp0.Position).Length < target.SphereOfInfluence)

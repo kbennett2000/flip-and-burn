@@ -73,6 +73,8 @@ namespace FlipAndBurn
         private GuidanceConfig baseConfig;
         private double deltaVUsed;   // m/s burned so far (for a coast trip's re-plan)
         private TripStart trip;
+        // The frame the trip is flown in (ADR 0005): the Sun, or the planet for a moon trip. Fixed for the whole trip.
+        private TripFrame tripFrame;
         private ConfigNode savedLocal, savedType, savedGlobal;
         private WarpRatesSnapshot playerPhysicsRates;
         private float[] tripPhysicsRates;
@@ -405,24 +407,22 @@ namespace FlipAndBurn
             if (Running) return "A trip is already running.";
             if (start?.Target == null) return "No target.";
             Vessel v = Vessel;
-            CelestialBody sun = Planetarium.fetch.Sun;
+            TripFrame frame = TripFrame.For(v.mainBody, start.Target);
+            if (frame == null) return $"Flip and Burn can't fly from here to {Planner.BodyName(start.Target)}.";
             TurnRate = EstimateTurnRate();
             var config = new GuidanceConfig
             {
-                Target = Planner.AsPlanet(start.Target),
-                Departure = v.mainBody != sun ? Planner.AsPlanet(v.mainBody) : null,
                 Acceleration = start.Acceleration,
                 Trip = start.Trip,
                 DeltaVBudget = start.DeltaVBudget,
                 Flip = start.Flip,
                 ParkingAltitude = start.ParkingAltitude,
                 TurnRate = TurnRate,
-                SunGravParameter = sun.gravParameter,
             };
-            if (config.Departure != null)
-                config.Departure.SafeRadius = v.mainBody.Radius + (v.mainBody.atmosphere ? v.mainBody.atmosphereDepth : 0) + 10_000;
+            frame.Configure(config, v, starting: true);
 
             trip = start;
+            tripFrame = frame;
             baseConfig = config;
             guidance = new FlipAndBurnGuidance(config);
             Notice = null;
@@ -453,6 +453,8 @@ namespace FlipAndBurn
                 PlannedArrivalUT = plannedArrivalUT,
                 LastFlownUT = startUT,
                 StartPlannedTripTime = start.PlannedTripTime,
+                Centre = frame.CentreName,
+                Departed = !config.WaitForDepartureWindow,
             };
             PausedByPlayer = false;
             PauseNotice = null;
@@ -598,6 +600,7 @@ namespace FlipAndBurn
             record.PlannedArrivalUT = ArrivalBeingFlown(ut);
             record.LastFlownUT = ut;
             record.Replans = Replans;
+            if (Last != null && Last.Phase != GuidancePhase.Waiting) record.Departed = true;
             record.CutEngines = cutEngines.Where(e => e != null && e.part != null).Select(e => e.part.persistentId).Distinct().ToList();
         }
 
@@ -824,7 +827,7 @@ namespace FlipAndBurn
             SampleLoss(Vessel);
             Vessel v = Vessel;
             double ut = Planetarium.GetUniversalTime();
-            StateVector state = KspShip.HeliocentricState(v, ut);
+            StateVector state = tripFrame != null ? tripFrame.ShipState(v, ut) : KspShip.HeliocentricState(v, ut);
             Vector3d facingWorld = v.GetTransform().up;
             var input = new GuidanceInput
             {
@@ -840,7 +843,9 @@ namespace FlipAndBurn
             {
                 cmd = guidance.Update(input);
                 // The arrival watch: near the target, a trip that can't arrive cleanly makes the ship's orbit safe instead.
-                if (!cmd.SafeOrbit && !cmd.Circularizing && cmd.Phase != GuidancePhase.Done && v.mainBody == trip.Target)
+                // Flying to the planet a moon trip is centred on, only once braking toward it (ADR 0005).
+                if (!cmd.SafeOrbit && !cmd.Circularizing && cmd.Phase != GuidancePhase.Done && v.mainBody == trip.Target &&
+                    ArrivalSafety.Watching(tripFrame != null && tripFrame.Centre == trip.Target, cmd.Phase))
                 {
                     Orbit o = v.orbit;
                     ArrivalIssue issue = ArrivalSafety.Check(new Vec3(o.pos.x, o.pos.y, o.pos.z), new Vec3(o.vel.x, o.vel.y, o.vel.z),
@@ -1005,8 +1010,15 @@ namespace FlipAndBurn
                 ship = reading.Report.Performance;
             }
 
-            TargetPlanet departure = DepartureFor(v, target);
-            TripRequest request = RequestFrom(v, ut, target, departure, record.Acceleration, record.ParkingAltitude);
+            // The frame the trip was started in (ADR 0005); a moon trip still waiting to leave waits for its window again.
+            TripFrame frame = TripFrame.Saved(record.Centre, target);
+            if (frame == null)
+            {
+                Stop($"Flip and Burn couldn't carry on the trip saved with this ship: {record.Centre} isn't in this game. Plan a new trip here.");
+                return StopReason;
+            }
+
+            TripRequest request = frame.Request(v, ut, record.Acceleration, record.ParkingAltitude, starting: !record.Departed);
             double keep = record.Trip == TripType.CoastInTheMiddle ? record.PlannedArrivalUT : double.NaN;
             double startDeltaV = StartDeltaVOf(record);
             ReplanResult check = TripReplanner.Check(request, record.Trip, record.DeltaVLeft, ship, Planner.Reserve, keep, startDeltaV);
@@ -1029,18 +1041,17 @@ namespace FlipAndBurn
             };
             var config = new GuidanceConfig
             {
-                Target = request.Target,
-                Departure = departure,
                 Acceleration = record.Acceleration,
                 Trip = record.Trip,
                 DeltaVBudget = record.Trip == TripType.CoastInTheMiddle ? check.DeltaVAvailable : record.DeltaVLeft,
                 Flip = record.Flip,
                 ParkingAltitude = record.ParkingAltitude,
                 TurnRate = TurnRate,
-                SunGravParameter = Planetarium.fetch.Sun.gravParameter,
                 // Fly exactly what the re-plan found: the arrival kept, or the fastest from here.
                 CoastArrivalUT = check.Coast != null ? check.Coast.ArrivalUT : double.NaN,
             };
+            frame.Configure(config, v, starting: !record.Departed);
+            tripFrame = frame;
 
             baseConfig = config;
             guidance = new FlipAndBurnGuidance(config);
@@ -1118,32 +1129,6 @@ namespace FlipAndBurn
             ScreenMessages.PostScreenMessage("Flip and Burn: " + StopReason, 15f, ScreenMessageStyle.UPPER_CENTER);
         }
 
-        // The planet the ship is leaving, if it is inside one's sphere of influence (not the target's), as at Start.
-        private static TargetPlanet DepartureFor(Vessel v, CelestialBody target)
-        {
-            CelestialBody body = v.mainBody;
-            if (body == Planetarium.fetch.Sun || body == target) return null;
-            TargetPlanet departure = Planner.AsPlanet(body);
-            departure.SafeRadius = body.Radius + (body.atmosphere ? body.atmosphereDepth : 0) + 10_000;
-            return departure;
-        }
-
-        private static TripRequest RequestFrom(Vessel v, double ut, CelestialBody target, TargetPlanet departure, double acceleration, double parkingAltitude)
-        {
-            StateVector state = KspShip.HeliocentricState(v, ut);
-            return new TripRequest
-            {
-                ShipPosition = state.Position,
-                ShipVelocity = state.Velocity,
-                StartTime = ut,
-                Target = Planner.AsPlanet(target),
-                Departure = departure,
-                Acceleration = acceleration,
-                ParkingAltitude = parkingAltitude,
-                SunGravParameter = Planetarium.fetch.Sun.gravParameter,
-            };
-        }
-
         // A re-plan's problem in plain words.
         private static string ProblemText(ReplanResult r, CelestialBody target, double acceleration, TripType tripType)
         {
@@ -1170,9 +1155,7 @@ namespace FlipAndBurn
         private GuidanceInput lastInput;
 
         // The lowest safe radius over a planet: the top of its atmosphere, or its highest terrain, plus 1 km.
-        private static double SafeRadius(CelestialBody body) =>
-            Math.Max(body.Radius + (body.atmosphere ? body.atmosphereDepth : 0),
-                body.pqsController != null ? body.pqsController.radiusMax : body.Radius) + 1000;
+        private static double SafeRadius(CelestialBody body) => TripFrame.SafeRadius(body);
 
         /// <summary>
         /// What the engines can keep up without overheating, for the arrival watch and the rescue (ADR 0003, "Arriving"):
@@ -1424,8 +1407,9 @@ namespace FlipAndBurn
             // Can the rest of the trip be flown at that acceleration? (The fuel isn't re-checked here: the trip was checked at
             // Start, and a lower acceleration needs less of it.)
             Vessel v = Vessel;
-            TargetPlanet departure = DepartureFor(v, trip.Target);
-            TripRequest request = RequestFrom(v, ut, trip.Target, departure, now, trip.ParkingAltitude);
+            TripFrame frame = tripFrame ?? TripFrame.For(v.mainBody, trip.Target);
+            TripRequest request = frame.Request(v, ut, now, trip.ParkingAltitude, starting: false);
+            TargetPlanet departure = request.Departure;
             double budget = Math.Max(0, trip.DeltaVBudget - deltaVUsed);
             double startDeltaV = record != null ? StartDeltaVOf(record) : double.NaN;
             ReplanResult check = TripReplanner.Check(request, trip.Trip, budget, null, Planner.Reserve, double.NaN, startDeltaV);
@@ -1444,6 +1428,7 @@ namespace FlipAndBurn
             GuidanceConfig c = Copy(baseConfig);
             c.Acceleration = now;
             c.Departure = departure;
+            c.DetourClearance = frame.DetourClearance(now);
             c.DeltaVBudget = budget;
             c.CoastArrivalUT = check.Coast != null ? check.Coast.ArrivalUT : double.NaN;
             if (record != null) record.Acceleration = now;
@@ -1470,6 +1455,9 @@ namespace FlipAndBurn
             SunSafetyDistance = c.SunSafetyDistance, EquatorNormal = c.EquatorNormal, RelightToleranceDeg = c.RelightToleranceDeg,
             ArrivalCutoff = c.ArrivalCutoff, DetourMargin = c.DetourMargin, BrakingFraction = c.BrakingFraction,
             CorrectionThreshold = c.CorrectionThreshold, MinThrustFraction = c.MinThrustFraction, CoastArrivalUT = c.CoastArrivalUT,
+            PlanetSystemTrip = c.PlanetSystemTrip, DetourClearance = c.DetourClearance, Obstacles = c.Obstacles,
+            // A re-plan is mid-trip: never waits for a departure window again.
+            WaitForDepartureWindow = false,
         };
 
         private void MeasureHottestPart(Vessel v)

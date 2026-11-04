@@ -10,8 +10,8 @@ namespace FlipAndBurn.Core.Tests
     /// <summary>
     /// Trips among a planet's moons, flown in the simulator (ADR 0005): every trip must arrive in its parking orbit (Pe and
     /// Ap within 5 % of the altitude), keep clear of the planet and every moon, and never set off the arrival safety net.
-    /// The full sweep is long (Category=MoonSweep, run on demand: dotnet test --filter Category=MoonSweep); a handful run
-    /// with the everyday suite.
+    /// The full sweep is long (Category=LongRunning and MoonSweep; run it with dotnet test --filter Category=MoonSweep); a
+    /// handful run with the everyday suite.
     /// </summary>
     public class MoonTripSweepTests
     {
@@ -40,8 +40,12 @@ namespace FlipAndBurn.Core.Tests
             new Route { Name = "Jool to Tylo", Planet = KerbolSystem.Jool, From = KerbolSystem.Jool, To = KerbolSystem.Tylo, Accelerations = new[] { 1.0, 2.0 } },
         };
 
-        /// <summary>One trip. Coast trips get a budget of 40 % of what a full burn at that acceleration takes.</summary>
-        public static FlightResult FlyRoute(Route r, double g, TripType trip, FlipManeuver flip, double angle)
+        /// <summary>One trip. Coast trips get a budget of 60 % of what a full burn at that acceleration takes (at 40 % no coast trip
+        /// fits some routes, from the Mun to Kerbin and from Jool to Laythe, and the planner says so).</summary>
+        public static FlightResult FlyRoute(Route r, double g, TripType trip, FlipManeuver flip, double angle) => FlyRouteObserved(r, g, trip, flip, angle, null);
+
+        public static FlightResult FlyRouteObserved(Route r, double g, TripType trip, FlipManeuver flip, double angle,
+            Action<double, GuidanceCommand, double, FlipAndBurnGuidance> observe)
         {
             SimSystem sys = SimSystem.Around(r.Planet, r.From, SimSystem.DefaultParking(r.From == r.Planet ? r.Planet.AtCentre() : r.From), angle);
             PlanetRecord target = sys.TargetRecord(r.To);
@@ -50,11 +54,12 @@ namespace FlipAndBurn.Core.Tests
             if (trip == TripType.CoastInTheMiddle)
             {
                 FlightResult probe = Flights.Fly("probe", target, g, flip, 0, parking, system: sys, stopAfterSeconds: 1);
-                budget = 0.4 * probe.PlannedDeltaV;
+                budget = 0.6 * probe.PlannedDeltaV;
             }
 
             string name = $"{r.Name}, {(trip == TripType.FullBurn ? "full burn" : "coast")}, {g:0.0} g, {(flip == FlipManeuver.SkewFlip ? "skew" : "cut-flip-relight")}, start {angle * 180 / Math.PI:0} deg";
-            return Flights.Fly(name, target, g, flip, 0, parking, system: sys, trip: trip, deltaVBudget: budget, wallSeconds: 150, maxTimeFactor: 3);
+            return Flights.Fly(name, target, g, flip, 0, parking, system: sys, trip: trip, deltaVBudget: budget, wallSeconds: 150, maxTimeFactor: 3,
+                observe: observe);
         }
 
         /// <summary>Why a trip didn't meet the standard, or null.</summary>
@@ -68,6 +73,8 @@ namespace FlipAndBurn.Core.Tests
                 return $"orbit {f.FinalPeriapsisAltitude / 1000:F1} x {f.FinalApoapsisAltitude / 1000:F1} km, not within 5 % of {f.ParkingAltitude / 1000:F0} km";
             if (f.ClosestToObstacle < 0) return $"went {-f.ClosestToObstacle / 1000:F1} km below another body's safe height";
             if (f.MinAltitudeAtTarget < 0) return "hit the target";
+            if (f.Coast && !(f.PlannedTripTime > 0)) return "the planner found no coast trip";
+            if (f.Coast && f.DeltaVUsed > f.CoastBudget) return $"used {f.DeltaVUsed / 1000:F2} km/s, over the {f.CoastBudget / 1000:F2} km/s budget";
             return null;
         }
 
@@ -103,14 +110,16 @@ namespace FlipAndBurn.Core.Tests
             foreach (Route r in Routes)
             {
                 foreach (double g in r.Accelerations)
-                    foreach (double angle in new[] { 0.0, 2.2 })
+                    foreach (double angle in new[] { 0.0, 1.0, 2.2 })
                         yield return (r, g, TripType.FullBurn, FlipManeuver.CutFlipRelight, angle);
                 yield return (r, 1.0, TripType.FullBurn, FlipManeuver.SkewFlip, 4.0);
-                yield return (r, 1.0, TripType.CoastInTheMiddle, FlipManeuver.CutFlipRelight, 1.0);
+                // A coast down to the planet itself needs at least 1.5 times its pull at the parking orbit (1.17 g at Kerbin).
+                yield return (r, r.To == r.Planet ? 2.0 : 1.0, TripType.CoastInTheMiddle, FlipManeuver.CutFlipRelight, 1.0);
             }
         }
 
         [Fact]
+        [Trait("Category", "LongRunning")]
         [Trait("Category", "MoonSweep")]
         public void Sweep_EveryRoute() => Run(AllCases());
 

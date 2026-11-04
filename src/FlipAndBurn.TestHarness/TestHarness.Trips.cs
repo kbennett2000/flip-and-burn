@@ -25,6 +25,7 @@ namespace FlipAndBurn.TestHarness
             public bool InfinitePropellant, IgnoreMaxTemperature;
             public double MaxPhysicsRate;
             public bool ResumeLeg;       // pause, quicksave and quickload once on the way
+            public string Target = PlannerTarget;   // KSP's bodyName
         }
 
         private static readonly TripSpec[] Trips =
@@ -146,7 +147,15 @@ namespace FlipAndBurn.TestHarness
             var f = new Flown();
             yield return PlanOnShip(ResumeShip, null, null, f, SaveFile);
             if (!f.Ok) yield break;
+            yield return RunTrip(f, spec, outcome, null);
+        }
+
+        // One whole trip from wherever the ship is now, to spec.Target. Hands back the flight it ended on (a resume leg
+        // reloads the ship).
+        private IEnumerator RunTrip(Flown f, TripSpec spec, CaptureResult outcome, Action<Flown> ended)
+        {
             MechJebModuleFlipAndBurn module = f.Module;
+            if (!module.SelectTarget(spec.Target)) { Fail("trip " + spec.Name, "could not select " + spec.Target); failed = true; yield break; }
             statusEvery = 10f;
             ResetStepWatch();
             CheatOptions.InfinitePropellant = spec.InfinitePropellant;
@@ -177,7 +186,7 @@ namespace FlipAndBurn.TestHarness
             Flown cur = f;
             stepWatch = p => WatchStep(p, cur.Ship, skew);
 
-            bool midShot = false, flipShot = false, slowShot = false, coastShot = false, arriveShot = false, resumed = !spec.ResumeLeg;
+            bool midShot = false, flipShot = false, slowShot = false, coastShot = false, arriveShot = false, resumed = !spec.ResumeLeg, waitShot = false;
             double flipEndUT = double.NaN;
             // Without the propellant cheat: the tanks, power and the delta-v reader logged through the trip (every half
             // hour while burning, every 6 h while coasting), as the reserve is checked against them.
@@ -225,6 +234,16 @@ namespace FlipAndBurn.TestHarness
                         continue;
                     }
 
+                    if (!waitShot && c.Phase == GuidancePhase.Waiting && pilot.PointingError < 2 && c.TimeToBurn > 120)
+                    {
+                        // Moon trips: waiting in orbit for the departure window, engine off.
+                        waitShot = true;
+                        Log($"trip {spec.Name}: waiting in orbit for the departure window, burn in {c.TimeToBurn:F0} s; planner said {pilot.Trip.PlannedTripTime:F0} s for the whole trip");
+                        Frame(cur.Ship, 0.2f, 3.0f, 1.6f);
+                        yield return Shot($"{spec.Prefix}-2-waiting.png", cur);
+                        continue;
+                    }
+
                     if (!coastShot && c.Phase == GuidancePhase.Coast && TimeWarp.CurrentRate > 1.01f && pilot.PointingError < 2)
                     {
                         coastShot = true;
@@ -242,7 +261,8 @@ namespace FlipAndBurn.TestHarness
                         continue;
                     }
 
-                    if (!arriveShot && cur.Ship.mainBody.bodyName == PlannerTarget && cur.Ship.altitude < 1_500_000)
+                    if (!arriveShot && cur.Ship.mainBody.bodyName == spec.Target && cur.Ship.altitude < 1_500_000 &&
+                        (c.Phase == GuidancePhase.Decelerate || c.Phase == GuidancePhase.FinalApproach))
                     {
                         arriveShot = true;
                         Frame(cur.Ship, 0.15f, 2.8f, 2.2f);
@@ -265,6 +285,7 @@ namespace FlipAndBurn.TestHarness
             Log($"trip {spec.Name}: infinite propellant cheat back off: {!CheatOptions.InfinitePropellant}; ignore max temperature cheat back off: {!CheatOptions.IgnoreMaxTemperature}");
             statusEvery = 2f;
             outcome.Ok = !failed;
+            ended?.Invoke(cur);
         }
 
         // Pause, quicksave, quickload, carry on: the resume in the middle of a real trip.
@@ -293,7 +314,7 @@ namespace FlipAndBurn.TestHarness
             Orbit o = v.orbit;
             CelestialBody duna = v.mainBody;
             double parking = pilot.Trip.ParkingAltitude, atmosphere = duna.atmosphere ? duna.atmosphereDepth : 0;
-            bool around = duna.bodyName == PlannerTarget;
+            bool around = duna.bodyName == spec.Target;
             bool peOk = Math.Abs(o.PeA - parking) <= OrbitTolerance * parking, apOk = Math.Abs(o.ApA - parking) <= OrbitTolerance * parking;
             bool aboveAir = o.PeA > atmosphere && o.ApA > atmosphere;
             Log($"trip {spec.Name} arrival: arrived {pilot.Arrived}; around {duna.bodyName}; periapsis {o.PeA / 1000:F2} km, apoapsis {o.ApA / 1000:F2} km, " +

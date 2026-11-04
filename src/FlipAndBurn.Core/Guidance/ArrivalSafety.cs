@@ -19,6 +19,15 @@ namespace FlipAndBurn.Core.Guidance
     public static class ArrivalSafety
     {
         /// <summary>
+        /// Whether the watch runs now. Normally the whole time the ship is inside the target's sphere of influence. Flying to
+        /// the planet a moon trip is centred on (ADR 0005) the ship is inside it from the start, and leaving a moon it can
+        /// briefly be moving away from the planet fast enough to escape it: there the watch starts once the ship is braking
+        /// toward it (after the flip, or coasting to the braking burn).
+        /// </summary>
+        public static bool Watching(bool targetIsCentralBody, GuidancePhase phase) =>
+            !targetIsCentralBody || phase == GuidancePhase.Coast || phase == GuidancePhase.Decelerate || phase == GuidancePhase.FinalApproach;
+
+        /// <summary>
         /// The engines must keep up at least this many times the chosen acceleration for a rescue. A flip-and-burn arrival
         /// brakes at 99-100 % of the chosen acceleration by design, and a normal approach can need up to about 1.2 times the
         /// simple stopping distance (Jool's pull, a curved path): with less headroom a rescue couldn't be told apart from a

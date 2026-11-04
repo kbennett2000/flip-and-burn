@@ -24,6 +24,9 @@ namespace FlipAndBurn.Core.Guidance
         /// <summary>Diagnostics: steps where the deadline was moved, and steps where it just counted down.</summary>
         public int Nudged, Carried;
 
+        /// <summary>Diagnostics: what the law asked for last step before the band was applied (m/s^2), and the deadline then.</summary>
+        public double LastAsked, LastTau;
+
         private readonly IEphemeris frame;
         private readonly PathGravity gravity;
         private readonly Vec3 finalPosition;   // relative to the frame body
@@ -65,6 +68,8 @@ namespace FlipAndBurn.Core.Guidance
 
             Vec3 a = AccelFor(r, v, tau);
             double mag = a.Length;
+            LastAsked = mag;
+            LastTau = tau;
             if (mag > max || mag < min)
             {
                 // Outside the band: move the deadline just enough to land on the band's edge.
@@ -107,8 +112,24 @@ namespace FlipAndBurn.Core.Guidance
             return zem * (6 / (t * t)) - zev * (2 / t);
         }
 
+        /// <summary>
+        /// Braking really starts now (the flip is over): move the deadline so the law asks for exactly <paramref name="level"/>
+        /// (the planned braking). Through the flip the ship drifts with the engine off, or thrusts sideways in a skew flip, so
+        /// the deadline set at the flip no longer matches; left as it is, the law starts at its upper edge and slides to its
+        /// lower one, braking too hard early and arriving with time to spare (ADR 0005). Returns false (deadline unchanged)
+        /// when no nearby deadline gives that level.
+        /// </summary>
+        public bool Retune(double ut, Vec3 position, Vec3 velocity, double level)
+        {
+            Relative(ut, position, velocity, out Vec3 r, out Vec3 v);
+            CountDown(ut, v);
+            if (!NudgeTau(r, v, tau, level, out double t, 0.5)) return false;
+            tau = t;
+            return true;
+        }
+
         // Newton on τ for |a(τ)| = level, starting from the current deadline, accepting only a nearby answer.
-        private bool NudgeTau(Vec3 r, Vec3 v, double start, double level, out double result)
+        private bool NudgeTau(Vec3 r, Vec3 v, double start, double level, out double result, double reach = 0.2)
         {
             double t = start;
             for (int i = 0; i < 12; i++)
@@ -123,7 +144,7 @@ namespace FlipAndBurn.Core.Guidance
             }
 
             bool ok = t > 0 && Math.Abs(AccelFor(r, v, t).Length / level - 1) < 1e-8 &&
-                      Math.Abs(t - start) <= 0.2 * start + 1;
+                      Math.Abs(t - start) <= reach * start + 1;
             result = ok ? t : 0;
             return ok;
         }

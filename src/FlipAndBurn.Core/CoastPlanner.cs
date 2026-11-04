@@ -18,6 +18,18 @@ namespace FlipAndBurn.Core
         public double Budget { get; internal set; }
         /// <summary>Moon trips leaving the planet: the wait in orbit before the first burn (s), included in <see cref="TripTime"/>.</summary>
         public double DepartureWait { get; internal set; }
+
+        /// <summary>
+        /// The gravity allowance the plan settled on (what gravity adds over the trip, in velocity and position). The guidance
+        /// starts from it: deep in a planet's pull the fixed-arrival solve has no answer without it (ADR 0005).
+        /// </summary>
+        internal Vec3 WellVelocity, WellPosition;
+
+        /// <summary>
+        /// Set when the acceleration is too low for this coast trip's braking (m/s^2): the least that works. Moon trips falling
+        /// to the planet at the centre (ADR 0005).
+        /// </summary>
+        public double MinimumAcceleration { get; internal set; }
         /// <summary>Delta-v to allow for flying the trip: the burns plus the guidance margin (m/s).</summary>
         public double DeltaVNeeded => DeltaV * (1 + CoastPlanner.GuidanceMargin);
     }
@@ -39,13 +51,21 @@ namespace FlipAndBurn.Core
         /// </summary>
         public const double GuidanceMargin = 0.06;
 
+        /// <summary>
+        /// A coast trip down to the planet a moon trip is centred on needs at least this many times the planet's pull at the
+        /// parking orbit (ADR 0005). The coast speeds up all the way down the planet's well and leaves the braking to the end,
+        /// where the pull is strongest: at 1 g from the Mun to Kerbin's 80 km orbit (1.29 times the pull there) the braking
+        /// couldn't keep up and every simulated trip arrived 5 km low after a long last burn; at 2 g it arrived within 0.3 %.
+        /// Other trips need 1.1 times (<see cref="TripCalculator.TargetGravityMargin"/>).
+        /// </summary>
+        public const double CentralTargetGravityMargin = 1.5;
+
         public static CoastPlan Plan(TripRequest request, double deltaVBudget)
         {
             // A moon trip leaving the planet: plan from the departure window (ADR 0005), the wait added to the trip.
-            if (request != null && request.PlanetSystemTrip && request.WaitForDepartureWindow && request.Departure != null &&
-                request.Departure.IsCentralBody && request.Target != null)
+            if (request != null && request.PlanetSystemTrip && request.WaitForDepartureWindow && request.Departure != null && request.Target != null)
             {
-                double wait = DepartureWindow.Find(request, request.Departure.GravParameter, request.SunSafetyDistance, out StateVector s);
+                double wait = DepartureWindow.Find(request, out StateVector s);
                 if (wait > 1)
                 {
                     TripRequest later = Copy(request);
@@ -54,6 +74,7 @@ namespace FlipAndBurn.Core
                     later.StartTime = request.StartTime + wait;
                     later.WaitForDepartureWindow = false;
                     CoastPlan fromWindow = Plan(later, deltaVBudget);
+                    if (!fromWindow.Feasible) return fromWindow;
                     fromWindow.DepartureWait = wait;
                     fromWindow.TripTime += wait;
                     return fromWindow;
@@ -65,6 +86,18 @@ namespace FlipAndBurn.Core
             {
                 result.Problem = "invalid input";
                 return result;
+            }
+
+            if (request.PlanetSystemTrip && request.Target.IsCentralBody && request.CheckTargetGravity)
+            {
+                double rp = request.Target.Radius + request.ParkingAltitude;
+                double minimum = CentralTargetGravityMargin * request.Target.GravParameter / (rp * rp);
+                if (request.Acceleration < minimum)
+                {
+                    result.MinimumAcceleration = minimum;
+                    result.Problem = "the braking can't beat the planet's pull near the end";
+                    return result;
+                }
             }
 
             double a1 = request.Acceleration, a2 = request.Acceleration * BrakingFraction;
@@ -136,6 +169,8 @@ namespace FlipAndBurn.Core
             }
 
             result.Feasible = true;
+            result.WellVelocity = wellV;
+            result.WellPosition = wellP;
             result.BurnUpTime = best.T1;
             result.CoastTime = best.Tc;
             result.BurnDownTime = best.T2;
@@ -233,6 +268,8 @@ namespace FlipAndBurn.Core
             result.TripTime = best.Total;
             result.ArrivalUT = request.StartTime + best.Total;
             result.DeltaV = a1 * best.T1 + a2 * best.T2;
+            result.WellVelocity = wellV;
+            result.WellPosition = wellP;
             result.Feasible = result.DeltaV <= burnBudget && best.Tc >= 0;
             if (!result.Feasible) result.Problem = "arriving then needs more delta-v than the budget";
             return result;

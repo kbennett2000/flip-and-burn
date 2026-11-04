@@ -52,7 +52,7 @@ namespace FlipAndBurn.Core.Tests
         public void Configure(GuidanceConfig config)
         {
             config.PlanetSystemTrip = true;
-            config.WaitForDepartureWindow = Departure.IsCentre;
+            config.WaitForDepartureWindow = true;
             config.SunSafetyDistance = CentralSafeRadius;
             config.DetourClearance = DetourClearance(config.Acceleration);
             config.Obstacles = ObstaclesFor(config.Target.Name);
@@ -63,7 +63,7 @@ namespace FlipAndBurn.Core.Tests
         public void Configure(TripRequest request)
         {
             request.PlanetSystemTrip = true;
-            request.WaitForDepartureWindow = Departure.IsCentre;
+            request.WaitForDepartureWindow = true;
             request.SunSafetyDistance = CentralSafeRadius;
             request.DetourClearance = DetourClearance(request.Acceleration);
             request.Obstacles = ObstaclesFor(request.Target.Name);

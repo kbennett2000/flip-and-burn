@@ -31,8 +31,8 @@ namespace FlipAndBurn.Core
             TargetPlanet dep = request.Departure;
             double wait = 0;
             var start = new StateVector(request.ShipPosition, request.ShipVelocity);
-            if (dep != null && dep.IsCentralBody && request.WaitForDepartureWindow)
-                wait = DepartureWindow.Find(request, dep.GravParameter, request.SunSafetyDistance, out start);
+            if (dep != null && request.WaitForDepartureWindow)
+                wait = DepartureWindow.Find(request, out start);
 
             double tDep = request.StartTime + wait;
             double a1 = request.Acceleration, a2 = a1 * CoastPlanner.BrakingFraction;

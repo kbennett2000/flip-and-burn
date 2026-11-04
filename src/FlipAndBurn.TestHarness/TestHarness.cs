@@ -192,6 +192,13 @@ namespace FlipAndBurn.TestHarness
                 if (failed) yield break;
             }
 
+            // Cycle 14: trips among Kerbin's moons, back to back (only when asked: "moontrips").
+            if ((wanted ?? "").Split(',').Contains("moontrips"))
+            {
+                yield return ProofMoonTrips();
+                if (failed) yield break;
+            }
+
             if ((wanted ?? "").Split(',').Contains("docstart"))
             {
                 yield return ProofDocStart();
