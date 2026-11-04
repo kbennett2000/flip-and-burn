@@ -12,6 +12,11 @@ namespace FlipAndBurn.Core.Guidance
         Decelerate,
         FinalApproach,
         Done,
+        /// <summary>
+        /// Moon trips leaving the planet (ADR 0005): engine off, waiting in orbit until the ship has come round to the
+        /// target's side of the planet, pointing where the burn will go.
+        /// </summary>
+        Waiting,
     }
 
     public enum FlipManeuver
@@ -71,6 +76,25 @@ namespace FlipAndBurn.Core.Guidance
         /// <summary>Coast trips: a velocity error (m/s) above which the ship makes a course correction burn.</summary>
         public double CorrectionThreshold { get; set; } = 1.0;
         public double MinThrustFraction { get; set; } = 0.982;
+
+        /// <summary>
+        /// A trip among a planet's moons (ADR 0005): positions are relative to the planet, which is the central body
+        /// ("Sun" in the names above). Its pull is strong near it, so gravity is allowed for along the path the ship will
+        /// really fly, and the moon being left pulls too.
+        /// </summary>
+        public bool PlanetSystemTrip { get; set; }
+
+        /// <summary>How far from the central body a detour's waypoint keeps both legs (m); 0 = the safety distance times the margin.</summary>
+        public double DetourClearance { get; set; }
+
+        /// <summary>
+        /// Moon trips starting from orbit around the planet: wait in orbit for the departure window before burning (ADR 0005).
+        /// Off for a trip that is already under way (a resumed trip).
+        /// </summary>
+        public bool WaitForDepartureWindow { get; set; }
+
+        /// <summary>Moon trips: the other moons to keep clear of.</summary>
+        public System.Collections.Generic.List<Obstacle> Obstacles { get; set; } = new System.Collections.Generic.List<Obstacle>();
     }
 
     /// <summary>The ship as it is right now. Positions and velocities are relative to the Sun.</summary>
@@ -92,7 +116,8 @@ namespace FlipAndBurn.Core.Guidance
         public GuidancePhase Phase;
         /// <summary>Seconds until the flip starts (0 once it has). On a coast trip, until the coast starts.</summary>
         public double TimeToFlip;
-        /// <summary>Coast trips, while coasting: seconds until the braking burn is expected to start.</summary>
+        /// <summary>Coast trips, while coasting: seconds until the braking burn is expected to start. Waiting to leave a
+        /// planet: seconds until the burn starts.</summary>
         public double TimeToBurn;
         /// <summary>Seconds until the end of the current leg (the arrival, unless detouring around the Sun).</summary>
         public double TimeToArrival;
@@ -157,6 +182,17 @@ namespace FlipAndBurn.Core.Guidance
         private Vec3 currentPosition;
         private bool initialized;
         private bool climbedOut;
+        // Full burns: the last solution while speeding up, and when it was found (for the flip, below).
+        private TwoArcSolver.Arcs lastArcs;
+        private double lastArcsUT = double.NaN;
+
+        /// <summary>
+        /// Full burns: when the flip is this close (s) and the next solution jumps to a different one (or there is none),
+        /// flip now on the last solution. Near the flip the solution can stop existing a step early, when the time to the
+        /// flip would go below zero, and the search that follows finds another trip altogether (brake first, then speed up),
+        /// which never flips. Seen leaving a planet's strong gravity on a moon trip (ADR 0005).
+        /// </summary>
+        public const double FlipSnapSeconds = 1.0;
 
         public FlipAndBurnGuidance(GuidanceConfig config)
         {
@@ -164,7 +200,13 @@ namespace FlipAndBurn.Core.Guidance
             if (config.Target == null) throw new ArgumentException("no target", nameof(config));
             if (!(config.Acceleration > 0)) throw new ArgumentException("acceleration must be positive", nameof(config));
             targetGravity = new PathGravity(config.Target.Ephemeris, config.Target.GravParameter, config.SunGravParameter, true);
+            if (config.PlanetSystemTrip && config.Departure != null && !config.Departure.IsCentralBody)
+                targetGravity.AddBody(config.Departure.Ephemeris, config.Departure.GravParameter);
         }
+
+        /// <summary>Moon trips: the flown-path gravity allowance is worked out again this often (game seconds).</summary>
+        public const double AllowanceEvery = 0.5;
+        private double lastAllowanceUT = double.NaN;
 
         public GuidancePhase Phase => phase;
 
@@ -200,6 +242,8 @@ namespace FlipAndBurn.Core.Guidance
                 return Circularize(input);
             }
 
+            if (!windowChecked) CheckWindow(input);
+            if (input.UT < departureUT) return Waiting(input);
             if (!initialized) Initialize(input);
             currentPosition = input.Position;
             double step = double.IsNaN(lastUT) ? 0 : input.UT - lastUT;
@@ -215,6 +259,21 @@ namespace FlipAndBurn.Core.Guidance
                 TwoArcSolver.Arcs arcs = IsCoastTrip
                     ? solver.SolveFixedTotal(input.UT, input.Position, input.Velocity, coastArrivalUT - input.UT)
                     : solver.Solve(input.UT, input.Position, input.Velocity, flipTime);
+                if (!IsCoastTrip && !double.IsNaN(lastArcsUT))
+                {
+                    double expectedT1 = lastArcs.T1 - (input.UT - lastArcsUT);
+                    if (expectedT1 <= FlipSnapSeconds && (!arcs.Valid || Math.Abs(arcs.T1 - expectedT1) > FlipSnapSeconds))
+                    {
+                        // The flip is due: flip on the last solution (see FlipSnapSeconds).
+                        double arrival = lastArcsUT + lastArcs.Total;
+                        lastArcsUT = double.NaN;
+                        law = MakeArrivalLaw(leg, arrival);
+                        law.Start(input.UT, Math.Max(1, arrival - input.UT));
+                        phase = GuidancePhase.Flip;
+                        return Update(input);
+                    }
+                }
+
                 if (!arcs.Valid)
                 {
                     // No solution this step (should not happen in practice): hold course, keep thrusting.
@@ -229,6 +288,12 @@ namespace FlipAndBurn.Core.Guidance
                 if (!leg.IsWaypoint) UpdateGravityAllowance(input, arcs);
 
                 BurnTimeLeft = arcs.T1 + arcs.T2;
+                if (!IsCoastTrip)
+                {
+                    lastArcs = arcs;
+                    lastArcsUT = input.UT;
+                }
+
                 if (arcs.T1 > Math.Max(step, 1e-3))
                 {
                     cmd.Direction = arcs.A1.Normalized();
@@ -258,6 +323,8 @@ namespace FlipAndBurn.Core.Guidance
                     law.Start(input.UT, arcs.Tc + arcs.T2);
                     phase = GuidancePhase.Flip;
                 }
+
+                lastArcsUT = double.NaN;
             }
 
             if (phase == GuidancePhase.Coast)
@@ -297,12 +364,22 @@ namespace FlipAndBurn.Core.Guidance
                 {
                     // Reached the detour waypoint: start the next leg from here.
                     legIndex++;
+                    lastArcsUT = double.NaN;
                     phase = GuidancePhase.Accelerate;
                     solver = MakeSolver(legs[legIndex]);
                     return Update(input);
                 }
 
                 // Arrived at the parking orbit's radius, moving along it. Finish with a short burn to exactly circular speed.
+                phase = GuidancePhase.FinalApproach;
+                circularizing = true;
+                circularizeSign = 0;
+                return Circularize(input);
+            }
+
+            if (!leg.IsWaypoint && ReadyToSettle(input))
+            {
+                // Already at the parking orbit's height, moving along it a little fast: the last burn takes it from here.
                 phase = GuidancePhase.FinalApproach;
                 circularizing = true;
                 circularizeSign = 0;
@@ -344,11 +421,15 @@ namespace FlipAndBurn.Core.Guidance
             double tb = Math.Min(plannedBrakingTime, tau);
             Vec3 want = v, brake = Vec3.Zero;
             bool tooLate = false;
-            for (int i = 0; i < 2; i++)
+            for (int i = 0; i < (config.PlanetSystemTrip ? 3 : 2); i++)
             {
-                targetGravity.Integrate(input.UT,
-                    targetGravity.CoastPath(input.UT, r, want, 0, Vec3.Zero, tau - tb, tb, coastEnd.Position, coastEnd.Velocity),
-                    tau, out Vec3 g1, out Vec3 g2, PathGravity.CoastSamples);
+                Vec3 g1, g2;
+                if (config.PlanetSystemTrip)
+                    targetGravity.IntegratePlanned(input.UT, r, want, Vec3.Zero, 0, tau - tb, brake, tb, out g1, out g2);   // ADR 0005
+                else
+                    targetGravity.Integrate(input.UT,
+                        targetGravity.CoastPath(input.UT, r, want, 0, Vec3.Zero, tau - tb, tb, coastEnd.Position, coastEnd.Velocity),
+                        tau, out g1, out g2, PathGravity.CoastSamples);
 
                 // brake * (τ - tb/2) = W, a fixed vector, and |brake| = nominal tb: a quadratic in tb.
                 Vec3 p = coastEnd.Position - r - g2, q = coastEnd.Velocity - g1;
@@ -413,6 +494,29 @@ namespace FlipAndBurn.Core.Guidance
 
         // ------------------------------------------------------------------ circularizing
 
+        /// <summary>The last burn turns with the engine off when it is more than this far (degrees) from where it should point.</summary>
+        public const double CircularizeTurnFirstDeg = 30;
+
+        /// <summary>
+        /// The braking can reach the parking orbit a little early, and then has to keep braking at 98-100 % until its
+        /// deadline, dropping below orbital speed (at the Mun, 20 s early ended 200 m/s too slow; ADR 0005). What matters on
+        /// arrival is the orbit's shape, not the point on it: so once the ship is at the parking height (within 2 % of the
+        /// altitude), hardly climbing or falling, and at most 3 seconds' braking above orbital speed, hand over to the last
+        /// burn, which holds the height while it brakes to exactly orbital speed.
+        /// </summary>
+        private bool ReadyToSettle(GuidanceInput input)
+        {
+            StateVector planet = config.Target.Ephemeris.StateAt(input.UT);
+            Vec3 r = input.Position - planet.Position, v = input.Velocity - planet.Velocity;
+            double rl = r.Length;
+            if (Math.Abs(rl - ParkingRadius) > Math.Max(200, 0.02 * config.ParkingAltitude)) return false;
+            double vr = Vec3.Dot(v, r / rl);
+            double vt = (v - r / rl * vr).Length;
+            double vc = Math.Sqrt(config.Target.GravParameter / rl);
+            double excess = vt - vc;
+            return Math.Abs(vr) <= Math.Max(2, 0.01 * vc) && excess >= 0 && excess <= 3 * config.Acceleration;
+        }
+
         /// <summary>
         /// The last burn: along the orbit (against the motion if too fast, with it if too slow) at the chosen
         /// acceleration, with a radial part that holds the parking radius, until the speed is circular. Needed because a
@@ -452,7 +556,11 @@ namespace FlipAndBurn.Core.Guidance
             double tangential = -circularizeSign * Math.Sqrt(a * a - radial * radial);
 
             cmd.Direction = (up * radial + along * tangential).Normalized();
-            cmd.Acceleration = a;
+            // A big turn first, then burn: thrust while turning half-way round pushes the ship the wrong way. Arriving a little
+            // fast this burn brakes along the braking direction and needs at most a small turn; arriving a little slow it
+            // speeds up, half a turn away.
+            bool pointed = Vec3.Angle(input.Facing, cmd.Direction) * 180 / Math.PI <= CircularizeTurnFirstDeg;
+            cmd.Acceleration = pointed ? a : 0;
             cmd.TimeToArrival = Math.Abs(excess) / a;
             return cmd;
         }
@@ -572,6 +680,9 @@ namespace FlipAndBurn.Core.Guidance
             SunGravParameter = config.SunGravParameter,
             SunSafetyDistance = config.SunSafetyDistance,
             North = config.EquatorNormal,
+            PlanetSystemTrip = config.PlanetSystemTrip,
+            DetourClearance = config.DetourClearance,
+            Obstacles = config.Obstacles,
         };
 
         private TwoArcSolver MakeSolver(Leg leg)
@@ -601,6 +712,18 @@ namespace FlipAndBurn.Core.Guidance
             StateVector planet = config.Target.Ephemeris.StateAt(input.UT);
             Vec3 r = input.Position - planet.Position, v = input.Velocity - planet.Velocity;
             Vec3 g1, g2;
+            if (config.PlanetSystemTrip)
+            {
+                // Along the path the planned burns really fly (ADR 0005), worked out twice a game second.
+                if (!double.IsNaN(lastAllowanceUT) && input.UT - lastAllowanceUT < AllowanceEvery) return;
+                lastAllowanceUT = input.UT;
+                targetGravity.IntegratePlanned(input.UT, r, v, arcs.A1, arcs.T1, arcs.Tc, arcs.A2, arcs.T2, out g1, out g2);
+                targetGravity.FrameCurve(input.UT, total, out Vec3 cp, out Vec3 cv);
+                wellVelocity = g1 + cv;
+                wellPosition = g2 + cp;
+                return;
+            }
+
             StateVector end = ParkingArrival.Relative(config.Target, input.UT + total, input.Position, ParkingRadius, config.EquatorNormal);
             if (IsCoastTrip)
             {
@@ -632,6 +755,52 @@ namespace FlipAndBurn.Core.Guidance
             return new ArrivalLaw(config.Target.Ephemeris, targetGravity, rel.Position, rel.Velocity, nominal, min, a);
         }
 
+        // ------------------------------------------------------------------ waiting to leave the planet (moon trips)
+
+        private bool windowChecked;
+        private double departureUT = double.NaN;
+        private Vec3 departureDirection;
+        private double plannedBurnTime;
+
+        /// <summary>Moon trips leaving the planet: when the burn starts (UT), or NaN when it started (or starts) straight away.</summary>
+        public double DepartureUT => departureUT;
+
+        // Leaving the planet at the centre with the target behind it: wait until the ship has come round (DepartureWindow).
+        private void CheckWindow(GuidanceInput input)
+        {
+            windowChecked = true;
+            if (!config.PlanetSystemTrip || !config.WaitForDepartureWindow || config.Departure == null || !config.Departure.IsCentralBody ||
+                initialized) return;
+            TripRequest request = Request(input);
+            double wait = DepartureWindow.Find(request, config.Departure.GravParameter, config.SunSafetyDistance, out StateVector s);
+            if (!(wait > 1)) return;
+            departureUT = input.UT + wait;
+            request.ShipPosition = s.Position;
+            request.ShipVelocity = s.Velocity;
+            request.StartTime = departureUT;
+            request.PlanSunDetour = false;
+            request.CheckTargetGravity = false;
+            TripPlan plan = TripCalculator.Plan(request);
+            departureDirection = plan.Feasible && plan.TripTime > 0 ? (plan.Profile.C + plan.Profile.E * plan.Profile.Ab).Normalized() : s.Velocity.Normalized();
+            plannedBurnTime = plan.Feasible ? plan.TripTime : double.NaN;
+        }
+
+        private GuidanceCommand Waiting(GuidanceInput input)
+        {
+            BurnTimeLeft = plannedBurnTime;
+            return new GuidanceCommand
+            {
+                Phase = GuidancePhase.Waiting,
+                Direction = departureDirection,
+                Acceleration = 0,
+                TimeToBurn = departureUT - input.UT,
+                TimeToFlip = departureUT - input.UT + plannedBurnTime / 2,
+                TimeToArrival = departureUT - input.UT + plannedBurnTime,
+                Leg = 1,
+                LegCount = 1,
+            };
+        }
+
         // ------------------------------------------------------------------ leaving the departure planet
 
         /// <summary>
@@ -652,7 +821,8 @@ namespace FlipAndBurn.Core.Guidance
                 return false;
             }
 
-            bool escaping = v.LengthSquared / 2 - dep.GravParameter / r.Length >= 0;
+            // Leaving the planet a moon trip is centred on: getting clear of it is enough (escaping it would leave its system).
+            bool escaping = dep.IsCentralBody || v.LengthSquared / 2 - dep.GravParameter / r.Length >= 0;
             double safe = dep.SafeRadius > 0 ? dep.SafeRadius : dep.Radius;
             double along = -Vec3.Dot(r, direction);
             bool lineClear = along <= 0 || (r + direction * along).Length > safe;

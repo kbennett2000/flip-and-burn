@@ -20,6 +20,12 @@ namespace FlipAndBurn.Core
         /// </summary>
         public double SafeRadius { get; set; }
 
+        /// <summary>
+        /// The planet at the centre of the trip's frame (a trip among its moons, ADR 0005): it stands still at the origin.
+        /// Leaving it means getting clear of it, not escaping it.
+        /// </summary>
+        public bool IsCentralBody { get; set; }
+
         public TargetPlanet(string name, IEphemeris ephemeris, double gravParameter, double radius)
         {
             Name = name;
@@ -29,7 +35,24 @@ namespace FlipAndBurn.Core
         }
     }
 
-    /// <summary>Everything the trip estimate needs. Positions and velocities are relative to the Sun.</summary>
+    /// <summary>
+    /// A body a moon trip must keep clear of (ADR 0005): another moon of the planet, with the lowest safe radius over it
+    /// (its highest terrain or atmosphere, plus a margin), and its pull while the ship is in its sphere of influence.
+    /// </summary>
+    public sealed class Obstacle
+    {
+        public string Name { get; set; }
+        public IEphemeris Ephemeris { get; set; }
+        public double SafeRadius { get; set; }
+        public double GravParameter { get; set; }
+        public double SphereOfInfluence { get; set; }
+    }
+
+    /// <summary>
+    /// Everything the trip estimate needs. Positions and velocities are relative to the central body: the Sun, or for a
+    /// trip among a planet's moons (<see cref="PlanetSystemTrip"/>) that planet. "Sun" in the names below means the
+    /// central body.
+    /// </summary>
     public sealed class TripRequest
     {
         public Vec3 ShipPosition { get; set; }
@@ -49,6 +72,24 @@ namespace FlipAndBurn.Core
         public bool CheckTargetGravity { get; set; } = true;
         /// <summary>When the Sun is in the way, estimate the detour the autopilot will fly (ADR 0003).</summary>
         public bool PlanSunDetour { get; set; } = true;
+
+        /// <summary>
+        /// A trip among a planet's moons (ADR 0005): the central body is the planet, <see cref="SunSafetyDistance"/> is the
+        /// top of its atmosphere (or its highest terrain) plus a margin, and the plan allows for gravity along the path.
+        /// </summary>
+        public bool PlanetSystemTrip { get; set; }
+
+        /// <summary>How far from the central body a detour's waypoint keeps both legs (m); 0 = the safety distance times the margin.</summary>
+        public double DetourClearance { get; set; }
+
+        /// <summary>
+        /// Moon trips starting from orbit around the planet: wait for the departure window (<see cref="DepartureWindow"/>).
+        /// Off for a trip already under way (a resumed trip, a re-plan).
+        /// </summary>
+        public bool WaitForDepartureWindow { get; set; }
+
+        /// <summary>Moon trips: the other moons to keep clear of (not the target, not the moon being left).</summary>
+        public List<Obstacle> Obstacles { get; set; } = new List<Obstacle>();
     }
 
     public enum TripProblem
@@ -58,6 +99,10 @@ namespace FlipAndBurn.Core
         NoSolutionWithinMaxTripTime,
         /// <summary>The acceleration can't beat the target's gravity at the parking orbit.</summary>
         TargetGravityTooStrong,
+        /// <summary>Moon trips: the acceleration can't beat the pull of the body the ship is leaving, where it is now.</summary>
+        DepartureGravityTooStrong,
+        /// <summary>Moon trips: the path passes through a moon or the planet and no way round was found.</summary>
+        ObstacleInTheWay,
     }
 
     /// <summary>The planned burn: a uniform velocity-matching push plus a flip-at-the-midpoint profile.</summary>
@@ -161,6 +206,23 @@ namespace FlipAndBurn.Core
         /// <summary>The target's gravity at the parking orbit, and the least acceleration that beats it with margin.</summary>
         public double TargetGravityAtParking { get; internal set; }
         public double MinimumAcceleration { get; internal set; }
+
+        /// <summary>Moon trips: the pull of the body being left, where the ship is, and the least acceleration that beats it.</summary>
+        public double DepartureGravity { get; internal set; }
+        public double MinimumDepartureAcceleration { get; internal set; }
+
+        /// <summary>
+        /// Moon trips leaving the planet: how long the ship waits in its orbit before the burn (s), coming round to the
+        /// target's side (<see cref="DepartureWindow"/>). Included in <see cref="TripTime"/> and <see cref="TimeToFlip"/>.
+        /// </summary>
+        public double DepartureWait { get; internal set; }
+
+        /// <summary>Moon trips: the numbers allow for gravity along the path (false: a detour, numbers from straight legs).</summary>
+        public bool GravityIncluded { get; internal set; }
+
+        /// <summary>Moon trips: the body the planned path comes closest to (above its safe radius), and by how much (m).</summary>
+        public string ClosestObstacle { get; internal set; }
+        public double ClosestObstacleMargin { get; internal set; } = double.PositiveInfinity;
     }
 
     /// <summary>
@@ -216,6 +278,21 @@ namespace FlipAndBurn.Core
             Vec3 r0 = request.ShipPosition, v0 = request.ShipVelocity;
             double t0 = request.StartTime, accel = request.Acceleration, maxT = request.MaxTripTime;
             double parkingRadius = request.Target.Radius + request.ParkingAltitude;
+
+            if (request.PlanetSystemTrip && request.Departure != null)
+            {
+                // Leaving a body whose pull, where the ship is, the engines can't out-pull with margin (ADR 0005).
+                double d = (r0 - request.Departure.Ephemeris.StateAt(t0).Position).Length;
+                plan.DepartureGravity = request.Departure.GravParameter / (d * d);
+                plan.MinimumDepartureAcceleration = TargetGravityMargin * plan.DepartureGravity;
+                if (request.CheckTargetGravity && accel < plan.MinimumDepartureAcceleration)
+                {
+                    plan.Problem = TripProblem.DepartureGravityTooStrong;
+                    plan.ProblemDetail = $"{request.Departure.Name}'s gravity where the ship is is {plan.DepartureGravity:0.00} m/s^2; " +
+                                         $"the acceleration must be at least {plan.MinimumDepartureAcceleration:0.00} m/s^2.";
+                    return plan;
+                }
+            }
 
             plan.TargetGravityAtParking = request.Target.GravParameter / (parkingRadius * parkingRadius);
             plan.MinimumAcceleration = TargetGravityMargin * plan.TargetGravityAtParking;
@@ -316,6 +393,16 @@ namespace FlipAndBurn.Core
             plan.StraightTripTime = plan.TripTime;
             plan.StraightTotalDeltaV = plan.TotalDeltaV;
             plan.StraightClosestSunDistance = plan.ClosestSunDistance;
+            if (request.PlanetSystemTrip && request.PlanSunDetour)
+            {
+                // A moon trip: the departure window, then the burns with gravity (SystemTrip). A detour around the planet
+                // only when the path from the window still crosses it.
+                if (SystemTrip.Refine(request, plan)) return plan;
+                if (plan.PassesNearSun) AddDetour(request, plan);
+                SystemTrip.CheckObstacles(request, plan);
+                return plan;
+            }
+
             if (plan.PassesNearSun && request.PlanSunDetour) AddDetour(request, plan);
             return plan;
         }

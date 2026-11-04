@@ -16,6 +16,8 @@ namespace FlipAndBurn.Core
         /// <summary>Delta-v of the two planned burns, gravity included (m/s).</summary>
         public double DeltaV { get; internal set; }
         public double Budget { get; internal set; }
+        /// <summary>Moon trips leaving the planet: the wait in orbit before the first burn (s), included in <see cref="TripTime"/>.</summary>
+        public double DepartureWait { get; internal set; }
         /// <summary>Delta-v to allow for flying the trip: the burns plus the guidance margin (m/s).</summary>
         public double DeltaVNeeded => DeltaV * (1 + CoastPlanner.GuidanceMargin);
     }
@@ -39,6 +41,25 @@ namespace FlipAndBurn.Core
 
         public static CoastPlan Plan(TripRequest request, double deltaVBudget)
         {
+            // A moon trip leaving the planet: plan from the departure window (ADR 0005), the wait added to the trip.
+            if (request != null && request.PlanetSystemTrip && request.WaitForDepartureWindow && request.Departure != null &&
+                request.Departure.IsCentralBody && request.Target != null)
+            {
+                double wait = DepartureWindow.Find(request, request.Departure.GravParameter, request.SunSafetyDistance, out StateVector s);
+                if (wait > 1)
+                {
+                    TripRequest later = Copy(request);
+                    later.ShipPosition = s.Position;
+                    later.ShipVelocity = s.Velocity;
+                    later.StartTime = request.StartTime + wait;
+                    later.WaitForDepartureWindow = false;
+                    CoastPlan fromWindow = Plan(later, deltaVBudget);
+                    fromWindow.DepartureWait = wait;
+                    fromWindow.TripTime += wait;
+                    return fromWindow;
+                }
+            }
+
             var result = new CoastPlan { Budget = deltaVBudget };
             if (request?.Target == null || !(request.Acceleration > 0) || !(deltaVBudget > 0))
             {
@@ -50,7 +71,8 @@ namespace FlipAndBurn.Core
             // Plan the burns a margin under the budget: flying them costs a little more (see GuidanceMargin).
             double burnBudget = deltaVBudget / (1 + GuidanceMargin);
             double parkingRadius = request.Target.Radius + request.ParkingAltitude;
-            var gravity = new PathGravity(request.Target.Ephemeris, request.Target.GravParameter, request.SunGravParameter, true);
+            PathGravity gravity = request.PlanetSystemTrip ? SystemTrip.GravityFor(request)
+                : new PathGravity(request.Target.Ephemeris, request.Target.GravParameter, request.SunGravParameter, true);
             Vec3 wellV = Vec3.Zero, wellP = Vec3.Zero;
 
             StateVector EndState(double arrivalUT)
@@ -123,6 +145,15 @@ namespace FlipAndBurn.Core
             return result;
         }
 
+        private static TripRequest Copy(TripRequest r) => new TripRequest
+        {
+            ShipPosition = r.ShipPosition, ShipVelocity = r.ShipVelocity, StartTime = r.StartTime, Target = r.Target, Departure = r.Departure,
+            Acceleration = r.Acceleration, ParkingAltitude = r.ParkingAltitude, SunGravParameter = r.SunGravParameter,
+            SunSafetyDistance = r.SunSafetyDistance, MaxTripTime = r.MaxTripTime, North = r.North, CheckTargetGravity = r.CheckTargetGravity,
+            PlanSunDetour = r.PlanSunDetour, PlanetSystemTrip = r.PlanetSystemTrip, DetourClearance = r.DetourClearance,
+            Obstacles = r.Obstacles, WaitForDepartureWindow = r.WaitForDepartureWindow,
+        };
+
         /// <summary>
         /// The fastest coast trip that still keeps the reserve when propellant is lost while the engines aren't firing
         /// (boil-off, ADR 0002): the loss over the whole trip time costs delta-v, so the burns get less of the budget. A
@@ -171,7 +202,8 @@ namespace FlipAndBurn.Core
             double a1 = request.Acceleration, a2 = request.Acceleration * BrakingFraction;
             double burnBudget = deltaVBudget / (1 + GuidanceMargin);
             double parkingRadius = request.Target.Radius + request.ParkingAltitude;
-            var gravity = new PathGravity(request.Target.Ephemeris, request.Target.GravParameter, request.SunGravParameter, true);
+            PathGravity gravity = request.PlanetSystemTrip ? SystemTrip.GravityFor(request)
+                : new PathGravity(request.Target.Ephemeris, request.Target.GravParameter, request.SunGravParameter, true);
             Vec3 wellV = Vec3.Zero, wellP = Vec3.Zero;
 
             StateVector EndState(double ut)
@@ -212,6 +244,17 @@ namespace FlipAndBurn.Core
         private static void Allowance(TripRequest request, PathGravity gravity, double parkingRadius, TwoArcSolver.Arcs best, out Vec3 wellV, out Vec3 wellP)
         {
             StateVector planetNow = request.Target.Ephemeris.StateAt(request.StartTime);
+            if (request.PlanetSystemTrip)
+            {
+                // A moon trip (ADR 0005): along the path the burns and the coast really fly, the moon being left included.
+                gravity.IntegratePlanned(request.StartTime, request.ShipPosition - planetNow.Position, request.ShipVelocity - planetNow.Velocity,
+                    best.A1, best.T1, best.Tc, best.A2, best.T2, out Vec3 sg1, out Vec3 sg2);
+                gravity.FrameCurve(request.StartTime, best.Total, out Vec3 sp, out Vec3 sv);
+                wellV = sg1 + sv;
+                wellP = sg2 + sp;
+                return;
+            }
+
             StateVector end = ParkingArrival.Relative(request.Target, request.StartTime + best.Total, request.ShipPosition, parkingRadius, request.North);
             gravity.Integrate(request.StartTime,
                 gravity.CoastPath(request.StartTime, request.ShipPosition - planetNow.Position, request.ShipVelocity - planetNow.Velocity,

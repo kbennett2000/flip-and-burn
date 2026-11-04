@@ -17,7 +17,7 @@ namespace FlipAndBurn.Core
         public static Vec3? Plan(TripRequest request, double straightTripTime, double margin, Vec3 north, out TripPlan leg1, out TripPlan leg2)
         {
             leg1 = leg2 = null;
-            double clear = request.SunSafetyDistance * margin;
+            double clear = request.DetourClearance > 0 ? request.DetourClearance : request.SunSafetyDistance * margin;
             double arrival = request.StartTime + straightTripTime;
             Vec3 waypoint = default;
             bool ok = false;
