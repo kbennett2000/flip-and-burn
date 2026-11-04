@@ -97,7 +97,7 @@ namespace FlipAndBurn
             DeltaVBudget = double.IsPositiveInfinity(lastAvailable) ? 0
                 : (1 - Reserve) * lastAvailable - (Trip == TripType.CoastInTheMiddle ? LossAllowance : 0),
             LossAllowance = Trip == TripType.CoastInTheMiddle ? LossAllowance : 0,
-            PlannedTripTime = Trip == TripType.CoastInTheMiddle && Coast != null ? Coast.TripTime : Plan?.TripTime ?? 0,
+            PlannedTripTime = Trip == TripType.CoastInTheMiddle && Coast != null ? Coast.TripTime : Plan != null ? Shown(Plan.TripTime) : 0,
             DeltaVNeeded = Trip == TripType.CoastInTheMiddle && Coast != null ? Coast.DeltaVNeeded : Plan?.TotalDeltaV ?? 0,
             StartDeltaV = InfinitePropellant || double.IsPositiveInfinity(lastAvailable) ? double.NaN : lastAvailable,
             Electric = Ship?.Electric != null,
@@ -233,7 +233,7 @@ namespace FlipAndBurn
 
             TripRequest request = frame.Request(vessel, ut, requested, ParkingAltitude(target), starting: true);
             Frame = frame;
-            Plan = TripCalculator.Plan(request);
+            Plan = PlanFor(request, frame, ut);
 
             if (!Plan.Feasible)
             {
@@ -279,7 +279,7 @@ namespace FlipAndBurn
         private void AddMoonTripNotes(TripRequest request, CelestialBody target, TripFrame frame)
         {
             string planet = BodyName(frame.Centre);
-            double wait = Trip == TripType.CoastInTheMiddle && Coast != null && Coast.Feasible ? Coast.DepartureWait : Plan.DepartureWait;
+            double wait = Trip == TripType.CoastInTheMiddle && Coast != null && Coast.Feasible ? Coast.DepartureWait : Shown(Plan.DepartureWait);
             if (wait > 1)
             {
                 string from = BodyName(FlightGlobals.Bodies.FirstOrDefault(b => b.bodyName == request.Departure?.Name) ?? frame.Centre);
@@ -301,9 +301,9 @@ namespace FlipAndBurn
 
         private void RefreshFullBurn(TripRequest request, CelestialBody target, double available, bool canHold, bool shipKnown)
         {
-            if (Plan.DepartureWait > 1) TripRows.Add(Row("Burn starts in", FormatTime(Plan.DepartureWait)));
-            TripRows.Add(Row("Trip time", FormatTime(Plan.TripTime)));
-            TripRows.Add(Row("Flip in", FormatTime(Plan.TimeToFlip)));
+            if (Shown(Plan.DepartureWait) > 1) TripRows.Add(Row("Burn starts in", FormatTime(Shown(Plan.DepartureWait))));
+            TripRows.Add(Row("Trip time", FormatTime(Shown(Plan.TripTime))));
+            TripRows.Add(Row("Flip in", FormatTime(Shown(Plan.TimeToFlip))));
             TripRows.Add(Row($"Top speed (relative to {DepartureName})", FormatSpeed(Plan.PeakSpeed)));
             TripRows.Add(Row("Delta-v needed", FormatSpeed(Plan.TotalDeltaV)));
             if (!shipKnown) return;
@@ -440,6 +440,34 @@ namespace FlipAndBurn
             double there = planet != null && planet != sun && planet.orbit != null ? planet.orbit.ApR : here;
             return Math.Max(here, there);
         }
+
+        // A moon trip's estimate flies the burns with gravity and searches for the departure window: up to a tenth of a second
+        // (ADR 0005). Reuse it for a few seconds unless an input changed; the times shown count down meanwhile (planAge).
+        private const double MoonPlanRefreshSeconds = 5.0;
+        private TripPlan cachedPlan;
+        private string cachedPlanKey = "";
+        private double cachedPlanUntil, cachedPlanUT, planAge;
+
+        private TripPlan PlanFor(TripRequest request, TripFrame frame, double ut)
+        {
+            planAge = 0;
+            if (!frame.PlanetSystem) return TripCalculator.Plan(request);
+            double now = UnityEngine.Time.realtimeSinceStartup;
+            if (cachedPlan != null && cachedPlanKey == lastKey && now < cachedPlanUntil)
+            {
+                planAge = Math.Max(0, ut - cachedPlanUT);
+                return cachedPlan;
+            }
+
+            cachedPlan = TripCalculator.Plan(request);
+            cachedPlanKey = lastKey;
+            cachedPlanUT = ut;
+            cachedPlanUntil = now + MoonPlanRefreshSeconds;
+            return cachedPlan;
+        }
+
+        // A time from the plan, counted down for the plan's age.
+        private double Shown(double seconds) => Math.Max(0, seconds - planAge);
 
         // A coast plan takes a tenth of a second or so, so reuse it for a while unless an input changed.
         private const double CoastRefreshSeconds = 10.0;

@@ -17,7 +17,12 @@ Open it from MechJeb's menu (the **MechJeb** tab, on the right edge of the scree
   <img src="images/planner-annotated.jpg" alt="The planner window with numbered labels on each part" width="70%">
 </p>
 
-1. **Fly to:** every planet in your game that orbits the Sun, except the one you're at. Click one to plan a trip to it.
+1. **Fly to:** where you can fly from here, in groups (newer than this picture, see [moon trips](ways-to-fly.md#moon-trips)).
+   Click one to plan a trip to it.
+   - **From a planet's orbit:** "Moons of Kerbin" (that planet's moons), then "Planets" (every other planet in your
+     game that orbits the Sun).
+   - **From a moon:** "Mun's planet" (the planet it orbits), then "Other moons of Kerbin", with a line saying how to get
+     to other planets.
 2. **Acceleration:** how hard to push, in g. 1 g is the default. See [choosing an acceleration](ways-to-fly.md#choosing-an-acceleration).
 3. **Trip:** **Full burn** (burn the whole way) or **Coast in the middle** (burn, coast, burn). See
    [full burn or coast](ways-to-fly.md#full-burn-or-coast-in-the-middle).
@@ -41,6 +46,7 @@ Below Start, the window shows how the last trip ended (arrived, aborted, or why 
 
 | Row | Full burn | Coast in the middle | What it means |
 |---|---|---|---|
+| **Burn starts in** | sometimes | sometimes | Moon trips only: how long the ship waits in its orbit, engine off, before it burns (the planet or moon it's leaving is in the way until then) |
 | **Burn to speed up** | | ✓ | How long the first burn lasts |
 | **Coast** | | ✓ | How long the ship coasts with the engine off |
 | **Burn to stop** | | ✓ | How long the braking burn lasts |
@@ -73,7 +79,8 @@ For a ship with engines that run on electricity, the delta-v row ends in **(powe
 
 1. **Flying to:** the destination and the kind of trip.
 2. **Phase:** what the ship is doing now (the phases are listed below).
-3. **What's next:** the time to the next big moment: **Flip in**, **Coast starts in** or **Braking starts in**.
+3. **What's next:** the time to the next big moment: **Flip in**, **Coast starts in** or **Braking starts in**; on a
+   moon trip that waits to leave, **Burn starts in**.
 4. **Arrival in:** the time until the ship is parked at the destination.
 5. **Acceleration:** what the ship is doing now, and what it's aiming for. They match during a burn. A lower "aiming
    for" than you chose means the trip stepped down to stop the engines overheating.
@@ -101,6 +108,7 @@ on.
 
 | Phase | What's happening |
 |---|---|
+| **waiting in orbit, engine off: coming round to the target's side** | Moon trips: waiting for the planet or moon you're leaving to be out of the way. The window shows **Burn starts in**, and time warp runs. |
 | **speeding up (climbing out of orbit)** | The first part of the burn, climbing away from the planet you're leaving |
 | **speeding up** | Burning toward the destination |
 | **flip** | Turning end over end to face the other way |

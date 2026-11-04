@@ -1,4 +1,4 @@
-# Cheat check (infinite propellant, ignore max temperature) 2026-10-28T12:55:09Z
+# Cheat check (infinite propellant, ignore max temperature) 2026-11-04T19:41:37Z
 ## The harness's own readings
 ## settings.cfg: lines mentioning a cheat or propellant, before and after the run
 before: 0
@@ -6,7 +6,7 @@ after:  0
 ## settings.cfg: every line KSP changed during the run (diff before -> after)
 (no changes)
 ## Every save except FlipAndBurn-Test: files changed during the run
-files fingerprinted: 5163
+files fingerprinted: 5170
 (no changes)
 ## Every save except FlipAndBurn-Test: lines mentioning InfinitePropellant
 0 files

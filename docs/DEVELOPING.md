@@ -11,7 +11,8 @@ Unity dependency, so it is fully unit-tested:
 
 ```sh
 dotnet test tests/FlipAndBurn.Core.Tests --filter "Category!=LongRunning"  # the everyday suite, about 2 minutes
-dotnet test tests/FlipAndBurn.Core.Tests --filter "Category=LongRunning"   # the arrival-watch sweep (1.5 min) and a Duna trip at 0.02 s steps throughout (about 20 min)
+dotnet test tests/FlipAndBurn.Core.Tests --filter "Category=LongRunning"   # the arrival-watch sweep (1.5 min), the moon-trip sweep (4 min) and a Duna trip at 0.02 s steps throughout (about 20 min)
+dotnet test tests/FlipAndBurn.Core.Tests --filter "Category=MoonSweep"     # just the moon-trip sweep: 62 trips on 7 routes (ADR 0005)
 ```
 
 The steering for the autopilot (`src/FlipAndBurn.Core/Guidance`, [ADR 0003](adr/0003-guidance.md)) is proven

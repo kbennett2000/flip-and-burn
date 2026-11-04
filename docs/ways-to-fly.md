@@ -108,4 +108,31 @@ doesn't ask.
 Either way, the engine never fires while the ship is pointing more than 5° away from where it should, except during a
 skew flip, where firing through the turn is the point.
 
+## Moon trips
+
+Flip and Burn also flies inside one planet's system:
+- **From a planet's orbit to one of its moons:** Kerbin to the Mun or Minmus, Duna to Ike, Jool to Laythe or Tylo, and
+  the moons Outer Planets Mod adds.
+- **From a moon back to its planet:** the Mun to a low Kerbin orbit.
+- **From one moon to another of the same planet:** the Mun to Minmus.
+
+The **Fly to** list shows them grouped. From a planet's orbit, its moons are under "Moons of Kerbin", above the other
+planets. From a moon, its planet and its sibling moons are listed. A moon of *another* planet isn't offered yet: fly to
+that planet first, then on to its moon.
+
+Moon trips are short (Kerbin to the Mun takes about 40 minutes at 1 g), and close to the planet its gravity is strong.
+Flip and Burn allows for it, and the planner's numbers include it. A few things work a little differently:
+- **Waiting to leave.** If the planet (or the moon you're leaving) is between you and the target, the ship waits in its
+  orbit, engine off, until it comes round to the target's side. The planner shows **Burn starts in**, and the trip
+  time includes the wait. It costs no fuel.
+- **Enough push to leave and to arrive.** Leaving a low orbit, the engines must out-pull the planet or moon there: from
+  an 80 km Kerbin orbit that's at least 0.86 g. A coast trip down to the planet itself needs a little more push for its
+  braking (1.17 g for Kerbin's 80 km orbit). The planner names the minimum, and a higher orbit lowers it.
+- **The planet in the way** between two moons: the trip goes around it in two legs, and says so.
+- **Coast trips** need more delta-v here than between planets: roughly half a full burn's or more. The very slow, cheap
+  transfers are MechJeb's own transfer tools' job.
+
+The parking orbit at an airless moon defaults to 10 km above its highest mountains (20 km at the Mun). Change it like
+any other.
+
 Next: [saving, pausing and switching ships →](saving-and-pausing.md)

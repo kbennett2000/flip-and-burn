@@ -76,7 +76,8 @@ the first point, at most one orbit ahead, where both hold:
   for a ship already well above it);
 - the burn's upward part is at least the body's pull there.
 
-Waiting costs no fuel. In a low Kerbin orbit it is up to about 15 minutes, in a low Jool orbit about half an hour. The
+Waiting costs no fuel. It is at most one orbit: about half an hour in a low Kerbin orbit, an hour and a half in a low
+Jool orbit. The
 planner shows it ("Burn starts in", and why), and the trip time includes it. Time warp runs on rails while waiting.
 
 While still in the moon's sphere of influence, the guidance checks every step that the burn doesn't aim through or close
@@ -186,7 +187,15 @@ Each route is flown:
 - once with the skew flip;
 - once as a coast trip with 60 % of a full burn's delta-v (at 2 g for the coast down to Kerbin).
 
-Result: SWEEP_RESULT.
+Result:
+- **62 trips, all arrived as planned:** Pe and Ap within ±5 % of the parking altitude (the worst was 1.5 % off), clear of
+  the planet and every moon.
+- **The safety net fired 0 times.**
+- **Against the planner:** trip time +0.0 to +7.7 % of the estimate; delta-v used 7.3 % under to 1.5 % over (the estimate
+  includes a 3 % margin).
+
+A few of every kind (planet to moon waiting for its window, moon to planet with a skew flip, moon to moon, a coast trip)
+run with the everyday suite.
 
 ### In the game
 
@@ -196,8 +205,9 @@ See `docs/test-evidence/cycle-14-moon-trips.md`.
 
 - Moon trips plan and fly with the same windows, safety net, heat and warp rules, pause and resume as trips between
   planets.
-- A moon trip's planner estimate costs eight gravity integrations instead of one closed-form solve (about a tenth of a
-  second).
+- A moon trip's planner estimate searches for the departure window and flies the burns with gravity eight times: 9 to 90
+  ms on a desktop (a coast plan 20 to 180 ms), against a few milliseconds between planets. The planner reuses a moon
+  trip's estimate for 5 seconds, counting its times down meanwhile.
 - A trip between planets is unchanged apart from the three guidance fixes that apply to every trip.
 - **Not yet:** a moon straight to another planet's system; a detour around a moon in the way; the cheapest slow coast
   transfers inside a planet's pull.
