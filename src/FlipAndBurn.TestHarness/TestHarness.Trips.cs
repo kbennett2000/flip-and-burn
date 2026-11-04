@@ -170,6 +170,10 @@ namespace FlipAndBurn.TestHarness
                 $"physics warp up to x{spec.MaxPhysicsRate}; arrival tolerance: periapsis and apoapsis within {OrbitTolerance * 100:0}% of the parking altitude, " +
                 $"both above the atmosphere; planner can start {module.Planner.CanStart}");
             if (!module.Planner.CanStart) { Fail("trip " + spec.Name, "the planner won't start: " + string.Join(" ", module.Planner.Notes)); failed = true; yield break; }
+            // Trips back to back: the last trip's pictures tucked MechJeb's menu away; show it again, as the player had it,
+            // before the snapshot the arrival is compared with.
+            ShowMechJebMenu(f);
+            yield return new WaitForSecondsRealtime(1f);
             string settingsBefore = MechJebSettingsFingerprint(f);
             beforeSettingsText = lastSettingsText;
             LogBeforeStart(f);

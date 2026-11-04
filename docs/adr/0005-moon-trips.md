@@ -199,7 +199,20 @@ run with the everyday suite.
 
 ### In the game
 
-See `docs/test-evidence/cycle-14-moon-trips.md`.
+Test copy of Kris's saves, the Bebop Refueller (`docs/test-evidence/cycle-14-moon-trips.md`).
+
+| Trip | Orbit | Time against the plan at Start |
+|---|---|---|
+| Kerbin to the Mun, full burn at 1 g, cut-flip-relight (waited 15 min for its window) | 19.81 × 20.05 km, planned 20 | +31 s (+1.0 %) |
+| The Mun back to Kerbin, full burn at 1 g, skew flip (waited 22 min) | 79.80 × 80.14 km, planned 80 | +18 s (+0.5 %) |
+| Kerbin to Minmus, coast trip at 1 g, fuel counted (lowered to 25 km/s so it had to coast) | 19.69 × 20.01 km, planned 20 | +21 s (+0.4 %), 14.1 % of the delta-v left |
+
+The first two flew back to back in one launch, the coast trip in a second. In all three:
+- the engine was off at arrival, and time warp was back to normal before the last burn;
+- MechJeb's settings came back identical apart from window sizes;
+- the engine was at zero whenever the ship pointed more than 5° off (outside the skew flip).
+
+After each launch, MechJeb's, BetterTimeWarp's and KSP's settings were identical to before, and no other save changed.
 
 ## Consequences
 
