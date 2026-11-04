@@ -1,7 +1,6 @@
-# Cheat check (infinite propellant, ignore max temperature) 2026-11-04T22:41:19Z
+# Cheat check (infinite propellant, ignore max temperature) 2026-11-04T23:42:00Z
 ## The harness's own readings
-trip M3: Kerbin orbit to Minmus, coast trip at 1 g; fuel counted (lowered to 25 km/s of delta-v so the trip has to coast), ignore max temperature (the drive can't hold 1 g cool); infinite propellant False, ignore max temperature True, physics warp up to x10; arrival tolerance: periapsis and apoapsis within 5% of the parking altitude, both above the atmosphere; planner can start True
-trip M3: infinite propellant cheat back off: True; ignore max temperature cheat back off: True
+moon heat: no cheats (infinite propellant False, ignore max temperature False); max physics warp choice 10x (was 50x); planner can start True
 ## settings.cfg: lines mentioning a cheat or propellant, before and after the run
 before: 0
 after:  0

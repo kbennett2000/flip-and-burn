@@ -192,6 +192,13 @@ namespace FlipAndBurn.TestHarness
                 if (failed) yield break;
             }
 
+            // Cycle 14 review: the Bebop to the Mun with real heat (only when asked: "moonheat").
+            if ((wanted ?? "").Split(',').Contains("moonheat"))
+            {
+                yield return ProofMoonHeat();
+                if (failed) yield break;
+            }
+
             // Cycle 14: trips among Kerbin's moons, back to back (only when asked: "moontrips").
             if ((wanted ?? "").Split(',').Contains("moontrips"))
             {

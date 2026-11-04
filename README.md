@@ -50,7 +50,7 @@ what make trips like these practical. Stock engines work too, mostly on coast tr
 1. Download `FlipAndBurn-1.1.0.zip` from the [releases page](https://github.com/kbennett2000/flip-and-burn/releases), and
    copy the `FlipAndBurn` folder from inside it into your KSP `GameData` folder ([step by step](docs/installing.md)).
 2. In orbit around a planet, open MechJeb's menu and click **Flip and Burn**.
-3. Pick a planet, check the plan, and press **Start**.
+3. Pick a planet or a moon, check the plan, and press **Start**.
 
 The [first trip walkthrough](docs/first-trip.md) goes through it step by step, from Kerbin orbit to parked at Duna.
 

@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using FlipAndBurn.Core.Guidance;
+using MuMech;
 using UnityEngine;
 
 namespace FlipAndBurn.TestHarness
@@ -67,6 +68,88 @@ namespace FlipAndBurn.TestHarness
 
             Log(string.IsNullOrEmpty(only) ? "moon trips: ALL THREE ARRIVED CLEANLY" : $"moon trips: {only} ARRIVED CLEANLY");
         }
+
+        // The Bebop from its Kerbin orbit to the Mun at 1 g, full burn, with real heat: fuel counted, no cheats, the planner's
+        // warp choice at its default (10x, put back afterwards). Not a pass or fail: what happens is recorded (does it arrive,
+        // step down, or stop, and where does the ship end up). Only when asked: "moonheat".
+        private IEnumerator ProofMoonHeat()
+        {
+            var f = new Flown();
+            yield return PlanOnShip(ResumeShip, null, null, f, SaveFile);
+            if (!f.Ok) yield break;
+            MechJebModuleFlipAndBurn module = f.Module;
+            CheatOptions.InfinitePropellant = false;
+            CheatOptions.IgnoreMaxTemperature = false;
+            MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = double.NaN;   // the player's choice
+            int warpBefore = module.PhysicsWarpIndex;
+            module.PhysicsWarpIndex = 0;
+            if (!module.SelectTarget("Mun")) { Fail("moon heat", "could not select the Mun"); failed = true; yield break; }
+            module.FlipStyleIndex = 0;
+            module.AccelerationG.Val = 1.0;
+            module.SelectTripType(TripType.FullBurn);
+            yield return new WaitForSecondsRealtime(SettleSeconds);
+            module.Replan();
+            yield return new WaitForSecondsRealtime(2f);
+            Planner planner = module.Planner;
+            Log($"moon heat: no cheats (infinite propellant {CheatOptions.InfinitePropellant}, ignore max temperature {CheatOptions.IgnoreMaxTemperature}); " +
+                $"max physics warp choice {PhysicsWarpChoice.Names[module.PhysicsWarpIndex]} (was {PhysicsWarpChoice.Names[PhysicsWarpChoice.Clamp(warpBefore)]}); " +
+                $"planner can start {planner.CanStart}");
+            foreach (KeyValuePair<string, string> row in planner.TripRows.Concat(planner.ShipRows)) Log($"moon heat: planner row {row.Key}: {row.Value}");
+            foreach (string note in planner.Notes) Log("moon heat: planner note: " + note);
+            HideMechJebMenu(f);
+            Frame(f.Ship, 0.30f, 0.9f, 1.4f);
+            yield return Shot("moon-heat-1-planner.png", f);
+
+            string problem = planner.CanStart ? module.PressStart() : "the planner won't start";
+            if (problem != null)
+            {
+                Log("moon heat: Start refused: " + problem + " | " + string.Join(" | ", planner.Notes));
+                yield return EndMoonHeat(f, module, warpBefore);
+                yield break;
+            }
+
+            MechJebModuleFlipAndBurnAutopilot pilot = module.Autopilot;
+            LogPlan(pilot);
+            statusEvery = 30f;
+            int replans = 0, shots = 0;
+            double startUT = Planetarium.GetUniversalTime();
+            float t0 = Time.realtimeSinceStartup;
+            while (pilot.Running && Time.realtimeSinceStartup - t0 < 45 * 60)
+            {
+                if (pilot.Replans != replans)
+                {
+                    replans = pilot.Replans;
+                    GuidanceCommand c = pilot.Last;
+                    Log($"moon heat: step-down {replans} at {Planetarium.GetUniversalTime() - startUT:F0} s into the trip: now {pilot.CurrentAcceleration / 9.81:F2} g; " +
+                        $"phase {c?.Phase}; altitude {f.Ship.altitude / 1000:F0} km above {f.Ship.mainBody.bodyName}; hottest part {HottestFraction(f.Ship) * 100:F0}%; notice: {pilot.Notice}");
+                    if (shots++ < 2) yield return Shot($"moon-heat-2-step-down-{replans}.png", f);
+                }
+
+                yield return Fly(pilot, () => pilot.Replans != replans, 5, "moon heat");
+                yield return new WaitForFixedUpdate();
+            }
+
+            Log($"moon heat: trip over after {Planetarium.GetUniversalTime() - startUT:F0} game s: running {pilot.Running}, arrived {pilot.Arrived}, " +
+                $"step-downs {pilot.Replans}, acceleration at the end {pilot.CurrentAcceleration / 9.81:F2} g; stop reason: {pilot.StopReason}");
+            yield return EndMoonHeat(f, module, warpBefore);
+        }
+
+        private IEnumerator EndMoonHeat(Flown f, MechJebModuleFlipAndBurn module, int warpBefore)
+        {
+            Vessel v = f.Ship;
+            Orbit o = v.orbit;
+            Log($"moon heat: the ship ends up {v.situation} around {v.mainBody.bodyName}: periapsis {o.PeA / 1000:F1} km, apoapsis {o.ApA / 1000:F1} km, " +
+                $"eccentricity {o.eccentricity:F4}; LqdDeuterium {v.parts.Sum(p => p.Resources.Get("LqdDeuterium")?.amount ?? 0):F0} units");
+            yield return new WaitForSecondsRealtime(2f);
+            yield return Shot("moon-heat-3-end.png", f);
+            yield return MapShot(f, "moon-heat-4-map.png");
+            module.PhysicsWarpIndex = warpBefore;
+            Log($"moon heat: max physics warp choice put back to {PhysicsWarpChoice.Names[PhysicsWarpChoice.Clamp(warpBefore)]}");
+            step++;
+        }
+
+        private static double HottestFraction(Vessel v) => v.parts.Count == 0 ? 0
+            : v.parts.Max(p => Math.Max(p.maxTemp > 0 ? p.temperature / p.maxTemp : 0, p.skinMaxTemp > 0 ? p.skinTemperature / p.skinMaxTemp : 0));
 
         /// <summary>The coast trip's delta-v (m/s): about half a full burn's to Minmus at 1 g (44 km/s), so it has to coast.</summary>
         private const double CoastDeltaV = 25_000;

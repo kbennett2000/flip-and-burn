@@ -155,7 +155,7 @@ re-tuned when it ends (above), and the skew flip keeps thrusting through it as b
 
 ### What the planner and the windows show
 
-- **Fly to:** grouped. "Moons of Kerbin" and "Planets" from a planet's orbit; "Mun's planet" and "Other moons of Kerbin"
+- **Fly to:** grouped. "Moons of Kerbin" and "Planets" from a planet's orbit; "The Mun's planet" and "Other moons of Kerbin"
   from the Mun, with the note about other planets.
 - **New rows:** "Burn starts in", when the trip waits for its window, in the planner and the trip window.
 - **New notes:**
@@ -207,7 +207,11 @@ Test copy of Kris's saves, the Bebop Refueller (`docs/test-evidence/cycle-14-moo
 | The Mun back to Kerbin, full burn at 1 g, skew flip (waited 22 min) | 79.80 × 80.14 km, planned 80 | +18 s (+0.5 %) |
 | Kerbin to Minmus, coast trip at 1 g, fuel counted (lowered to 25 km/s so it had to coast) | 19.69 × 20.01 km, planned 20 | +21 s (+0.4 %), 14.1 % of the delta-v left |
 
-The first two flew back to back in one launch, the coast trip in a second. In all three:
+The first two flew back to back in one launch, the coast trip in a second. All three used the "ignore max temperature"
+cheat (the Bebop's drive holds about 0.45 g cool). A third launch flew the Bebop from its Kerbin orbit (about 740 km up)
+to the Mun at 1 g with no cheats at all: the heat guard stepped it down three times (to 0.76, 0.60 and 0.48 g, the first
+about 2.5 minutes into the burn, at 815 km), each with a re-plan and a message, and it arrived in a 20.0 × 20.0 km orbit,
+59 minutes against 49 planned. In all three:
 - the engine was off at arrival, and time warp was back to normal before the last burn;
 - MechJeb's settings came back identical apart from window sizes;
 - the engine was at zero whenever the ship pointed more than 5° off (outside the skew flip).

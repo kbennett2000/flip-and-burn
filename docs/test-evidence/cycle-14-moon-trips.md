@@ -2,7 +2,7 @@
 
 Kris's KSP 1.12.5 install, test copy of his saves only (`saves/FlipAndBurn-Test`), the Bebop Refueller starting in
 orbit around Kerbin. The lines below are copied from KSP.log as the test helper wrote them (`moontrips`, 2026-11-04).
-After each launch the run's own check found MechJeb's settings, BetterTimeWarp's and KSP's settings.cfg identical to
+After each of the three launches the run's own check found MechJeb's settings, BetterTimeWarp's and KSP's settings.cfg identical to
 before, and no file in any other save changed.
 
 ## The first launch: to the Mun, back to Kerbin, on to Minmus
@@ -71,6 +71,29 @@ trip M3: ARRIVED CLEANLY (engine off True)
 ```
 
 It kept more than the 10 % reserve (14.1 % left), and made one course correction on the way.
+
+## The third launch: the Bebop to the Mun with real heat
+
+The trip a player flies first: the Bebop from its Kerbin orbit to the Mun at 1 g, full burn, **fuel counted and no
+cheats**. The planner's warp choice was set to its default, 10x, for the run and put back afterwards. The Bebop's orbit in
+the test copy is about 740 km up, where the least acceleration that can leave Kerbin is about 0.22 g (from an 80 km orbit
+it is 0.86 g).
+
+Before Start the planner offered the trip: it can't know a drive will overheat until it runs. In flight the heat guard
+stepped the trip down three times, each time re-planning the rest and saying so on screen, and the trip arrived:
+
+```
+moon heat: step-down 1 at 1093 s into the trip: now 0.76 g; phase Accelerate; altitude 815 km above Kerbin; hottest part 28%; notice: The engines couldn't safely hold 1.00 g: the ship is overheating (waste heat at 97%; KSP Interstellar drives lose thrust above 90%). Flip and Burn is now holding 0.76 g and has re-planned the rest of the trip: arrival is 4m later (35m from now).
+moon heat: step-down 2 at 1632 s into the trip: now 0.60 g; phase Accelerate; altitude 2713 km above Kerbin; hottest part 90%; notice: The engines couldn't safely hold 0.76 g: "Rocinante" Kerbstein Fusion Drive reached 90% of its temperature limit. Flip and Burn is now holding 0.60 g and has re-planned the rest of the trip: arrival is 2m later (28m from now).
+moon heat: step-down 3 at 1692 s into the trip: now 0.48 g; phase Accelerate; altitude 3090 km above Kerbin; hottest part 90%; notice: The engines couldn't safely hold 0.60 g: "Rocinante" Kerbstein Fusion Drive reached 90% of its temperature limit. Flip and Burn is now holding 0.48 g and has re-planned the rest of the trip: arrival is 2m later (30m from now).
+moon heat: trip over after 3561 game s: running False, arrived True, step-downs 3, acceleration at the end 0.48 g; stop reason: Arrived at The Mun: in a 20.0 × 20.0 km orbit (planned: 20 km, circular). The trip took 59m, 10m longer than planned at Start (49m). It used 14.3 km/s of delta-v and has 68.6 km/s left, 59.1% of the 116 km/s it started with.
+moon heat: the ship ends up ORBITING around Mun: periapsis 20.0 km, apoapsis 20.0 km, eccentricity 0.0002
+```
+
+The first step-down came about 2.5 minutes into the burn (after the 15-minute wait for the window). From then on the
+braking ran at normal speed: the drive stayed near its heat limit, where the heat rules hold time warp off. Pictures:
+`moon-heat-1-planner.jpg` (the planner before Start: 10x, no cheats), `moon-heat-2-step-down-1.jpg` and `-2`,
+`moon-heat-3-end.jpg`, `moon-heat-4-map.jpg`.
 
 ## Pictures
 

@@ -21,7 +21,7 @@ Open it from MechJeb's menu (the **MechJeb** tab, on the right edge of the scree
    Click one to plan a trip to it.
    - **From a planet's orbit:** "Moons of Kerbin" (that planet's moons), then "Planets" (every other planet in your
      game that orbits the Sun).
-   - **From a moon:** "Mun's planet" (the planet it orbits), then "Other moons of Kerbin", with a line saying how to get
+   - **From a moon:** "The Mun's planet" (the planet it orbits), then "Other moons of Kerbin", with a line saying how to get
      to other planets.
 2. **Acceleration:** how hard to push, in g. 1 g is the default. See [choosing an acceleration](ways-to-fly.md#choosing-an-acceleration).
 3. **Trip:** **Full burn** (burn the whole way) or **Coast in the middle** (burn, coast, burn). See

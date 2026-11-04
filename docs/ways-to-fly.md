@@ -124,7 +124,8 @@ that planet first, then on to its moon.
   <img src="images/moon-trips-planner.jpg" alt="The planner in Kerbin orbit with the Mun picked: Moons of Kerbin above Planets in the Fly to list, Burn starts in 15m, and notes saying Kerbin is between the ship and the Mun and that the numbers allow for Kerbin's gravity" width="40%">
 </p>
 
-Moon trips are short (Kerbin to the Mun takes about 40 minutes at 1 g), and close to the planet its gravity is strong.
+Moon trips are short (Kerbin to the Mun at 1 g is about 35 minutes of flying, plus up to one orbit of waiting for the
+window: 49 minutes in all in the test), and close to the planet its gravity is strong.
 Flip and Burn allows for it, and the planner's numbers include it. A few things work a little differently:
 - **Waiting to leave.** If the planet (or the moon you're leaving) is between you and the target, the ship waits in its
   orbit, engine off, until it comes round to the target's side. The planner shows **Burn starts in**, and the trip

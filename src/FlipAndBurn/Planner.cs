@@ -211,7 +211,7 @@ namespace FlipAndBurn
 
             if (Target == null)
             {
-                Notes.Insert(0, "Pick a planet to fly to.");
+                Notes.Insert(0, "Pick where to fly to.");
                 return;
             }
 
