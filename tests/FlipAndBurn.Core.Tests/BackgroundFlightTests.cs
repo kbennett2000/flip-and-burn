@@ -105,8 +105,8 @@ namespace FlipAndBurn.Core.Tests
             Add(target, true);
             Add(departure, false);
             if (c.System != null) foreach (PlanetRecord o in c.System.Others) Add(o, false);
-            double central = c.System != null && target.IsCentre ? 0 : centralMu;
-            return (config, bodies, central, sim, target, target.Radius + Flights.TargetSafeAltitude(target));
+            // The centre always pulls, also when it is the target (from a moon back to its planet): as the simulator flies it.
+            return (config, bodies, centralMu, sim, target, target.Radius + Flights.TargetSafeAltitude(target));
         }
 
         private static double PlannedFullBurn(Case c, out double time)

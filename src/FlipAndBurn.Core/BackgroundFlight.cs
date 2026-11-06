@@ -56,6 +56,7 @@ namespace FlipAndBurn.Core
         private readonly List<GravitySource> bodies;
         private readonly double centralMu, exhaustVelocity, dryMass, targetSafeRadius;
         private readonly double chargePerNewton, chargeMade, chargeFloor;
+        private readonly double fullThrust, ispThrottleExponent;
         private double noSolutionSince = double.NaN;
 
         public double UT { get; private set; }
@@ -78,16 +79,21 @@ namespace FlipAndBurn.Core
 
         /// <param name="config">The trip, as a watched trip would be configured from here (positions relative to the centre).</param>
         /// <param name="bodies">Every body that pulls (the target with <see cref="GravitySource.Always"/>), not the centre.</param>
-        /// <param name="centralGravParameter">The centre's (0 when the target is the centre: it pulls as the target).</param>
+        /// <param name="centralGravParameter">The centre's, always (also when the centre is the target).</param>
         /// <param name="exhaustVelocity">m/s; infinity when no propellant is used (infinite propellant, or powered electric engines).</param>
         /// <param name="dryMass">kg: the mass when the propellant the engines reach has run out.</param>
         /// <param name="chargePerNewton">Electric engines: electric charge a second per newton of thrust (0 otherwise).</param>
         /// <param name="chargeMade">Electric charge the ship makes a second.</param>
         /// <param name="chargeStored">Electric charge in the batteries now, and the floor never to go below.</param>
+        /// <param name="fullThrust">N at 100 %: with <paramref name="ispThrottleExponent"/>, the exhaust velocity at part
+        /// throttle is exhaustVelocity * throttle^k (KSP Interstellar fusion drives, ADR 0002); 0 for a fixed exhaust velocity.</param>
         public BackgroundFlight(GuidanceConfig config, IEnumerable<GravitySource> bodies, double centralGravParameter, double ut,
             Vec3 position, Vec3 velocity, Vec3 facing, double mass, double exhaustVelocity, double dryMass, double targetSafeRadius,
-            double chargePerNewton = 0, double chargeMade = 0, double chargeStored = 0, double chargeFloor = 0)
+            double chargePerNewton = 0, double chargeMade = 0, double chargeStored = 0, double chargeFloor = 0,
+            double fullThrust = 0, double ispThrottleExponent = 0)
         {
+            this.fullThrust = Math.Max(0, fullThrust);
+            this.ispThrottleExponent = Math.Max(0, ispThrottleExponent);
             this.config = config ?? throw new ArgumentNullException(nameof(config));
             guidance = new FlipAndBurnGuidance(config);
             this.bodies = new List<GravitySource>(bodies ?? Array.Empty<GravitySource>());
@@ -186,7 +192,10 @@ namespace FlipAndBurn.Core
 
             if (!double.IsPositiveInfinity(exhaustVelocity))
             {
-                double dm = thrust / exhaustVelocity * dt;
+                double ve = exhaustVelocity;
+                if (fullThrust > 0 && ispThrottleExponent > 0)
+                    ve *= Math.Pow(Math.Min(1, Math.Max(1e-6, thrust / fullThrust)), ispThrottleExponent);
+                double dm = thrust / ve * dt;
                 if (Mass - dm < dryMass)
                 {
                     End = BackgroundEnd.OutOfFuel;

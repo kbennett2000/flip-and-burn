@@ -63,6 +63,25 @@ namespace FlipAndBurn.Core
         /// <summary>Engines Flip and Burn shut down (a cut, the coast), by part persistentId, to relight when it resumes.</summary>
         public List<uint> CutEngines { get; set; } = new List<uint>();
 
+        /// <summary>The player pressed Pause: the trip waits (it doesn't fly on while they are away). Optional: false if not saved.</summary>
+        public bool PausedByPlayer { get; set; }
+
+        /// <summary>
+        /// What the ship needs to fly on while the player is away (ADR 0006), captured from the live ship while it was
+        /// flown. Optional: null if not saved (a trip saved before fleet flights carries on when the player comes back).
+        /// </summary>
+        public AwayShip Away { get; set; }
+
+        /// <summary>
+        /// Where the ship was (relative to the trip's centre) when the trip last changed hands, between the player's ship
+        /// and the background: to measure the jump at the next handover. Optional: NaN if not saved.
+        /// </summary>
+        public double HandoverUT { get; set; } = double.NaN;
+        /// <summary>When the fleet started flying the trip without the player (UT); NaN while the player flies it.</summary>
+        public double FleetSinceUT { get; set; } = double.NaN;
+        public Vec3 HandoverPosition { get; set; }
+        public Vec3 HandoverVelocity { get; set; }
+
         /// <summary>The coast budget not yet used (m/s), never below zero.</summary>
         public double DeltaVLeft => Math.Max(0, DeltaVBudget - DeltaVUsed);
 
@@ -93,6 +112,17 @@ namespace FlipAndBurn.Core
             {
                 Add("centre", Centre);
                 Add("departed", Departed ? "True" : "False");
+            }
+
+            // Optional, added with fleet flights (ADR 0006): earlier versions ignore them.
+            if (PausedByPlayer) Add("pausedByPlayer", "True");
+            if (Away != null) v.AddRange(Away.ToValues());
+            if (!double.IsNaN(FleetSinceUT)) Add("fleetSinceUT", FleetSinceUT.ToString("R", Inv));
+            if (!double.IsNaN(HandoverUT))
+            {
+                Add("handoverUT", HandoverUT.ToString("R", Inv));
+                Add("handoverPosition", VecText(HandoverPosition));
+                Add("handoverVelocity", VecText(HandoverVelocity));
             }
 
             return v;
@@ -169,6 +199,33 @@ namespace FlipAndBurn.Core
                 }
             }
 
+            if (map.TryGetValue("pausedByPlayer", out string paused))
+            {
+                ok &= bool.TryParse(paused, out bool p);
+                r.PausedByPlayer = p;
+            }
+
+            if (map.ContainsKey(AwayShip.Key))
+            {
+                r.Away = AwayShip.FromValues(map);
+                ok &= r.Away != null;
+            }
+
+            if (map.TryGetValue("fleetSinceUT", out string fleet))
+            {
+                ok &= double.TryParse(fleet, NumberStyles.Float, Inv, out double f);
+                r.FleetSinceUT = f;
+            }
+
+            if (map.TryGetValue("handoverUT", out string hut))
+            {
+                ok &= double.TryParse(hut, NumberStyles.Float, Inv, out double h) & TryVec(map, "handoverPosition", out Vec3 hp) &
+                      TryVec(map, "handoverVelocity", out Vec3 hv);
+                r.HandoverUT = h;
+                r.HandoverPosition = hp;
+                r.HandoverVelocity = hv;
+            }
+
             if (missing != null)
             {
                 problem = $"the saved trip is missing '{missing}'";
@@ -190,6 +247,20 @@ namespace FlipAndBurn.Core
                 set(x);
                 return true;
             }
+        }
+            internal static string VecText(Vec3 v) => $"{v.X.ToString("R", Inv)},{v.Y.ToString("R", Inv)},{v.Z.ToString("R", Inv)}";
+
+        internal static bool TryVec(Dictionary<string, string> map, string name, out Vec3 v)
+        {
+            v = Vec3.Zero;
+            if (!map.TryGetValue(name, out string s)) return false;
+            string[] p = s.Split(',');
+            if (p.Length != 3) return false;
+            var x = new double[3];
+            for (int i = 0; i < 3; i++)
+                if (!double.TryParse(p[i].Trim(), NumberStyles.Float, Inv, out x[i]) || double.IsNaN(x[i]) || double.IsInfinity(x[i])) return false;
+            v = new Vec3(x[0], x[1], x[2]);
+            return true;
         }
     }
 }
