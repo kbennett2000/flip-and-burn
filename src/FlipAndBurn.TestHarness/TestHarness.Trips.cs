@@ -45,6 +45,13 @@ namespace FlipAndBurn.TestHarness
                 Name = "C", Prefix = "trip-c", What = "full burn to Duna at 1 g with a skew flip; infinite propellant and ignore max temperature",
                 AccelG = 1.0, Trip = TripType.FullBurn, FlipStyle = 1, InfinitePropellant = true, IgnoreMaxTemperature = true, MaxPhysicsRate = 25,
             },
+            // Cycle 15 (PR 14): a deep-well arrival, braking planned with headroom for Jool's pull (CoastPlanner.BrakingFractionFor).
+            new TripSpec
+            {
+                Name = "J", Prefix = "trip-j", Target = "Jool",
+                What = "full burn to Jool at 1 g, cut, flip, relight; infinite propellant and ignore max temperature",
+                AccelG = 1.0, Trip = TripType.FullBurn, FlipStyle = 0, InfinitePropellant = true, IgnoreMaxTemperature = true, MaxPhysicsRate = 25,
+            },
         };
 
         /// <summary>The arrival tolerance, set before flying: periapsis and apoapsis both within this share of the parking altitude.</summary>
@@ -261,6 +268,9 @@ namespace FlipAndBurn.TestHarness
                     {
                         slowShot = true;
                         Frame(cur.Ship, 0.25f, 4.0f, 1.3f);
+                        Log($"trip {spec.Name} acceleration row: {Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (aiming for " +
+                            $"{Planner.FormatG(pilot.AimingFor / Planner.OneG)}{(pilot.AimingWhy != null ? ": " + pilot.AimingWhy : "")}); trip acceleration " +
+                            $"{Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)}, step-downs {pilot.Replans}");
                         yield return Shot($"{spec.Prefix}-4-slow-down.png", cur);
                         continue;
                     }
