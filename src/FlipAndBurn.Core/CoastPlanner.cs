@@ -13,7 +13,7 @@ namespace FlipAndBurn.Core
         public double BurnDownTime { get; internal set; }    // s, braking burn
         public double TripTime { get; internal set; }        // s
         public double ArrivalUT { get; internal set; }
-        /// <summary>Delta-v of the two planned burns, gravity included (m/s).</summary>
+        /// <summary>Delta-v of the two planned burns, gravity included (m/s), the braking at the share the guidance flies (<see cref="CoastPlanner.BrakingFlownShare"/>).</summary>
         public double DeltaV { get; internal set; }
         public double Budget { get; internal set; }
         /// <summary>Moon trips leaving the planet: the wait in orbit before the first burn (s), included in <see cref="TripTime"/>.</summary>
@@ -64,6 +64,18 @@ namespace FlipAndBurn.Core
             double x = Math.Min(1, (share - DeepWellStart) / (DeepWellFull - DeepWellStart));
             return BrakingFraction - (BrakingFraction - DeepWellFraction) * x;
         }
+
+        /// <summary>
+        /// The share of the acceleration a coast plan counts the braking's delta-v at, for its planned share: the same where it
+        /// is the usual 99 %; in a deep well, halfway to full thrust. Moon trips: the arrival law starts at the planned share
+        /// and uses the headroom at the end, finishing at full thrust (measured in the simulator: Tylo 0.92 for 0.85 planned,
+        /// Laythe 0.88, the Mun to Kerbin at 2 g 0.95). Between planets the braking flies at its planned share but longer than
+        /// the plan's timing, whose smooth gravity path misses the end of a deep well (Jool: 5,287 s against 4,774): the same
+        /// extra cost. Counted so, planned and flown delta-v agree within about 1 % between planets and 2.6 to 5.1 % (flown
+        /// under) for moon coast trips.
+        /// </summary>
+        public static double BrakingFlownShare(double plannedShare) =>
+            plannedShare < BrakingFraction - 1e-9 ? (plannedShare + 1) / 2 : plannedShare;
 
         /// <summary>The braking share for a trip to <paramref name="target"/>'s parking orbit at <paramref name="acceleration"/>.</summary>
         public static double BrakingFractionFor(TargetPlanet target, double parkingAltitude, double acceleration)
@@ -147,7 +159,9 @@ namespace FlipAndBurn.Core
             }
 
             var solver = new TwoArcSolver(EndState, a1, a2, request.MaxTripTime);
-            double DeltaVFor(TwoArcSolver.Arcs arcs) => a1 * arcs.T1 + a2 * arcs.T2;
+            // The braking's delta-v at the share the guidance flies (BrakingFlownShare); its timing at the planned share.
+            double a2Flown = request.Acceleration * BrakingFlownShare(a2 / request.Acceleration);
+            double DeltaVFor(TwoArcSolver.Arcs arcs) => a1 * arcs.T1 + a2Flown * arcs.T2;
 
             TwoArcSolver.Arcs best = default;
             for (int pass = 0; pass < 6; pass++)
@@ -298,7 +312,7 @@ namespace FlipAndBurn.Core
             result.BurnDownTime = best.T2;
             result.TripTime = best.Total;
             result.ArrivalUT = request.StartTime + best.Total;
-            result.DeltaV = a1 * best.T1 + a2 * best.T2;
+            result.DeltaV = a1 * best.T1 + request.Acceleration * BrakingFlownShare(a2 / request.Acceleration) * best.T2;
             result.WellVelocity = wellV;
             result.WellPosition = wellP;
             result.Feasible = result.DeltaV <= burnBudget && best.Tc >= 0;
@@ -329,6 +343,7 @@ namespace FlipAndBurn.Core
                     best.T1, best.A1, best.Tc, best.T2, end.Position, end.Velocity),
                 best.Total, out Vec3 g1, out Vec3 g2, PathGravity.CoastSamples);
             gravity.FrameCurve(request.StartTime, best.Total, out Vec3 curveP, out Vec3 curveV);
+
             DepartureGravity.Effect(request.Departure, request.StartTime, request.ShipPosition, request.ShipVelocity,
                 best.A1, best.T1, best.Total, out Vec3 depV, out Vec3 depP);
             wellV = g1 + curveV + depV;

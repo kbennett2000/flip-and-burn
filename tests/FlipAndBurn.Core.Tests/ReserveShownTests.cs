@@ -50,10 +50,7 @@ namespace FlipAndBurn.Core.Tests
             Assert.True(r.Finished);
             Assert.True(after > 10, "too few samples");
             Assert.InRange(worst, 0, 1.0);
-            // While climbing out, before the guidance's own figures settle, the window shows the plan's figure at what coast trips
-            // typically use (2.7 % over their burns). The Jool coast trip uses 4.8 % since its braking is planned with headroom for
-            // Jool's pull (cycle 15, CoastPlanner.BrakingFractionFor): 1.8 points under that figure for those first minutes.
-            Assert.InRange(worstClimb, 0, 2.0);
+            Assert.InRange(worstClimb, 0, 1.5);
         }
 
         [Fact]

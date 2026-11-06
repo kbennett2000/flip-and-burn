@@ -33,6 +33,8 @@ namespace FlipAndBurn.Core.Guidance
         private readonly Vec3 finalVelocity;
         private readonly double nominal, min, max;
         private double tau, lastUT, nowUT;
+        private Vec3 lastZem, lastZev, evalZem, evalZev;   // the misses at the deadline flown (last), and at the last evaluation
+        private double lastT;
         private bool started;
 
         /// <param name="nominal">Braking acceleration the trip was planned with.</param>
@@ -84,6 +86,11 @@ namespace FlipAndBurn.Core.Guidance
             }
             else Carried++;
 
+            // The misses at the deadline being flown, for the forecast (NudgeTau evaluates other deadlines on the way).
+            AccelFor(r, v, tau);
+            lastZem = evalZem;
+            lastZev = evalZev;
+            lastT = tau;
             timeToGo = tau;
             if (mag == 0) return a;
             return a * (Math.Max(min, Math.Min(max, mag)) / mag);
@@ -109,7 +116,30 @@ namespace FlipAndBurn.Core.Guidance
             gravity.Integrate(nowUT, r, v, finalPosition, finalVelocity, t, out Vec3 g1, out Vec3 g2);
             Vec3 zem = finalPosition - (r + v * t + g2);
             Vec3 zev = finalVelocity - (v + g1);
+            evalZem = zem;
+            evalZev = zev;
             return zem * (6 / (t * t)) - zev * (2 / t);
+        }
+
+        /// <summary>
+        /// The delta-v the rest of the braking will use (m/s), as the law plans it at the last <see cref="Solve"/>: its thrust
+        /// changes evenly from now to the deadline (the zero-effort solution: from 6 ZEM/τ² - 2 ZEV/τ now to
+        /// -6 ZEM/τ² + 4 ZEV/τ at the end), each moment held within the band. In a deep well it rises toward full thrust at the end.
+        /// </summary>
+        public double ForecastDeltaV()
+        {
+            double t = lastT;
+            if (!(t > 0)) return 0;
+            Vec3 now = lastZem * (6 / (t * t)) - lastZev * (2 / t), end = lastZem * (-6 / (t * t)) + lastZev * (4 / t);
+            const int n = 16;
+            double sum = 0;
+            for (int i = 0; i <= n; i++)
+            {
+                double x = (double)i / n, w = i == 0 || i == n ? 0.5 : 1;
+                sum += w * Math.Max(min, Math.Min(max, (now + (end - now) * x).Length));
+            }
+
+            return sum / n * t;
         }
 
         /// <summary>
