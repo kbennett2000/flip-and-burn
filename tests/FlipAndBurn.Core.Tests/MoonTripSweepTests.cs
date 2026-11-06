@@ -42,10 +42,11 @@ namespace FlipAndBurn.Core.Tests
 
         /// <summary>One trip. Coast trips get a budget of 60 % of what a full burn at that acceleration takes (at 40 % no coast trip
         /// fits some routes, from the Mun to Kerbin and from Jool to Laythe, and the planner says so).</summary>
-        public static FlightResult FlyRoute(Route r, double g, TripType trip, FlipManeuver flip, double angle) => FlyRouteObserved(r, g, trip, flip, angle, null);
+        public static FlightResult FlyRoute(Route r, double g, TripType trip, FlipManeuver flip, double angle, double turnDeg = 5) =>
+            FlyRouteObserved(r, g, trip, flip, angle, null, turnDeg);
 
         public static FlightResult FlyRouteObserved(Route r, double g, TripType trip, FlipManeuver flip, double angle,
-            Action<double, GuidanceCommand, double, FlipAndBurnGuidance> observe)
+            Action<double, GuidanceCommand, double, FlipAndBurnGuidance> observe, double turnDeg = 5)
         {
             SimSystem sys = SimSystem.Around(r.Planet, r.From, SimSystem.DefaultParking(r.From == r.Planet ? r.Planet.AtCentre() : r.From), angle);
             PlanetRecord target = sys.TargetRecord(r.To);
@@ -53,13 +54,13 @@ namespace FlipAndBurn.Core.Tests
             double budget = 0;
             if (trip == TripType.CoastInTheMiddle)
             {
-                FlightResult probe = Flights.Fly("probe", target, g, flip, 0, parking, system: sys, stopAfterSeconds: 1);
+                FlightResult probe = Flights.Fly("probe", target, g, flip, 0, parking, system: sys, stopAfterSeconds: 1, turnRateDegPerSec: turnDeg);
                 budget = 0.6 * probe.PlannedDeltaV;
             }
 
-            string name = $"{r.Name}, {(trip == TripType.FullBurn ? "full burn" : "coast")}, {g:0.0} g, {(flip == FlipManeuver.SkewFlip ? "skew" : "cut-flip-relight")}, start {angle * 180 / Math.PI:0} deg";
+            string name = $"{r.Name}, {(trip == TripType.FullBurn ? "full burn" : "coast")}, {g:0.0} g, {(flip == FlipManeuver.SkewFlip ? "skew" : "cut-flip-relight")}, start {angle * 180 / Math.PI:0} deg, turning {turnDeg:0} deg/s";
             return Flights.Fly(name, target, g, flip, 0, parking, system: sys, trip: trip, deltaVBudget: budget, wallSeconds: 150, maxTimeFactor: 3,
-                observe: observe);
+                observe: observe, turnRateDegPerSec: turnDeg);
         }
 
         /// <summary>Why a trip didn't meet the standard, or null.</summary>
@@ -88,12 +89,13 @@ namespace FlipAndBurn.Core.Tests
                    $" | clear by {f.ClosestToObstacle / 1000:F1} km | watch peak {f.WatchPeakShare:F2}{(p == null ? "" : " | " + p)}";
         }
 
-        private void Run(IEnumerable<(Route Route, double G, TripType Trip, FlipManeuver Flip, double Angle)> cases)
+        private void Run(IEnumerable<(Route Route, double G, TripType Trip, FlipManeuver Flip, double Angle)> cases, params double[] turnRates)
         {
+            if (turnRates.Length == 0) turnRates = new[] { 5.0 };
             var rows = new List<FlightResult>();
-            foreach (var c in cases)
+            foreach (var c in cases.SelectMany(x => turnRates.Select(t => (x, t))))
             {
-                FlightResult f = FlyRoute(c.Route, c.G, c.Trip, c.Flip, c.Angle);
+                FlightResult f = FlyRoute(c.x.Route, c.x.G, c.x.Trip, c.x.Flip, c.x.Angle, c.t);
                 rows.Add(f);
                 output.WriteLine(Row(f));
             }
@@ -121,7 +123,7 @@ namespace FlipAndBurn.Core.Tests
         [Fact]
         [Trait("Category", "LongRunning")]
         [Trait("Category", "MoonSweep")]
-        public void Sweep_EveryRoute() => Run(AllCases());
+        public void Sweep_EveryRoute() => Run(AllCases(), 5, 10);
 
         /// <summary>The everyday subset: one of each kind of moon trip.</summary>
         [Fact]

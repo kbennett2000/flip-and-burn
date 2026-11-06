@@ -530,22 +530,31 @@ namespace FlipAndBurn.Core.Guidance
 
         /// <summary>Moon trips: the trim burn stops when the velocity is this close to circular (m/s), or after <see cref="TrimSeconds"/>.</summary>
         public const double TrimTolerance = 0.2;
-        public const double TrimSeconds = 120;
+        public const double TrimSeconds = 600;
+
+        /// <summary>Moon trips: the trim also brings the ship to the parking height, climbing or sinking at up to this (m/s).</summary>
+        public const double TrimClimbRate = 30;
 
         /// <summary>
         /// Moon trips (ADR 0005): a last trim once the speed along the orbit is right. At a small moon the last burn takes a
         /// second or two at the chosen acceleration, too short to settle the climb or fall left from the braking, and 1 % of
-        /// orbital speed left over is a 5 % error in height. Steer the velocity straight to circular at the current height:
-        /// turn with the engine off if need be, then burn gently until within <see cref="TrimTolerance"/>.
+        /// orbital speed left over is a 5 % error in height. And arriving much too fast in a strong pull (Tylo, 1.4 km/s over
+        /// orbital speed), the last burn can't hold the height at all: the ship balloons up and falls back, and the burn ends
+        /// wherever the speed comes right. So steer the velocity to circular with a gentle climb or sink toward the parking
+        /// height (up to <see cref="TrimClimbRate"/>), and finish only within 1 % of the parking altitude: turn with the
+        /// engine off if need be, then burn gently.
         /// </summary>
         private bool Trim(GuidanceInput input, Vec3 r, Vec3 v, Vec3 up, double vc, GuidanceCommand cmd)
         {
             Vec3 vt = v - up * Vec3.Dot(v, up);
             Vec3 along = vt.Length > 1e-6 ? vt.Normalized() : Vec3.Cross(Vec3.Cross(up, config.EquatorNormal), up).Normalized();
-            Vec3 dv = along * vc - v;
+            double rl = r.Length, heightError = ParkingRadius - rl;
+            double climb = Math.Max(-TrimClimbRate, Math.Min(TrimClimbRate, 0.02 * heightError));
+            Vec3 dv = along * vc + up * climb - v;
             if (!trimming) trimStartUT = input.UT;
             trimming = true;
-            if (dv.Length <= Math.Max(TrimTolerance, 0.0005 * vc) || input.UT - trimStartUT > TrimSeconds)
+            bool atHeight = Math.Abs(heightError) <= Math.Max(100, 0.01 * config.ParkingAltitude);
+            if ((atHeight && (along * vc - v).Length <= Math.Max(TrimTolerance, 0.0005 * vc)) || input.UT - trimStartUT > TrimSeconds)
             {
                 trimming = false;
                 return false;
@@ -556,6 +565,40 @@ namespace FlipAndBurn.Core.Guidance
             cmd.Acceleration = pointed ? Math.Min(config.Acceleration, dv.Length / 2) : 0;
             cmd.TimeToArrival = dv.Length / config.Acceleration;
             return true;
+        }
+
+        private Vec3 circularizeDirection;
+        private double circularizeDirectionUT = double.NaN;
+
+        /// <summary>
+        /// Once the last burn is under way, its direction changes no faster than the ship can turn. To hold the height in a
+        /// strong pull the burn keeps tilting up and down; a ship that can't follow points more than 5 degrees off, and the
+        /// autopilot holds the engine at zero until it catches up, so the height drifts. Seen at Tylo: a 5-degree-a-second
+        /// ship arrived 7 km low watched and 9 km high in the background (ADR 0005 addendum, cycle 15).
+        /// </summary>
+        private Vec3 LimitTurn(Vec3 want, double ut)
+        {
+            if (double.IsNaN(circularizeDirectionUT))
+            {
+                circularizeDirection = want;
+                circularizeDirectionUT = ut;
+                return want;
+            }
+
+            double max = config.TurnRate * Math.Max(0, ut - circularizeDirectionUT);
+            double angle = Vec3.Angle(circularizeDirection, want);
+            if (angle > max && angle > 1e-9)
+            {
+                Vec3 axis = Vec3.Cross(circularizeDirection, want);
+                if (axis.Length < 1e-12) axis = Vec3.Cross(circularizeDirection, new Vec3(0, 0, 1));
+                axis = axis.Normalized();
+                Vec3 perp = Vec3.Cross(axis, circularizeDirection);
+                want = (circularizeDirection * Math.Cos(max) + perp * Math.Sin(max)).Normalized();
+            }
+
+            circularizeDirection = want;
+            circularizeDirectionUT = ut;
+            return want;
         }
 
         /// <summary>The last burn turns with the engine off when it is more than this far (degrees) from where it should point.</summary>
@@ -603,7 +646,11 @@ namespace FlipAndBurn.Core.Guidance
             double vc = Math.Sqrt(mu / rl);
             double excess = vt - vc;
 
-            if (circularizeSign == 0) circularizeSign = Math.Sign(excess);
+            if (circularizeSign == 0)
+            {
+                circularizeSign = Math.Sign(excess);
+                circularizeDirectionUT = double.NaN;
+            }
             // Done once the speed reaches circular (it has crossed over), or there is nothing left to do.
             if (trimming || circularizeSign * excess <= 0 || Math.Abs(excess) < 0.05)
             {
@@ -620,7 +667,7 @@ namespace FlipAndBurn.Core.Guidance
             radial = Math.Max(-0.8 * a, Math.Min(0.8 * a, radial));
             double tangential = -circularizeSign * Math.Sqrt(a * a - radial * radial);
 
-            cmd.Direction = (up * radial + along * tangential).Normalized();
+            cmd.Direction = LimitTurn((up * radial + along * tangential).Normalized(), input.UT);
             // A big turn first, then burn: thrust while turning half-way round pushes the ship the wrong way. Arriving a little
             // fast this burn brakes along the braking direction and needs at most a small turn; arriving a little slow it
             // speeds up, half a turn away.

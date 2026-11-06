@@ -269,7 +269,7 @@ namespace FlipAndBurn.Core.Tests
             double stopAfterSeconds = double.MaxValue, double traceFrom = double.MaxValue, double traceTo = double.MaxValue, double traceEvery = 50, Action<GuidanceConfig> configure = null,
             TripType trip = TripType.FullBurn, double deltaVBudget = 0, Action<ShipSimulator> start = null, bool watch = true,
             double wallSeconds = MaxWallSeconds, Action<double, GuidanceCommand, double, FlipAndBurnGuidance> observe = null,
-            SimSystem system = null)
+            SimSystem system = null, bool holdWhenOffPointing = true)
         {
             // The body the ship starts in orbit around: Kerbin for a trip between planets, or as the moon system says.
             PlanetRecord kerbin = system?.Departure ?? KerbolSystem.Kerbin;
@@ -404,7 +404,7 @@ namespace FlipAndBurn.Core.Tests
                     StateVector tp = target.Ephemeris.StateAt(sim.UT);
                     Vec3 rr = sim.Position - tp.Position, vr = sim.Velocity - tp.Velocity;
                     double radialSpeed = Vec3.Dot(vr, rr.Normalized());
-                    result.Trace.Add($"{since,10:F0} s {cmd.Phase,-13} alt {(rr.Length - target.Radius) / 1000,12:F1} km  v {vr.Length,10:F1} m/s  vrad {radialSpeed,10:F1}  tgo {cmd.TimeToArrival,9:F1}  tburn {cmd.TimeToBurn,9:F1}  tflip {cmd.TimeToFlip,8:F1}  cerr {cmd.CourseError,8:F2}{(cmd.Correcting ? " CORR" : "")}  acc {cmd.Acceleration:F2}  ang(-v) {Vec3.Angle(cmd.Direction, -vr) * 180 / Math.PI,6:F1}  ang(up) {Vec3.Angle(cmd.Direction, rr) * 180 / Math.PI,6:F1}");
+                    result.Trace.Add($"{since,10:F0} s off {Vec3.Angle(sim.Facing, cmd.Direction) * 180 / Math.PI,6:F1} {cmd.Phase,-13}{(cmd.Circularizing ? "C" : " ")} alt {(rr.Length - target.Radius) / 1000,12:F1} km  v {vr.Length,10:F1} m/s  vrad {radialSpeed,10:F1}  tgo {cmd.TimeToArrival,9:F1}  tburn {cmd.TimeToBurn,9:F1}  tflip {cmd.TimeToFlip,8:F1}  cerr {cmd.CourseError,8:F2}{(cmd.Correcting ? " CORR" : "")}  acc {cmd.Acceleration:F2}  ang(-v) {Vec3.Angle(cmd.Direction, -vr) * 180 / Math.PI,6:F1}  ang(up) {Vec3.Angle(cmd.Direction, rr) * 180 / Math.PI,6:F1}");
                 }
 
                 if (cmd.Phase == GuidancePhase.Done)
@@ -438,8 +438,11 @@ namespace FlipAndBurn.Core.Tests
                 }
                 else
                 {
-                    result.DeltaVUsed += cmd.Acceleration * dt;
-                    sim.Step(dt, cmd.Direction, cmd.Acceleration);
+                    // The live autopilot's rule (EngineCommand): outside the flip, no thrust while pointing more than 5 degrees off.
+                    double thrustNow = cmd.Acceleration;
+                    if (holdWhenOffPointing && cmd.Phase != GuidancePhase.Flip && Vec3.Angle(sim.Facing, cmd.Direction) * 180 / Math.PI > 5) thrustNow = 0;
+                    result.DeltaVUsed += thrustNow * dt;
+                    sim.Step(dt, cmd.Direction, thrustNow);
                 }
 
                 observe?.Invoke(sim.UT, cmd, result.DeltaVUsed, guidance);

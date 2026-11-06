@@ -151,6 +151,37 @@ namespace FlipAndBurn.TestHarness
         private static double HottestFraction(Vessel v) => v.parts.Count == 0 ? 0
             : v.parts.Max(p => Math.Max(p.maxTemp > 0 ? p.temperature / p.maxTemp : 0, p.skinMaxTemp > 0 ? p.skinTemperature / p.skinMaxTemp : 0));
 
+        // A watched coast trip from a low Jool orbit to Tylo (cycle 15: the last-burn fix, for the arrival that missed in the
+        // simulator). The test copy has no ship near Jool: KSP's own "set orbit" cheat (test copy only) puts the Bebop in a
+        // 220 km orbit around Jool, and its propellant is lowered in memory so the trip has to coast. Only when asked: "tylocoast".
+        private IEnumerator ProofTyloCoast()
+        {
+            var f = new Flown();
+            yield return PlanOnShip(ResumeShip, null, null, f, SaveFile);
+            if (!f.Ok) yield break;
+            CelestialBody jool = FlightGlobals.Bodies.First(b => b.bodyName == "Jool");
+            double sma = jool.Radius + 220_000;
+            FlightGlobals.fetch.SetShipOrbit(FlightGlobals.Bodies.IndexOf(jool), 0, sma, 0, 0, 0, 0, 0);
+            float until = Time.realtimeSinceStartup + 60;
+            while (Time.realtimeSinceStartup < until && (f.Ship.mainBody != jool || f.Ship.packed)) yield return new WaitForSecondsRealtime(0.5f);
+            yield return new WaitForSecondsRealtime(5f);
+            Orbit o = f.Ship.orbit;
+            Log($"tylo coast: the Bebop set into orbit around {f.Ship.mainBody.bodyName} with KSP's set-orbit cheat (test copy): periapsis {o.PeA / 1000:F1} km, " +
+                $"apoapsis {o.ApA / 1000:F1} km");
+            if (f.Ship.mainBody != jool) { Fail("tylo coast", "the Bebop isn't around Jool"); failed = true; yield break; }
+            yield return LowerDeltaV(f, 30_000, 9.81);
+            if (failed) yield break;
+            var spec = new TripSpec
+            {
+                Name = "T1", Prefix = "tylo-coast", Target = "Tylo",
+                What = "low Jool orbit to Tylo, coast trip at 1 g; fuel counted (lowered to 30 km/s so the trip coasts), ignore max temperature",
+                AccelG = 1.0, Trip = TripType.CoastInTheMiddle, FlipStyle = 0, IgnoreMaxTemperature = true, MaxPhysicsRate = 10,
+            };
+            var ok = new CaptureResult();
+            yield return RunTrip(f, spec, ok, null);
+            if (!failed && ok.Ok) Log("tylo coast: ARRIVED CLEANLY");
+        }
+
         /// <summary>The coast trip's delta-v (m/s): about half a full burn's to Minmus at 1 g (44 km/s), so it has to coast.</summary>
         private const double CoastDeltaV = 25_000;
 

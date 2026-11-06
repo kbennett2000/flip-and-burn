@@ -192,6 +192,13 @@ namespace FlipAndBurn.TestHarness
                 if (failed) yield break;
             }
 
+            // Cycle 15: a watched coast trip from Jool orbit to Tylo (only when asked: "tylocoast").
+            if ((wanted ?? "").Split(',').Contains("tylocoast"))
+            {
+                yield return ProofTyloCoast();
+                if (failed) yield break;
+            }
+
             // Cycle 14 review: the Bebop to the Mun with real heat (only when asked: "moonheat").
             if ((wanted ?? "").Split(',').Contains("moonheat"))
             {
