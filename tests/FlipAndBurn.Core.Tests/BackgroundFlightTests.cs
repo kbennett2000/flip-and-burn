@@ -33,6 +33,7 @@ namespace FlipAndBurn.Core.Tests
             public TripType Trip = TripType.FullBurn;
             public SimSystem System;           // null: a trip between planets from an orbit 100 km above Kerbin
             public double BudgetShare;         // coast trips: share of a full burn's delta-v
+            public double TurnDeg = 10;        // the ship's turn rate (degrees a second)
         }
 
         public sealed class Outcome
@@ -65,10 +66,8 @@ namespace FlipAndBurn.Core.Tests
         internal static (GuidanceConfig Config, List<GravitySource> Bodies, double CentralMu, ShipSimulator Start, PlanetRecord Target, double TargetSafeRadius)
             Prepare(Case c, double budget)
         {
-            // The turn rate the game measured on the Bebop (its cap, 10 degrees a second). At the simulator's default 5 a second,
-            // Jool to Tylo as a coast trip arrived 9 km high: a long last burn in Tylo's strong pull, with the engine held off
-            // whenever the ship points more than 5 degrees away (as in the game), couldn't hold the height.
-            double a = c.AccelG * TripCalculator.OneG, turn = 10 * Math.PI / 180;
+            // The ship's own turn rate, as captured when the player leaves (the sweep flies each case at 5 and 10 degrees a second).
+            double a = c.AccelG * TripCalculator.OneG, turn = c.TurnDeg * Math.PI / 180;
             PlanetRecord departure = c.System?.Departure ?? KerbolSystem.Kerbin;
             PlanetRecord target = c.System != null ? c.System.TargetRecord(c.Target) : c.Target;
             double centralMu = c.System?.CentralGravParameter ?? KerbolSystem.SunGravParameter;
@@ -218,7 +217,12 @@ namespace FlipAndBurn.Core.Tests
         [Fact]
         [Trait("Category", "LongRunning")]
         [Trait("Category", "BackgroundSweep")]
-        public void Sweep_EveryRouteInTheBackground() => Run(PlanetCases().Concat(MoonCases()));
+        public void Sweep_EveryRouteInTheBackground() => Run(PlanetCases().Concat(MoonCases())
+            .SelectMany(c => new[] { 5.0, 10.0 }.Select(turn => new Case
+            {
+                Name = $"{c.Name}, turning {turn:0} deg/s", Target = c.Target, AccelG = c.AccelG, Parking = c.Parking, StartUT = c.StartUT,
+                Angle = c.Angle, Flip = c.Flip, Trip = c.Trip, System = c.System, BudgetShare = c.BudgetShare, TurnDeg = turn,
+            })));
 
         [Fact]
         public void Background_OneOfEachKind() => Run(new[]
