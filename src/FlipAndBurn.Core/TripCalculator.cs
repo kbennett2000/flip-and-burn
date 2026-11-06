@@ -150,12 +150,15 @@ namespace FlipAndBurn.Core
         /// </summary>
         public StateVector ShipStateAt(double secondsAfterStart) => Profile.StateAt(secondsAfterStart);
 
+        /// <summary>The burn profile's length (s): the even split. <see cref="TripTime"/> is longer in a deep well, where the braking is flown below 99 %.</summary>
+        public double BurnProfileTime => Profile.T;
+
         public TripProblem Problem { get; internal set; }
         public string ProblemDetail { get; internal set; } = "";
         public bool Feasible => Problem == TripProblem.None;
 
         public double TripTime { get; internal set; }         // s, start of burn to arrival
-        public double TimeToFlip { get; internal set; }       // s after the start; always TripTime / 2
+        public double TimeToFlip { get; internal set; }       // s after the start; TripTime / 2, earlier in a deep well (braking below 99 %)
         public double ArrivalTime { get; internal set; }      // UT, s
 
         /// <summary>
@@ -390,6 +393,7 @@ namespace FlipAndBurn.Core
             plan.PeakSpeed = Math.Max(((p.C + p.Ab * p.E) * half).Length, (p.C * tripTime).Length);
 
             CheckSun(request, p, plan);
+            if (!request.PlanetSystemTrip) ApplyBrakingShare(request, plan);
             plan.StraightTripTime = plan.TripTime;
             plan.StraightTotalDeltaV = plan.TotalDeltaV;
             plan.StraightClosestSunDistance = plan.ClosestSunDistance;
@@ -405,6 +409,25 @@ namespace FlipAndBurn.Core
 
             if (plan.PassesNearSun && request.PlanSunDetour) AddDetour(request, plan);
             return plan;
+        }
+
+        /// <summary>
+        /// Deep wells (CoastPlanner.BrakingFractionFor): the guidance brakes at a lower share of the acceleration, so the
+        /// trip takes longer than this even split says and burns a little less. With braking at f of the acceleration over
+        /// the same distance, the trip takes sqrt((1 + 1/f) / 2) times as long and burns sqrt(2 / (1 + 1/f)) times the
+        /// delta-v; counted against the usual 99 %, which the even split already matches.
+        /// </summary>
+        private static void ApplyBrakingShare(TripRequest request, TripPlan plan)
+        {
+            double f = CoastPlanner.BrakingFractionFor(request.Target, request.ParkingAltitude, request.Acceleration);
+            if (!(f < CoastPlanner.BrakingFraction) || !(plan.TripTime > 0)) return;
+            double Time(double share) => Math.Sqrt((1 + 1 / share) / 2);
+            double k = Time(f) / Time(CoastPlanner.BrakingFraction);
+            plan.TripTime *= k;
+            plan.TimeToFlip = plan.TripTime / (1 + 1 / f);
+            plan.ArrivalTime = request.StartTime + plan.TripTime;
+            plan.BurnDeltaV /= k;
+            plan.TotalDeltaV = plan.BurnDeltaV + plan.ParkingOrbitDeltaV;
         }
 
         // Replace the straight trip's numbers with the detour's (ADR 0003): to a waypoint beside the Sun, stop, then on.

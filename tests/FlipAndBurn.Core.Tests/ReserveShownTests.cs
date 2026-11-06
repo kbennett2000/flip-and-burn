@@ -38,7 +38,7 @@ namespace FlipAndBurn.Core.Tests
             {
                 double shown = climbing || double.IsNaN(burnLeft)
                     ? ReserveWatch.ExpectedAtArrival(start - used, ReserveWatch.ExpectedUse(planned, coast), used)
-                    : start - used - ReserveWatch.RemainingUse(a, burnLeft, coast);
+                    : start - used - ReserveWatch.RemainingUse(burnLeft, coast);
                 double gap = Math.Abs(shown - arrived) / start * 100;
                 if (climbing) worstClimb = Math.Max(worstClimb, gap);
                 else { worst = Math.Max(worst, gap); after++; }
@@ -50,7 +50,10 @@ namespace FlipAndBurn.Core.Tests
             Assert.True(r.Finished);
             Assert.True(after > 10, "too few samples");
             Assert.InRange(worst, 0, 1.0);
-            Assert.InRange(worstClimb, 0, 1.5);
+            // While climbing out, before the guidance's own figures settle, the window shows the plan's figure at what coast trips
+            // typically use (2.7 % over their burns). The Jool coast trip uses 4.8 % since its braking is planned with headroom for
+            // Jool's pull (cycle 15, CoastPlanner.BrakingFractionFor): 1.8 points under that figure for those first minutes.
+            Assert.InRange(worstClimb, 0, 2.0);
         }
 
         [Fact]

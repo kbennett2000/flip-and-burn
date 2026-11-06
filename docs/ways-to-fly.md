@@ -27,6 +27,18 @@ Type it in the **Acceleration** box of the planner, in g. The default is **1 g**
 - **The destination's gravity sets a floor.** To settle into orbit, the ship has to out-pull the planet's gravity at the
   parking orbit, so the planner asks for at least 10% more than that. It tells you the minimum if you're below it.
 
+### Braking into strong gravity
+
+Arriving at a world with strong gravity for the acceleration you chose (Jool, Tylo, Laythe or Kerbin at 1 g, for
+example), the braking is planned a little below your acceleration, down to 85% of it. The last part of the braking has
+to hold the ship up against the planet's pull as well as slow it down, and that needs the spare push. Without it the
+ship would reach its parking orbit going too fast.
+
+While it brakes, the trip window's **Acceleration** row says so in plain words, for example "aiming for 0.85 g:
+braking leaves spare push for Jool's gravity". **Your engines aren't overheating:** that's said separately, in a
+message, as below. The planner's trip time and fuel already allow for it: braking more gently takes a little longer
+and uses a little less fuel.
+
 ### What overheating does
 
 Big drives get hot. If a part gets close to its temperature limit, Flip and Burn deals with it so you don't lose the ship:

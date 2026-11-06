@@ -35,7 +35,7 @@ namespace FlipAndBurn.Core
                 wait = DepartureWindow.Find(request, out start);
 
             double tDep = request.StartTime + wait;
-            double a1 = request.Acceleration, a2 = a1 * CoastPlanner.BrakingFraction;
+            double a1 = request.Acceleration, a2 = a1 * CoastPlanner.BrakingFractionFor(request.Target, request.ParkingAltitude, a1);
             double parkingRadius = request.Target.Radius + request.ParkingAltitude;
             PathGravity gravity = GravityFor(request);
             Vec3 wellV = Vec3.Zero, wellP = Vec3.Zero;

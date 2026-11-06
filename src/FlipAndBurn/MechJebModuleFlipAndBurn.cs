@@ -251,7 +251,8 @@ namespace FlipAndBurn
                     ? "engine off (waiting in orbit)"
                     : c.Phase == GuidancePhase.Coast && !c.Correcting
                     ? "engine off (coasting)"
-                    : $"{Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (aiming for {Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)})");
+                    : $"{Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (aiming for {Planner.FormatG(pilot.AimingFor / Planner.OneG)}" +
+                      (pilot.AimingWhy != null ? $": {pilot.AimingWhy})" : ")"));
                 GuiUtils.SimpleLabel("Pointing off by", $"{pilot.PointingError:0.0}°");
             }
 
