@@ -131,6 +131,22 @@ namespace FlipAndBurn
         public string SettingsCheck { get; private set; } = "";
         /// <summary>The acceleration being flown now (lower than chosen if the engines couldn't hold it).</summary>
         public double CurrentAcceleration { get; private set; }
+
+        /// <summary>
+        /// Braking into a deep well (cycle 15): the braking is planned below the trip's acceleration, leaving spare push for
+        /// the target's gravity (CoastPlanner.BrakingFractionFor). True while braking such a trip.
+        /// </summary>
+        public bool BrakingWithHeadroom => guidance != null && Last != null && !Last.Circularizing && !Last.SafeOrbit &&
+                                           (Last.Phase == GuidancePhase.Decelerate || Last.Phase == GuidancePhase.FinalApproach) &&
+                                           guidance.BrakingFraction < CoastPlanner.BrakingFraction - 1e-9;
+
+        /// <summary>What the trip is aiming for now (m/s^2): the braking's planned share while braking with headroom, else the trip's acceleration.</summary>
+        public double AimingFor => BrakingWithHeadroom ? CurrentAcceleration * guidance.BrakingFraction : CurrentAcceleration;
+
+        /// <summary>Why the aim is below the trip's acceleration while braking with headroom, in plain words; null otherwise.</summary>
+        public string AimingWhy => BrakingWithHeadroom && trip?.Target != null
+            ? $"braking leaves spare push for {Planner.BodyName(trip.Target)}'s gravity"
+            : null;
         /// <summary>What changed during the trip, in plain words (shown in the window), or null.</summary>
         public string Notice { get; private set; }
         // The phase a passing message belongs to; null for messages that stay (the safe-orbit rescue).
@@ -378,10 +394,10 @@ namespace FlipAndBurn
             // of the planet it left (before that the guidance's times aren't settled); until then from the plan, at what
             // such trips really use.
             bool coast = trip.Trip == TripType.CoastInTheMiddle;
-            double burnLeft = guidance.BurnTimeLeft;
+            double burnLeft = guidance.BurnDeltaVLeft;
             double reserve = cmd.Departing || double.IsNaN(burnLeft)
                 ? ReserveWatch.ExpectedAtArrival(have, ReserveWatch.ExpectedUse(reservePlanNeeded, coast), deltaVUsed - reservePlanUsedAt, allowanceLeft)
-                : have - ReserveWatch.RemainingUse(CurrentAcceleration, burnLeft, coast) - allowanceLeft;
+                : have - ReserveWatch.RemainingUse(burnLeft, coast) - allowanceLeft;
             // Below the plan's own figure by more than a point: something since the plan, so say what.
             bool asPlanned = !double.IsNaN(planReserve) && reserve >= planReserve - 0.01 * start;
             SetReserve(reserve, start, asPlanned ? planWhy : ReserveCause());

@@ -204,13 +204,18 @@ namespace FlipAndBurn.Core.Tests
         /// Every game hour (every 2 minutes while climbing out): the time, whether the ship was climbing out, the delta-v
         /// burned so far and the guidance's burning left (for the reserve the window shows, ReserveShownTests).
         /// </summary>
-        public readonly List<(double UT, bool Climbing, double Used, double BurnTimeLeft, GuidancePhase Phase)> ReserveSamples =
+        public readonly List<(double UT, bool Climbing, double Used, double BurnDeltaVLeft, GuidancePhase Phase)> ReserveSamples =
             new List<(double, bool, double, double, GuidancePhase)>();
         /// <summary>Where the ship was when the flight ended (finished, or stopped by <c>stopAfterSeconds</c>).</summary>
         public double EndUT;
         public Vec3 EndPosition, EndVelocity, EndFacing;
         public string SolverStats = "";
         public readonly List<string> Trace = new List<string>();
+        /// <summary>
+        /// When the last burn (circularizing) began: speed along the orbit above circular (m/s, negative if slow), climb rate
+        /// (m/s), altitude (m), and how long the last burn took (s). NaN if it never began.
+        /// </summary>
+        public double LastBurnExcess = double.NaN, LastBurnClimb = double.NaN, LastBurnAltitude = double.NaN, LastBurnStartUT = double.NaN, LastBurnSeconds = double.NaN;
         public double TraceFrom = double.MaxValue, TraceTo = double.MaxValue, TraceEvery = 50;
     }
 
@@ -396,6 +401,19 @@ namespace FlipAndBurn.Core.Tests
                     lastLeg = cmd.Leg;
                 }
 
+                if (cmd.Circularizing && double.IsNaN(result.LastBurnStartUT))
+                {
+                    StateVector tp0 = target.Ephemeris.StateAt(sim.UT);
+                    Vec3 r0 = sim.Position - tp0.Position, v0 = sim.Velocity - tp0.Velocity;
+                    double climb = Vec3.Dot(v0, r0.Normalized());
+                    result.LastBurnStartUT = sim.UT;
+                    result.LastBurnClimb = climb;
+                    result.LastBurnAltitude = r0.Length - target.Radius;
+                    result.LastBurnExcess = (v0 - r0.Normalized() * climb).Length - Math.Sqrt(target.GravParameter / r0.Length);
+                }
+
+                if (cmd.Phase == GuidancePhase.Done && !double.IsNaN(result.LastBurnStartUT) && double.IsNaN(result.LastBurnSeconds))
+                    result.LastBurnSeconds = sim.UT - result.LastBurnStartUT;
                 result.Legs = cmd.LegCount;
                 double since = sim.UT - startUT;
                 if (since >= nextTrace && since <= traceTo)
@@ -419,7 +437,15 @@ namespace FlipAndBurn.Core.Tests
                 // The last burn turning before it burns (engine off) doesn't count either.
                 if (cmd.Phase != GuidancePhase.Flip && cmd.Phase != GuidancePhase.Waiting && !(cmd.Phase == GuidancePhase.Coast && cmd.Acceleration == 0) &&
                     !(cmd.Circularizing && cmd.Acceleration == 0))
-                    result.MaxAccelErrorOutsideFlip = Math.Max(result.MaxAccelErrorOutsideFlip, Math.Abs(cmd.Acceleration - a) / a);
+                {
+                    // Braking holds the arrival law's band, from its floor to the chosen acceleration (planned lower than 99 % in
+                    // a deep well, CoastPlanner.BrakingFractionFor); everything else, the chosen acceleration.
+                    bool braking = cmd.Phase == GuidancePhase.Decelerate || (cmd.Phase == GuidancePhase.FinalApproach && !cmd.Circularizing && !cmd.SafeOrbit);
+                    double off = !braking ? Math.Abs(cmd.Acceleration - a) / a
+                        : cmd.Acceleration > a ? (cmd.Acceleration - a) / a
+                        : Math.Max(0, guidance.BrakingFloor * a - cmd.Acceleration) / a;
+                    result.MaxAccelErrorOutsideFlip = Math.Max(result.MaxAccelErrorOutsideFlip, off);
+                }
 
                 bool cruise = !cmd.Departing && FarFromPlanets(sim, target, kerbin, system) &&
                               ((cmd.Phase == GuidancePhase.Accelerate && cmd.TimeToFlip > 600) ||
@@ -449,7 +475,7 @@ namespace FlipAndBurn.Core.Tests
                 if (sim.UT >= nextReserveSample && cmd.Phase != GuidancePhase.Done)
                 {
                     nextReserveSample = sim.UT + (cmd.Departing ? 120 : 3600);
-                    result.ReserveSamples.Add((sim.UT, cmd.Departing, result.DeltaVUsed, guidance.BurnTimeLeft, cmd.Phase));
+                    result.ReserveSamples.Add((sim.UT, cmd.Departing, result.DeltaVUsed, guidance.BurnDeltaVLeft, cmd.Phase));
                 }
 
                 result.Steps++;

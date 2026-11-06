@@ -107,6 +107,8 @@ namespace FlipAndBurn.Core.Tests
             Assert.True(ok == rows.Count, $"{rows.Count - ok} of {rows.Count} moon trips failed");
         }
 
+        internal static IEnumerable<(Route, double, TripType, FlipManeuver, double)> AllCasesForReport() => AllCases();
+
         private static IEnumerable<(Route, double, TripType, FlipManeuver, double)> AllCases()
         {
             foreach (Route r in Routes)

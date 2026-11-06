@@ -200,6 +200,8 @@ namespace FlipAndBurn.Core.Guidance
             if (config.Target == null) throw new ArgumentException("no target", nameof(config));
             if (!(config.Acceleration > 0)) throw new ArgumentException("acceleration must be positive", nameof(config));
             targetGravity = new PathGravity(config.Target.Ephemeris, config.Target.GravParameter, config.SunGravParameter, true);
+            // The braking share: the configured one, lower for an arrival in a deep well (CoastPlanner.BrakingFractionFor).
+            brakingFraction = Math.Min(config.BrakingFraction, CoastPlanner.BrakingFractionFor(config.Target, config.ParkingAltitude, config.Acceleration));
             if (config.PlanetSystemTrip && config.Departure != null && !config.Departure.IsCentralBody)
                 targetGravity.AddBody(config.Departure.Ephemeris, config.Departure.GravParameter);
         }
@@ -212,7 +214,17 @@ namespace FlipAndBurn.Core.Guidance
         /// </summary>
         public const double PlanetSystemMinThrust = 0.90;
 
-        private double MinThrust => config.PlanetSystemTrip ? Math.Min(config.MinThrustFraction, PlanetSystemMinThrust) : config.MinThrustFraction;
+        private readonly double brakingFraction;
+
+        /// <summary>The share of the acceleration the braking is planned at (lower than configured for a deep-well arrival).</summary>
+        public double BrakingFraction => brakingFraction;
+
+        /// <summary>The lowest share of the acceleration the braking may use (the floor of the arrival law's band).</summary>
+        public double BrakingFloor => MinThrust;
+
+        // The band's floor, moved down with the braking share so the band keeps the room below it that it was given.
+        private double MinThrust => Math.Min(config.PlanetSystemTrip ? Math.Min(config.MinThrustFraction, PlanetSystemMinThrust) : config.MinThrustFraction,
+            brakingFraction - (config.BrakingFraction - config.MinThrustFraction));
 
         /// <summary>Moon trips: the flown-path gravity allowance is worked out again this often (game seconds).</summary>
         public const double AllowanceEvery = 0.5;
@@ -228,6 +240,12 @@ namespace FlipAndBurn.Core.Guidance
         /// to go and the braking; a coast trip's coast doesn't count). NaN when not known (making the orbit safe).
         /// </summary>
         public double BurnTimeLeft { get; private set; } = double.NaN;
+
+        /// <summary>
+        /// Delta-v the burning left will use (m/s), as the latest plan has it: the speed-up at the chosen acceleration, the
+        /// braking at its own share (<see cref="BrakingFraction"/>). NaN when not known.
+        /// </summary>
+        public double BurnDeltaVLeft { get; private set; } = double.NaN;
 
         /// <summary>Coast trips: the arrival time being flown to (NaN for a full burn).</summary>
         public double CoastArrivalUT => coastArrivalUT;
@@ -247,13 +265,13 @@ namespace FlipAndBurn.Core.Guidance
         {
             if (safeOrbit)
             {
-                BurnTimeLeft = double.NaN;
+                BurnTimeLeft = BurnDeltaVLeft = double.NaN;
                 return SafeOrbitStep(input);
             }
 
             if (circularizing)
             {
-                BurnTimeLeft = 0;
+                BurnTimeLeft = BurnDeltaVLeft = 0;
                 return Circularize(input);
             }
 
@@ -303,6 +321,7 @@ namespace FlipAndBurn.Core.Guidance
                 if (!leg.IsWaypoint) UpdateGravityAllowance(input, arcs);
 
                 BurnTimeLeft = arcs.T1 + arcs.T2;
+                BurnDeltaVLeft = config.Acceleration * (arcs.T1 + brakingFraction * arcs.T2);
                 if (!IsCoastTrip)
                 {
                     lastArcs = arcs;
@@ -349,7 +368,7 @@ namespace FlipAndBurn.Core.Guidance
                 // Time to brake: the arrival law takes over, with the same arrival point and time.
                 double a = config.Acceleration;
                 law = new ArrivalLaw(config.Target.Ephemeris, targetGravity, coastEnd.Position, coastEnd.Velocity,
-                    a * config.BrakingFraction, a * MinThrust, a);
+                    a * brakingFraction, a * MinThrust, a);
                 law.Start(input.UT, coastArrivalUT - input.UT);
                 phase = GuidancePhase.Decelerate;
                 // Moon trips: braking starts now; set the deadline to fly the planned braking from here (ADR 0005).
@@ -360,6 +379,7 @@ namespace FlipAndBurn.Core.Guidance
             Vec3 want = thrust.Normalized();
             cmd.TimeToArrival = timeToGo;
             BurnTimeLeft = timeToGo;
+            BurnDeltaVLeft = config.Acceleration * brakingFraction * timeToGo;
 
             if (phase == GuidancePhase.Flip)
             {
@@ -382,6 +402,7 @@ namespace FlipAndBurn.Core.Guidance
                         want = thrust.Normalized();
                         cmd.TimeToArrival = timeToGo;
                         BurnTimeLeft = timeToGo;
+                        BurnDeltaVLeft = config.Acceleration * brakingFraction * timeToGo;
                     }
                 }
             }
@@ -448,7 +469,7 @@ namespace FlipAndBurn.Core.Guidance
             double tau = coastArrivalUT - input.UT;
             StateVector planet = config.Target.Ephemeris.StateAt(input.UT);
             Vec3 r = input.Position - planet.Position, v = input.Velocity - planet.Velocity;
-            double nominal = config.Acceleration * config.BrakingFraction;
+            double nominal = config.Acceleration * brakingFraction;
             double tb = Math.Min(plannedBrakingTime, tau);
             Vec3 want = v, brake = Vec3.Zero;
             bool tooLate = false;
@@ -474,6 +495,7 @@ namespace FlipAndBurn.Core.Guidance
 
             plannedBrakingTime = tb;
             BurnTimeLeft = tb;
+            BurnDeltaVLeft = nominal * tb;
             double coastLeft = tau - tb;
             // Once braking is near, latch its start: it may come earlier, never later. Close to it the coast plan is
             // ill-conditioned at high speed (the time left is the square root of a small difference of large numbers: at
@@ -817,7 +839,7 @@ namespace FlipAndBurn.Core.Guidance
         private TwoArcSolver MakeSolver(Leg leg)
         {
             flipTime = Math.PI / config.TurnRate;
-            double braking = config.Acceleration * config.BrakingFraction;
+            double braking = config.Acceleration * brakingFraction;
             if (leg.IsWaypoint)
                 return new TwoArcSolver(_ => new StateVector(leg.Waypoint, Vec3.Zero), config.Acceleration, braking);
             return new TwoArcSolver(TargetEndState, config.Acceleration, braking);
@@ -872,7 +894,7 @@ namespace FlipAndBurn.Core.Guidance
 
         private ArrivalLaw MakeArrivalLaw(Leg leg, double arrivalUT)
         {
-            double a = config.Acceleration, nominal = a * config.BrakingFraction, min = a * MinThrust;
+            double a = config.Acceleration, nominal = a * brakingFraction, min = a * MinThrust;
             if (leg.IsWaypoint)
             {
                 var point = new FixedEphemeris(leg.Waypoint);
@@ -889,7 +911,7 @@ namespace FlipAndBurn.Core.Guidance
         private bool windowChecked;
         private double departureUT = double.NaN;
         private Vec3 departureDirection;
-        private double plannedBurnTime;
+        private double plannedBurnTime, plannedBurnDeltaV;
 
         /// <summary>Moon trips leaving the planet: when the burn starts (UT), or NaN when it started (or starts) straight away.</summary>
         public double DepartureUT => departureUT;
@@ -911,11 +933,13 @@ namespace FlipAndBurn.Core.Guidance
             TripPlan plan = TripCalculator.Plan(request);
             departureDirection = plan.Feasible && plan.TripTime > 0 ? (plan.Profile.C + plan.Profile.E * plan.Profile.Ab).Normalized() : s.Velocity.Normalized();
             plannedBurnTime = plan.Feasible ? plan.TripTime : double.NaN;
+            plannedBurnDeltaV = plan.Feasible ? plan.TotalDeltaV - plan.ParkingOrbitDeltaV : double.NaN;
         }
 
         private GuidanceCommand Waiting(GuidanceInput input)
         {
             BurnTimeLeft = plannedBurnTime;
+            BurnDeltaVLeft = plannedBurnDeltaV;
             return new GuidanceCommand
             {
                 Phase = GuidancePhase.Waiting,

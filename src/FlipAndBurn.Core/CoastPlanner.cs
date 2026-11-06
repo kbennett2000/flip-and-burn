@@ -42,6 +42,37 @@ namespace FlipAndBurn.Core
     {
         public const double BrakingFraction = 0.99;   // same as GuidanceConfig.BrakingFraction
 
+        /// <summary>Deep wells (cycle 15): at or below this share of the acceleration, the target's pull at the parking orbit leaves the braking at <see cref="BrakingFraction"/>.</summary>
+        public const double DeepWellStart = 0.25;
+        /// <summary>Deep wells: from this share on, the braking is planned at <see cref="DeepWellFraction"/>.</summary>
+        public const double DeepWellFull = 0.4;
+        public const double DeepWellFraction = 0.85;
+
+        /// <summary>
+        /// The share of the chosen acceleration the braking is planned at, for an arrival where the target pulls
+        /// <paramref name="gravityAtParking"/> (m/s^2) at the parking orbit. Braking steers by the arrival law, whose thrust
+        /// changes along the braking; diving into a deep well (Jool, Tylo, Laythe, Kerbin from its moons) the end of that
+        /// braking has to hold the ship up against the target's pull as well as slow it, and asked more than the
+        /// acceleration: the law ran at full thrust, fell behind, and reached the parking orbit up to 1.25 km/s fast, which the
+        /// last burn then took off (ADR 0005 addendum). Planned with this much headroom, the law can rise to full thrust at the
+        /// end and arrives on the plan. 99 % in a shallow well; down to 90 % where the pull is half the acceleration or more.
+        /// </summary>
+        public static double BrakingFractionFor(double gravityAtParking, double acceleration)
+        {
+            double share = acceleration > 0 ? gravityAtParking / acceleration : 0;
+            if (!(share > DeepWellStart)) return BrakingFraction;
+            double x = Math.Min(1, (share - DeepWellStart) / (DeepWellFull - DeepWellStart));
+            return BrakingFraction - (BrakingFraction - DeepWellFraction) * x;
+        }
+
+        /// <summary>The braking share for a trip to <paramref name="target"/>'s parking orbit at <paramref name="acceleration"/>.</summary>
+        public static double BrakingFractionFor(TargetPlanet target, double parkingAltitude, double acceleration)
+        {
+            if (target == null) return BrakingFraction;
+            double r = target.Radius + parkingAltitude;
+            return r > 0 ? BrakingFractionFor(target.GravParameter / (r * r), acceleration) : BrakingFraction;
+        }
+
         /// <summary>
         /// Flying a coast trip costs more delta-v than its two planned burns: steering corrections, the braking law
         /// holding 98-100 % of the acceleration, the last circularizing burn, and gravity the plan models only roughly
@@ -100,7 +131,7 @@ namespace FlipAndBurn.Core
                 }
             }
 
-            double a1 = request.Acceleration, a2 = request.Acceleration * BrakingFraction;
+            double a1 = request.Acceleration, a2 = request.Acceleration * BrakingFractionFor(request.Target, request.ParkingAltitude, request.Acceleration);
             // Plan the burns a margin under the budget: flying them costs a little more (see GuidanceMargin).
             double burnBudget = deltaVBudget / (1 + GuidanceMargin);
             double parkingRadius = request.Target.Radius + request.ParkingAltitude;
@@ -234,7 +265,7 @@ namespace FlipAndBurn.Core
                 return result;
             }
 
-            double a1 = request.Acceleration, a2 = request.Acceleration * BrakingFraction;
+            double a1 = request.Acceleration, a2 = request.Acceleration * BrakingFractionFor(request.Target, request.ParkingAltitude, request.Acceleration);
             double burnBudget = deltaVBudget / (1 + GuidanceMargin);
             double parkingRadius = request.Target.Radius + request.ParkingAltitude;
             PathGravity gravity = request.PlanetSystemTrip ? SystemTrip.GravityFor(request)
