@@ -211,6 +211,11 @@ namespace FlipAndBurn.Core.Tests
         public Vec3 EndPosition, EndVelocity, EndFacing;
         public string SolverStats = "";
         public readonly List<string> Trace = new List<string>();
+        /// <summary>
+        /// When the last burn (circularizing) began: speed along the orbit above circular (m/s, negative if slow), climb rate
+        /// (m/s), altitude (m), and how long the last burn took (s). NaN if it never began.
+        /// </summary>
+        public double LastBurnExcess = double.NaN, LastBurnClimb = double.NaN, LastBurnAltitude = double.NaN, LastBurnStartUT = double.NaN, LastBurnSeconds = double.NaN;
         public double TraceFrom = double.MaxValue, TraceTo = double.MaxValue, TraceEvery = 50;
     }
 
@@ -396,6 +401,19 @@ namespace FlipAndBurn.Core.Tests
                     lastLeg = cmd.Leg;
                 }
 
+                if (cmd.Circularizing && double.IsNaN(result.LastBurnStartUT))
+                {
+                    StateVector tp0 = target.Ephemeris.StateAt(sim.UT);
+                    Vec3 r0 = sim.Position - tp0.Position, v0 = sim.Velocity - tp0.Velocity;
+                    double climb = Vec3.Dot(v0, r0.Normalized());
+                    result.LastBurnStartUT = sim.UT;
+                    result.LastBurnClimb = climb;
+                    result.LastBurnAltitude = r0.Length - target.Radius;
+                    result.LastBurnExcess = (v0 - r0.Normalized() * climb).Length - Math.Sqrt(target.GravParameter / r0.Length);
+                }
+
+                if (cmd.Phase == GuidancePhase.Done && !double.IsNaN(result.LastBurnStartUT) && double.IsNaN(result.LastBurnSeconds))
+                    result.LastBurnSeconds = sim.UT - result.LastBurnStartUT;
                 result.Legs = cmd.LegCount;
                 double since = sim.UT - startUT;
                 if (since >= nextTrace && since <= traceTo)

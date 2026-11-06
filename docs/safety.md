@@ -49,6 +49,17 @@ two legs, and says so. The numbers it shows include the detour.
 - **Abort** is always there. It cuts the engine, stops time warp, and hands the ship back to you with your settings as
   they were.
 
+## While you're away
+
+A trip you leave [flies on without you](saving-and-pausing.md#fleet-flights-trips-that-fly-without-you), with the same
+care:
+
+- **The same steering and the same safety net.** Planets and moons are kept clear, and an arrival that goes wrong ends
+  in the safest orbit the ship can reach, as below.
+- **No stepping back up.** It flies at the acceleration it held when you left, lower if the engines had overheated.
+  Heat isn't checked for a ship you aren't flying, so this is the figure the trip has proven it can hold.
+- **Warp stops** when it arrives or has to stop, and a message names the ship, where it is and its orbit.
+
 ## The arrival safety net
 
 The most dangerous moment is arriving: the ship comes in fast and has to stop above the atmosphere. Flip and Burn
