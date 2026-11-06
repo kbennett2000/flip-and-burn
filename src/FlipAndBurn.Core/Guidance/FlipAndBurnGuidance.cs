@@ -219,12 +219,25 @@ namespace FlipAndBurn.Core.Guidance
         /// <summary>The share of the acceleration the braking is planned at (lower than configured for a deep-well arrival).</summary>
         public double BrakingFraction => brakingFraction;
 
+        // The share of the acceleration the braking will average, before it starts, for the delta-v the trip still needs. Moon
+        // trips: in a deep well the arrival law uses the headroom at the end (CoastPlanner.BrakingFlownShare). Between planets
+        // the braking flies at its planned share, for the time the coast works out (which allows for the target's well).
+        private double BrakingFlown => config.PlanetSystemTrip ? CoastPlanner.BrakingFlownShare(brakingFraction) : brakingFraction;
+
         /// <summary>The lowest share of the acceleration the braking may use (the floor of the arrival law's band).</summary>
         public double BrakingFloor => MinThrust;
 
         // The band's floor, moved down with the braking share so the band keeps the room below it that it was given.
         private double MinThrust => Math.Min(config.PlanetSystemTrip ? Math.Min(config.MinThrustFraction, PlanetSystemMinThrust) : config.MinThrustFraction,
             brakingFraction - (config.BrakingFraction - config.MinThrustFraction));
+
+        /// <summary>The braking band's floor (share of the acceleration) for a braking share, with the default settings: as <see cref="BrakingFloor"/>.</summary>
+        public static double BrakingFloorShare(bool planetSystemTrip, double brakingShare)
+        {
+            var d = new GuidanceConfig();
+            return Math.Min(planetSystemTrip ? Math.Min(d.MinThrustFraction, PlanetSystemMinThrust) : d.MinThrustFraction,
+                brakingShare - (d.BrakingFraction - d.MinThrustFraction));
+        }
 
         /// <summary>Moon trips: the flown-path gravity allowance is worked out again this often (game seconds).</summary>
         public const double AllowanceEvery = 0.5;
@@ -321,7 +334,7 @@ namespace FlipAndBurn.Core.Guidance
                 if (!leg.IsWaypoint) UpdateGravityAllowance(input, arcs);
 
                 BurnTimeLeft = arcs.T1 + arcs.T2;
-                BurnDeltaVLeft = config.Acceleration * (arcs.T1 + brakingFraction * arcs.T2);
+                BurnDeltaVLeft = config.Acceleration * (arcs.T1 + BrakingFlown * arcs.T2);
                 if (!IsCoastTrip)
                 {
                     lastArcs = arcs;
@@ -379,7 +392,7 @@ namespace FlipAndBurn.Core.Guidance
             Vec3 want = thrust.Normalized();
             cmd.TimeToArrival = timeToGo;
             BurnTimeLeft = timeToGo;
-            BurnDeltaVLeft = config.Acceleration * brakingFraction * timeToGo;
+            BurnDeltaVLeft = law.ForecastDeltaV();
 
             if (phase == GuidancePhase.Flip)
             {
@@ -402,7 +415,7 @@ namespace FlipAndBurn.Core.Guidance
                         want = thrust.Normalized();
                         cmd.TimeToArrival = timeToGo;
                         BurnTimeLeft = timeToGo;
-                        BurnDeltaVLeft = config.Acceleration * brakingFraction * timeToGo;
+                        BurnDeltaVLeft = law.ForecastDeltaV();
                     }
                 }
             }
@@ -495,7 +508,7 @@ namespace FlipAndBurn.Core.Guidance
 
             plannedBrakingTime = tb;
             BurnTimeLeft = tb;
-            BurnDeltaVLeft = nominal * tb;
+            BurnDeltaVLeft = config.Acceleration * BrakingFlown * tb;
             double coastLeft = tau - tb;
             // Once braking is near, latch its start: it may come earlier, never later. Close to it the coast plan is
             // ill-conditioned at high speed (the time left is the square root of a small difference of large numbers: at
