@@ -187,11 +187,13 @@ Each route is flown:
 - once with the skew flip;
 - once as a coast trip with 60 % of a full burn's delta-v (at 2 g for the coast down to Kerbin).
 
-Result:
-- **62 trips, all arrived as planned:** Pe and Ap within ±5 % of the parking altitude (the worst was 1.5 % off), clear of
-  the planet and every moon.
+Every case is flown twice, by a ship turning at 5°/s and one turning at 10°/s, with the game's engine rule (no thrust
+while pointing more than 5° off, outside the skew flip). Result, on the final build (with the addendum below):
+- **124 trips, all arrived as planned:** Pe and Ap within ±5 % of the parking altitude, clear of the planet and every
+  moon (by at least 4.3 km). Worst at 5°/s: 2.0 % (Kerbin to Minmus, full burn at 2 g, 19.6 × 20.0 km). Worst at 10°/s:
+  1.7 % (Jool to Tylo, full burn at 2 g, 29.5 × 30.2 km).
 - **The safety net fired 0 times.**
-- **Against the planner:** trip time +0.0 to +7.7 % of the estimate; delta-v used 7.3 % under to 1.5 % over (the estimate
+- **Against the planner:** trip time −0.2 to +6.3 % of the estimate; delta-v used 7.4 % under to 2.2 % over (the estimate
   includes a 3 % margin).
 
 A few of every kind (planet to moon waiting for its window, moon to planet with a skew flip, moon to moon, a coast trip)
@@ -218,6 +220,88 @@ about 2.5 minutes into the burn, at 815 km), each with a re-plan and a message, 
 
 After each launch, MechJeb's, BetterTimeWarp's and KSP's settings were identical to before, and no other save changed.
 
+## Addendum (cycle 15 review): the last burn, and braking into strong gravity
+
+Found while proving trips flown in the background (ADR 0006), where the simulator first used the game's 5° rule.
+
+**The last burn now holds the parking height.** A watched coast trip to Tylo reached 30 km about 1.25 km/s faster than
+orbital speed. There the last burn can't hold the height while it brakes (the centrifugal push is about 17 m/s² against
+Tylo's 7), so it ended at whatever height it had reached: 22.7 km at 5°/s. The trim now seeks the parking height
+(climbing or sinking at up to 30 m/s, finishing within 1 % of the altitude), and the last burn's direction turns no faster
+than the ship can. The simulator's watched trips use the game's 5° rule everywhere.
+
+**Why it arrived so fast: braking with headroom.** The braking is steered by the arrival law, whose thrust changes along
+the braking. The plan budgets the braking at a constant 99 % of the acceleration and the law only checks the thrust it
+asks for now. Diving into a deep well, the end of the braking has to hold the ship up against the target's pull as well
+as slow it, and needs more than the acceleration. So the law ran at full thrust and fell behind, and the last burn took
+off the difference: 727 s of it at Tylo.
+
+The braking is now planned below the acceleration where the target's pull at the parking orbit is a large share of it
+(`CoastPlanner.BrakingFractionFor`): 99 % up to a quarter of it, sliding to 85 % from 0.4. The coast planner, the
+moon-trip planner and the guidance share the figure, and the planet full-burn estimate is corrected for it. The band
+below the braking keeps its width. The reserve the window shows counts the braking at its own share, and the trip
+window's Acceleration row says why the aim is lower ("braking leaves spare push for Jool's gravity").
+
+Speed above orbital when the last burn begins (`LastBurnReport`, 140 watched trips, moons and planets, both turn
+rates), before and after:
+
+| Arrival | Before | After |
+|---|---|---|
+| Jool to Tylo, coast, 1 g | 1,237 m/s (last burn 727 s) | 46 m/s (5 s) |
+| The Mun to Kerbin, coast, 2 g | 1,209 m/s | 280 m/s (17 s) |
+| Jool, full burn, 1 g (between planets) | 955 m/s (99 s) | 29 m/s (3 s) |
+| Jool to Laythe, coast, 1 g | 189 m/s | 29 m/s |
+| Duna, full burn, 0.25 g | 164 m/s | 7 m/s |
+| All 140 | 8 over 500 m/s, 8 from 100 to 500 | none over 500, 6 from 100 to 500 |
+
+29 m/s at 1 g (59 at 2 g) is the designed handover: the last 3 seconds' braking go to the last burn. The six left over
+100 m/s are the Mun to Kerbin at 2 g, and coast trips into the shallow wells of Ike and the Mun (180 to 210 m/s, a
+different and smaller cause, left for later).
+
+What the planner says, before and after (trip time; delta-v):
+
+| Trip | Before | After |
+|---|---|---|
+| Kerbin to Duna, full burn, 1 g | 32 h 10 m; 1,135 km/s | unchanged |
+| Kerbin to Duna, full burn, 0.25 g | 64 h 19 m; 568 km/s | 66 h 55 m (+4.1 %); 545 km/s (−3.9 %) |
+| Kerbin to Duna, coast (Bebop) | | unchanged |
+| Kerbin to Jool, coast (Bebop), same delta-v | 1,502,511 s | 1,558,568 s (+3.7 %) |
+| Kerbin to Jool, full burn, 1 g | 48 h 15 m; 1,706 km/s | 50 h 13 m (+4.1 %); 1,640 km/s (−3.9 %) |
+| Kerbin to Jool, full burn, 2 g | 34 h 5 m; 2,409 km/s | 35 h 11 m (+3.2 %); 2,334 km/s (−3.1 %) |
+| Kerbin to the Mun or Minmus, 1 g | | unchanged |
+| The Mun to Kerbin, full burn, 1 g | 51 m 16 s; 20.6 km/s | 52 m 39 s (+2.7 %); 19.8 km/s (−3.8 %) |
+| Jool to Laythe, full burn, 1 g | 1 h 19 m 40 s; 29.9 km/s | 1 h 21 m 17 s (+2.0 %); 28.9 km/s (−3.5 %) |
+| Jool to Tylo, full burn, 1 g | 1 h 48 m 26 s; 50.9 km/s | 1 h 51 m 31 s (+2.8 %); 49.0 km/s (−3.7 %) |
+| Jool to Tylo, coast, 1 g | 2 h 2 m 48 s | 2 h 8 m 23 s (+4.5 %) |
+| The Mun to Kerbin, coast, 2 g | 44 m 21 s | 45 m 48 s (+3.3 %) |
+
+Braking more gently takes a little longer and uses a little less fuel. Flown, the trips match these figures: Jool at
+1 g in the simulator took 180,747 s against 180,756 planned. A coast trip has a fixed delta-v, so it coasts a little
+longer instead.
+
+**Coast plans count the braking as it is flown.** A coast plan fits its burns into the budget, so it has to know what
+the braking costs. In a deep well the braking costs more than its planned share for its planned time, for two reasons
+that come to about the same:
+- moon trips: the arrival law starts at the planned share and uses the headroom at the end, finishing at full thrust
+  (Tylo 0.92 of the acceleration on average for 0.85 planned, Laythe 0.88, the Mun to Kerbin at 2 g 0.95);
+- between planets: the braking flies at its planned share, but about 10 % longer than the plan's timing, whose smooth
+  gravity path misses the end of a deep well (Jool: 5,287 s against 4,774).
+
+So the plan counts the braking's delta-v at halfway between its planned share and full thrust
+(`CoastPlanner.BrakingFlownShare`). Planned against flown delta-v, before and after:
+
+| Coast trip | Before the headroom change | Headroom, braking counted at its share | Counted as flown |
+|---|---|---|---|
+| Kerbin to Jool (Bebop) | +4.2 % | +4.8 % | +1.2 % |
+| Kerbin to Duna (Bebop) | +1.3 % | +1.4 % | +1.4 % |
+| Jool to Tylo, 1 g | | +0.8 % | −2.6 % |
+| Jool to Laythe, 1 g | | | −5.1 % |
+| The Mun to Kerbin, 2 g | | | −4.0 % |
+
+Moon coast trips fly a little under their plan, as they always have (7.4 % under to 2.2 % over across the sweep). The
+reserve the trip window shows uses the same figures (the arrival law's own forecast once braking), and still matches the
+arrival to within a point (ReserveShownTests: Jool 0.99, Duna 0.50; while climbing out, 1.28 and 1.13).
+
 ## Consequences
 
 - Moon trips plan and fly with the same windows, safety net, heat and warp rules, pause and resume as trips between
@@ -225,6 +309,7 @@ After each launch, MechJeb's, BetterTimeWarp's and KSP's settings were identical
 - A moon trip's planner estimate searches for the departure window and flies the burns with gravity eight times: 9 to 90
   ms on a desktop (a coast plan 20 to 180 ms), against a few milliseconds between planets. The planner reuses a moon
   trip's estimate for 5 seconds, counting its times down meanwhile.
-- A trip between planets is unchanged apart from the three guidance fixes that apply to every trip.
+- A trip between planets is unchanged apart from the three guidance fixes that apply to every trip, and braking with
+  headroom where the target's pull is strong (Jool at 1 g; Duna at 0.25 g).
 - **Not yet:** a moon straight to another planet's system; a detour around a moon in the way; the cheapest slow coast
   transfers inside a planet's pull.
