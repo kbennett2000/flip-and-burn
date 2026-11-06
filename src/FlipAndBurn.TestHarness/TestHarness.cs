@@ -193,6 +193,19 @@ namespace FlipAndBurn.TestHarness
                 if (failed) yield break;
             }
 
+            // Cycle 15, stage 1: fleet flights (only when asked: "fleetmun", "fleetduna").
+            if ((wanted ?? "").Split(',').Contains("fleetmun"))
+            {
+                yield return ProofFleetMun();
+                if (failed) yield break;
+            }
+
+            if ((wanted ?? "").Split(',').Contains("fleetduna"))
+            {
+                yield return ProofFleetDuna();
+                if (failed) yield break;
+            }
+
             // Cycle 15: a watched coast trip from Jool orbit to Tylo (only when asked: "tylocoast").
             if ((wanted ?? "").Split(',').Contains("tylocoast"))
             {
