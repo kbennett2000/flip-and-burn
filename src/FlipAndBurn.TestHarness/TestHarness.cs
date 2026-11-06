@@ -24,6 +24,7 @@ namespace FlipAndBurn.TestHarness
 
         private const string SaveFolder = "FlipAndBurn-Test";
         private const string SaveFile = "persistent";
+        private const string StartSave = "quicksave";   // the state every proof starts from (build.sh copies it to persistent)
         private const string ScreenshotFolder = "FlipAndBurnTest";
         private const string PlannerTarget = "Duna";
 
@@ -277,11 +278,15 @@ namespace FlipAndBurn.TestHarness
             {
                 // Same order as KSP's own MainMenu.OnLoadDialogPipelineFinished: the flight scene's Game.Load() reads
                 // HighLogic.CurrentGame, so it must be set before switching scenes.
+                // Every proof starts from the test save as build.sh set it up: its quicksave, never written by a run. (The
+                // persistent save is, by KSP's autosave too: after a proof that moved the Bebop to Jool, the next one found it
+                // there.)
+                if (saveName == SaveFile) saveName = StartSave;
                 ConfigNode node = GamePersistence.LoadSFSFile(saveName, SaveFolder);
                 Game game = node == null ? null : GamePersistence.LoadGameCfg(node, SaveFolder, true, false);
                 if (game == null || game.flightState == null)
                 {
-                    Fail("step " + step, "could not load saves/" + SaveFolder + "/" + SaveFile + ".sfs");
+                    Fail("step " + step, "could not load saves/" + SaveFolder + "/" + saveName + ".sfs");
                     yield break;
                 }
 
