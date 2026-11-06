@@ -163,6 +163,9 @@ namespace FlipAndBurn
         /// </summary>
         public void PressPause() => Autopilot?.Pause("you pressed Pause", byPlayer: true);
 
+        /// <summary>The "Leave it flying" button (and the test helper): engine off for a minute so the player can leave (ADR 0006).</summary>
+        public void PressLeaveFlying() => Autopilot?.PrepareToLeave();
+
         /// <summary>The Resume button (and the test helper). Returns a problem, or null.</summary>
         public string PressResume()
         {
@@ -267,6 +270,7 @@ namespace FlipAndBurn
             }
 
             GUILayout.Space(6);
+            if (GUILayout.Button("Leave it flying")) PressLeaveFlying();
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Pause")) PressPause();
             if (GUILayout.Button("Abort")) PressAbort();
@@ -279,7 +283,9 @@ namespace FlipAndBurn
             CelestialBody target = FlightGlobals.Bodies.FirstOrDefault(b => b.bodyName == r.Target);
             string name = target != null ? Planner.BodyName(target) : r.Target;
             GuiUtils.SimpleLabel("Trip to", $"{name}, {(r.Trip == TripType.CoastInTheMiddle ? "coast in the middle" : "full burn")}");
-            GuiUtils.SimpleLabel("Phase", "paused, engine off");
+            GuiUtils.SimpleLabel("Phase", pilot.ReadyToLeave
+                ? $"engine off so you can leave (carries on here in {pilot.LeavingUntil - Time.realtimeSinceStartup:0} s)"
+                : "paused, engine off");
             GuiUtils.SimpleLabel("Acceleration", Planner.FormatG(r.Acceleration / Planner.OneG));
             double toArrival = r.PlannedArrivalUT - Planetarium.GetUniversalTime();
             if (toArrival > 0) GuiUtils.SimpleLabel("Arrival was planned in", Planner.FormatTime(toArrival));
@@ -292,7 +298,7 @@ namespace FlipAndBurn
 
             GUILayout.Space(6);
             GUILayout.BeginHorizontal();
-            if (pilot.PausedByPlayer && GUILayout.Button("Resume"))
+            if ((pilot.PausedByPlayer || pilot.ReadyToLeave) && GUILayout.Button(pilot.ReadyToLeave ? "Stay and fly" : "Resume"))
             {
                 string problem = PressResume();
                 if (problem != null) ScreenMessages.PostScreenMessage("Flip and Burn: " + problem, 8f);

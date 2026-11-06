@@ -66,6 +66,8 @@ namespace FlipAndBurn
         private const double SecondsBetweenWarpChanges = 1.0;   // real seconds
         /// <summary>Real seconds the ship must be loaded, active and off rails before a paused trip resumes (lets the scene settle).</summary>
         public const float ResumeSettleSeconds = 3f;
+        /// <summary>After "Leave it flying": how long the engine stays off for the player to leave (real seconds) before the trip carries on here.</summary>
+        public const float LeaveSeconds = 60f;
         /// <summary>The trip's node in this module's part of MechJeb's per-ship settings (ADR 0004).</summary>
         public const string TripNodeName = "FLIPANDBURN_TRIP";
 
@@ -589,6 +591,7 @@ namespace FlipAndBurn
         {
             if (!Paused) return "No trip is paused.";
             PausedByPlayer = false;
+            LeavingUntil = -1;
             return Resume();
         }
 
@@ -660,7 +663,11 @@ namespace FlipAndBurn
         {
             if (now == Vessel) return;
             if (controlling) HandOver("you switched to " + (now != null ? now.vesselName : "another ship"));
-            else if (record != null) PausedByPlayer = false;
+            else if (record != null)
+            {
+                PausedByPlayer = false;
+                LeavingUntil = -1;   // gone: the fleet flies it now
+            }
         }
 
         /// <summary>
@@ -735,6 +742,41 @@ namespace FlipAndBurn
             }
 
             return a.FullThrust > 0 ? a : null;
+        }
+
+        /// <summary>"Leave it flying" was pressed: until this moment (real time) the engine stays off so the player can leave.</summary>
+        public float LeavingUntil { get; private set; } = -1;
+        public bool ReadyToLeave => record != null && !controlling && LeavingUntil > Time.realtimeSinceStartup;
+
+        /// <summary>
+        /// The "Leave it flying" button (ADR 0006): KSP won't let a player switch ships or leave flight while the ship
+        /// accelerates at more than 0.1 g, so the engine goes off and the trip waits a minute for them to go. Once they
+        /// leave, the trip flies on without them; if they stay, it carries on here.
+        /// </summary>
+        public void PrepareToLeave()
+        {
+            if (!controlling) return;
+            double ut = double.NaN;
+            Guard("saving the trip for the fleet", () =>
+            {
+                ut = Planetarium.GetUniversalTime();
+                UpdateRecord(ut);
+                MarkHandover(ut);
+                record.Away = CaptureAway(Vessel) ?? record.Away;
+            });
+            Release();
+            PausedByPlayer = false;
+            record.PausedByPlayer = false;
+            settledSince = -1;
+            LeavingUntil = Time.realtimeSinceStartup + LeaveSeconds;
+            string target = record.Target;
+            Guard("naming the target", () => target = Planner.BodyName(trip.Target));
+            PauseNotice = $"The engine is off so you can leave: switch ships, or go to the Space Center or the Tracking Station, and the trip to " +
+                          $"{target} flies on without you. If you stay, it carries on here in {LeaveSeconds:0} s.";
+            Notice = null;
+            Guard("telling the player", () => ScreenMessages.PostScreenMessage("Flip and Burn: " + PauseNotice, 10f, ScreenMessageStyle.UPPER_CENTER));
+            Debug.Log($"[FlipAndBurn] ready to leave at UT {ut:F1}: engine off for up to {LeaveSeconds:0} s; delta-v used {record.DeltaVUsed:F0} m/s, holding " +
+                      $"{record.Acceleration / TripCalculator.OneG:F2} g; away figures {(record.Away != null ? "saved" : "MISSING")}; {SettingsCheck}");
         }
 
         /// <summary>The fleet flies this ship's trip (the ship is loaded near the player's): keep its record, the newest.</summary>
@@ -1037,7 +1079,7 @@ namespace FlipAndBurn
             Vessel v = Vessel;
             bool here = HighLogic.LoadedSceneIsFlight && FlightGlobals.ready && v != null && v == FlightGlobals.ActiveVessel && v.loaded && !v.packed &&
                         TimeWarp.fetch != null;
-            if (!here || PausedByPlayer)
+            if (!here || PausedByPlayer || ReadyToLeave)
             {
                 settledSince = -1;
                 return;
@@ -1121,6 +1163,7 @@ namespace FlipAndBurn
 
             record.FleetSinceUT = double.NaN;
             record.PausedByPlayer = false;
+            LeavingUntil = -1;
             ShipPerformance ship = null;
             if (!CheatOptions.InfinitePropellant)
             {
