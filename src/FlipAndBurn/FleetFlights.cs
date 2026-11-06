@@ -35,6 +35,7 @@ namespace FlipAndBurn
         public static readonly List<AwayTrip> Ended = new List<AwayTrip>();
 
         private float nextScan, nextReport;
+        private static readonly HashSet<Guid> WaitingNear = new HashSet<Guid>();   // ships told to wait (logged once)
         private readonly Stopwatch clock = new Stopwatch();
 
         private static bool FleetScene => HighLogic.LoadedScene == GameScenes.FLIGHT || HighLogic.LoadedScene == GameScenes.SPACECENTER ||
@@ -116,7 +117,12 @@ namespace FlipAndBurn
                 if (active)
                 {
                     // The player's ship: the autopilot flies its trip.
-                    if (Trips.TryGetValue(v.id, out AwayTrip mine)) HandBack(mine, "you are flying it");
+                    if (Trips.TryGetValue(v.id, out AwayTrip mine))
+                    {
+                        if (mine.Vessel == v) HandBack(mine, "you are flying it");
+                        else Trips.Remove(mine.Id);   // a new scene: the saved trip is already up to date
+                    }
+
                     continue;
                 }
 
@@ -143,11 +149,11 @@ namespace FlipAndBurn
                 {
                     // Close to the ship being flown, in its physics range: KSP moves it, not the fleet. It flies on once
                     // it is on rails (the player moves away, or time warp).
-                    if (t == null || !t.WaitingNear) Debug.Log($"[FlipAndBurn] fleet: {v.vesselName} waits: it is in the physics range of the ship you're flying");
-                    if (t != null) t.WaitingNear = true;
+                    if (WaitingNear.Add(v.id)) Debug.Log($"[FlipAndBurn] fleet: {v.vesselName} waits: it is in the physics range of the ship you're flying");
                     continue;
                 }
 
+                WaitingNear.Remove(v.id);
                 AwayTrip built = Build(v, r);
                 if (built != null) Trips[v.id] = built;
             }
@@ -485,7 +491,6 @@ namespace FlipAndBurn
         public CelestialBody Target;
         public double UsedBefore, StartUT, StartMass, PropellantWritten, ChargeWritten;
         public double HandoverJump = double.NaN, HandoverJumpSpeed = double.NaN;
-        public bool WaitingNear;
         public string Report;
         public double EndedUT = double.NaN;
 
