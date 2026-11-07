@@ -52,6 +52,7 @@ namespace FlipAndBurn
             Instance = this;
             GameEvents.onVesselChange.Add(OnVesselChange);
             GameEvents.onGameStateLoad.Add(OnGameStateLoad);
+            Debug.Log($"[FlipAndBurn] fleet: ready in {HighLogic.LoadedScene} ({Trips.Count} trip(s) carried over)");
         }
 
         public void OnDestroy()
@@ -61,8 +62,9 @@ namespace FlipAndBurn
             if (Instance == this) Instance = null;
         }
 
-        // A saved game was loaded: every trip starts again from what that save says.
-        private static void OnGameStateLoad(ConfigNode game)
+        // A saved game was loaded: every trip starts again from what that save says. (An instance method: KSP's events can't
+        // take a static one, and the add-on then never started.)
+        private void OnGameStateLoad(ConfigNode game)
         {
             if (Trips.Count > 0) Debug.Log($"[FlipAndBurn] fleet: a saved game was loaded; {Trips.Count} trip(s) carry on from the save");
             Trips.Clear();
@@ -76,7 +78,22 @@ namespace FlipAndBurn
             else Trips.Remove(t.Id);   // a new scene: the saved trip is already up to date
         }
 
+        private bool updateFailed;
+
         public void Update()
+        {
+            try
+            {
+                FlyFleet();
+            }
+            catch (Exception e)
+            {
+                if (!updateFailed) Debug.LogError("[FlipAndBurn] fleet: update failed: " + e);
+                updateFailed = true;
+            }
+        }
+
+        private void FlyFleet()
         {
             if (Planetarium.fetch == null || FlightGlobals.Vessels == null) return;
             if (HighLogic.LoadedSceneIsFlight && !FlightGlobals.ready) return;
