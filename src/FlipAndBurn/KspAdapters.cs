@@ -6,11 +6,49 @@ using FlipAndBurn.Core;
 
 namespace FlipAndBurn
 {
-    /// <summary>Feeds KSP's own orbits into the trip calculator.</summary>
+    /// <summary>
+    /// The frame Flip and Burn works in: KSP's orbit frame (Orbit's vectors, Y and Z swapped against world space) with KSP's
+    /// inverse rotation taken out, so it doesn't turn.
+    /// </summary>
     /// <remarks>
-    /// All vectors come from KSP's Orbit methods, which share one frame. The calculator only adds, subtracts and measures
-    /// vectors, so it doesn't matter that KSP's frame is left-handed with Y and Z swapped.
+    /// While the active ship is low over a body (below its inverseRotThresholdAltitude), KSP turns the whole frame with
+    /// the body: <c>Planetarium.InverseRotAngle</c> grows and every vector from the Orbit methods turns the other way about
+    /// the up axis (orbit-frame Z). Within one frame that doesn't matter, but anything kept from one frame to the next does:
+    /// a background flight's state, a saved handover state, a watched trip's plan. Loading a save with the active ship
+    /// 20 km over the Mun put a background ship 182 to 241 km from where its trip had it (cycle 15). Measured in the game:
+    /// Duna's angle in the orbit frame plus the inverse angle stayed at 150.174 degrees as the angle went from 230.000 to
+    /// 230.030. Every vector going into the core passes through here, and every one coming back out.
     /// </remarks>
+    internal static class KspFrame
+    {
+        private static double Angle => Planetarium.InverseRotAngle * Math.PI / 180;
+
+        /// <summary>A vector from KSP's Orbit methods into the core's fixed frame.</summary>
+        public static Vec3 FromOrbit(Vector3d o)
+        {
+            double t = Angle, c = Math.Cos(t), s = Math.Sin(t);
+            return new Vec3(o.x * c - o.y * s, o.x * s + o.y * c, o.z);
+        }
+
+        /// <summary>A core vector out to KSP's Orbit methods (UpdateFromStateVectors).</summary>
+        public static Vector3d ToOrbit(Vec3 v)
+        {
+            double t = Angle, c = Math.Cos(t), s = Math.Sin(t);
+            return new Vector3d(v.X * c + v.Y * s, -v.X * s + v.Y * c, v.Z);
+        }
+
+        /// <summary>A world-space vector (a ship's facing) into the core's fixed frame.</summary>
+        public static Vec3 FromWorld(Vector3d w) => FromOrbit(new Vector3d(w.x, w.z, w.y));
+
+        /// <summary>A core vector out to world space (the direction to steer).</summary>
+        public static Vector3d ToWorld(Vec3 v)
+        {
+            Vector3d o = ToOrbit(v);
+            return new Vector3d(o.x, o.z, o.y);
+        }
+    }
+
+    /// <summary>Feeds KSP's own orbits into the trip calculator, in the fixed frame (<see cref="KspFrame"/>).</summary>
     internal sealed class KspOrbitEphemeris : IEphemeris
     {
         private readonly Orbit orbit;
@@ -23,7 +61,7 @@ namespace FlipAndBurn
         /// <summary>Position and velocity relative to the orbit's reference body (the Sun, for a planet).</summary>
         public StateVector StateAt(double ut) => new StateVector(ToVec(orbit.getRelativePositionAtUT(ut)), ToVec(orbit.getOrbitalVelocityAtUT(ut)));
 
-        public static Vec3 ToVec(Vector3d v) => new Vec3(v.x, v.y, v.z);
+        public static Vec3 ToVec(Vector3d v) => KspFrame.FromOrbit(v);
     }
 
     internal static class KspShip

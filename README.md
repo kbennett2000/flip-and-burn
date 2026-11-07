@@ -32,6 +32,8 @@ the other end.
 - **Two flip styles:** cut the engine, turn, relight; or keep the engine firing and swing around under thrust.
 - **Looks after your ship:** steps down if your engines overheat, keeps 10% of your fuel in reserve on coast trips, and
   puts you in a safe orbit if something goes wrong on arrival.
+- **Fleet flights:** leave a trip and it flies on without you, at any time warp, while you fly another ship or sit in
+  the Space Center or the Tracking Station. Warp stops and a message tells you when it arrives.
 - **Fits into your game:** it lives in MechJeb's menu, carries on after saving and loading, and leaves your MechJeb
   settings and warp setup exactly as it found them.
 
@@ -62,7 +64,7 @@ The [first trip walkthrough](docs/first-trip.md) goes through it step by step, f
 | [Your first trip](docs/first-trip.md) | Step by step, from opening the window to parked at Duna |
 | [The windows explained](docs/windows.md) | Every row and button in the planner and the trip window |
 | [Ways to fly](docs/ways-to-fly.md) | Full burn or coast, the two flip styles, and choosing an acceleration |
-| [Saving, pausing and switching ships](docs/saving-and-pausing.md) | What happens to a trip when you leave it |
+| [Saving, pausing and switching ships](docs/saving-and-pausing.md) | What happens to a trip when you leave it: it flies on without you |
 | [Safety](docs/safety.md) | What it refuses and why, the arrival safety net, the fuel reserve, boil-off |
 | [Engines](docs/engines.md) | Which engines work, and what to expect from them |
 | [Troubleshooting and FAQ](docs/troubleshooting.md) | Problems you might hit, and what to do |

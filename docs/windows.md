@@ -96,8 +96,9 @@ For a ship with engines that run on electricity, the delta-v row ends in **(powe
    note says so and why. It's shown when fuel is being counted.
 8. **Warp:** the time warp in use, and why. For example "physics warp x10 (speeding up; flip in 4,853 s)", or "normal
    speed (turning to the burn direction)".
-9. **Pause** and **Abort.** Pause cuts the engine and keeps the trip; Abort ends it. See
-   [saving, pausing and switching ships](saving-and-pausing.md).
+9. **Leave it flying**, **Pause** and **Abort.** Leave it flying turns the engine off for a minute so KSP lets you leave;
+   the trip then flies on without you. Pause cuts the engine and keeps the trip, which waits for you. Abort ends it.
+   See [saving, pausing and switching ships](saving-and-pausing.md).
 
 For a ship with engines that run on electricity, two more rows show the power: **Electric charge stored** (how full the
 batteries are; Flip and Burn never takes them below 10%) and **made / used** (the electric charge made and used each
@@ -114,6 +115,7 @@ on.
 |---|---|
 | **waiting in orbit, engine off: coming round to the target's side** | Moon trips: waiting for the planet or moon you're leaving to be out of the way. The window shows **Burn starts in**, and time warp runs. |
 | **speeding up (climbing out of orbit)** | The first part of the burn, climbing away from the planet you're leaving |
+| **leaving orbit, engine off: waiting for the planet to be out of the way** | Leaving a planet when the target is on its far side: the ship coasts outward for a few minutes until the way to the target clears the planet, then fires. Burning sideways round the planet would waste fuel |
 | **speeding up** | Burning toward the destination |
 | **flip** | Turning end over end to face the other way |
 | **coasting, engine off** | Coast trips only: drifting at speed, with time warp doing the work |
@@ -130,8 +132,10 @@ on.
 </p>
 
 While a trip is paused, the window shows where it's going, the acceleration, when it was due to arrive, and the reserve.
-**Resume** carries on from where the ship is; **Abort** ends the trip. If the trip paused because you left the ship,
-there's no Resume button: it carries on by itself when you come back.
+**Resume** carries on from where the ship is; **Abort** ends the trip.
+
+After **Leave it flying**, the same window says the engine is off so you can leave, and counts down the minute. Leave,
+and the trip flies on without you; **Stay and fly** carries it on here straight away.
 
 ## The arrival report
 

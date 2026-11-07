@@ -33,9 +33,28 @@ below this one". Stage down to it, or activate it, and the planner reads it.
 
 ### I can't save, switch ships or go to the Space Center during a burn
 
-That's KSP: it doesn't allow any of those while a ship accelerates at more than 0.1 g. Press **Pause** in the trip
-window, do what you need to do, and the trip carries on when you come back. See
-[Saving, pausing and switching ships](saving-and-pausing.md).
+That's KSP: it doesn't allow any of those while a ship accelerates at more than 0.1 g. Press **Leave it flying** in the
+trip window: the engine goes off for a minute, you can leave, and the trip flies on without you. (Or press **Pause**: the
+trip then waits until you come back.) See [Saving, pausing and switching ships](saving-and-pausing.md).
+
+### My ship's fuel went down while I was away
+
+That's the trip flying on without you: the burns use fuel and electric charge as they would with you watching. See
+[Fleet flights](saving-and-pausing.md#fleet-flights-trips-that-fly-without-you).
+
+### Time warp keeps stepping down while a ship I left is on a trip
+
+That's on purpose: a ship you left is close to arriving, or warp is faster than Flip and Burn can fly it. Warp steps
+down until the ship is flown in time, so its arrival (and the message) comes when it really arrives.
+
+### Time warp stopped by itself while I was flying another ship
+
+A ship you left on a trip has arrived (or had to stop). The message on screen names the ship, where it is and its orbit.
+
+### A ship I left next to mine didn't fly on
+
+A ship inside KSP's physics range of the one you're flying (a few hundred metres) is moved by KSP, not by Flip and Burn.
+Move away from it, or switch to it, and its trip carries on.
 
 ### Time warp stopped by itself
 

@@ -193,6 +193,19 @@ namespace FlipAndBurn.TestHarness
                 if (failed) yield break;
             }
 
+            // Cycle 15, stage 1: fleet flights (only when asked: "fleetmun", "fleetduna").
+            if ((wanted ?? "").Split(',').Contains("fleetmun"))
+            {
+                yield return ProofFleetMun();
+                if (failed) yield break;
+            }
+
+            if ((wanted ?? "").Split(',').Contains("fleetduna"))
+            {
+                yield return ProofFleetDuna();
+                if (failed) yield break;
+            }
+
             // Cycle 15: the trip window braking into Jool's pull, on a short trip from Laythe (only when asked: "joolrow").
             if ((wanted ?? "").Split(',').Contains("joolrow"))
             {

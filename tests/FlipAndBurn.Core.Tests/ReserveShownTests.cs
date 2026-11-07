@@ -53,16 +53,31 @@ namespace FlipAndBurn.Core.Tests
             Assert.InRange(worstClimb, 0, 1.5);
         }
 
+        // In-game trips: the figure the window shows at Start (from the plan, ReserveWatch.ExpectedUse) against what the ship
+        // arrived with, within a point.
         [Fact]
         public void ShownReserve_InTheGame()
         {
-            // Trip B (0.4 g, cycle 11): 73,397 m/s at Start, 66,058 planned with the margin, arrived with 9,201 m/s left.
-            double shownB = ReserveWatch.ExpectedAtArrival(73_397, ReserveWatch.ExpectedUse(66_058, true), 0);
             // The guide's trip (1 g, cycle 12): 116,051 m/s at Start, 104,446 planned, arrived with 15,200 m/s (13.1 %).
             double shownGuide = ReserveWatch.ExpectedAtArrival(116_051, ReserveWatch.ExpectedUse(104_446, true), 0);
-            output.WriteLine($"trip B: shown {shownB / 73_397 * 100:F2} %, arrived 12.54 %; the guide's trip: shown {shownGuide / 116_051 * 100:F2} %, arrived 13.10 %");
-            Assert.InRange(shownB / 73_397 * 100 - 12.54, -1.0, 1.0);
+            output.WriteLine($"the guide's trip: shown {shownGuide / 116_051 * 100:F2} %, arrived 13.10 %");
             Assert.InRange(shownGuide / 116_051 * 100 - 13.10, -1.0, 1.0);
+            // Trip R (0.4 g coast to Duna, cycle 15, in-game run 9, on this planner; also gated in the harness, CheckReserveShown):
+            // 73,397 m/s at Start, 66,058 planned with the margin, arrived with 10,451 m/s (14.24 %).
+            double shownR = ReserveWatch.ExpectedAtArrival(73_397, ReserveWatch.ExpectedUse(66_058, true), 0);
+            output.WriteLine($"trip R: shown {shownR / 73_397 * 100:F2} %, arrived 14.24 %");
+            Assert.InRange(shownR / 73_397 * 100 - 14.24, -1.0, 1.0);
+        }
+
+        // History, not a gate: trip B (0.4 g, cycle 11) was flown on a planner that no longer exists (before the climb-out and
+        // the braking floor), so it can't judge this one. 73,397 m/s at Start, 66,058 planned with the margin, arrived with
+        // 9,201 m/s (12.54 %).
+        [Fact]
+        public void ShownReserve_TripB_History()
+        {
+            double shownB = ReserveWatch.ExpectedAtArrival(73_397, ReserveWatch.ExpectedUse(66_058, true), 0);
+            output.WriteLine($"trip B (old planner, history only): shown {shownB / 73_397 * 100:F2} %, arrived 12.54 % " +
+                             $"(gap {shownB / 73_397 * 100 - 12.54:+0.00;-0.00} points)");
         }
     }
 }

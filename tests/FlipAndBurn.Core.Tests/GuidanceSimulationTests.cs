@@ -71,8 +71,37 @@ namespace FlipAndBurn.Core.Tests
                                               trip: TripType.CoastInTheMiddle, deltaVBudget: BebopBudget, turnRateDegPerSec: t);
                 case "Jool coast Bebop":  return Flights.Fly(name + " (10 deg/s)", KerbolSystem.Jool, 1.0, FlipManeuver.CutFlipRelight, 0, 220_000,
                                               trip: TripType.CoastInTheMiddle, deltaVBudget: BebopBudget, turnRateDegPerSec: t);
+                case "Duna to Dres slow coast": return DunaToDres(name + " (10 deg/s)", t);
                 default: throw new ArgumentException(name);
             }
+        }
+
+        // A small planet reached slowly (cycle 15: the fleet's in-game Dres arrival): from Duna, a coast on 2 % of a full burn's delta-v.
+        private static FlightResult DunaToDres(string name, double turnDeg)
+        {
+            FlightResult probe = Flights.Fly("probe", KerbolSystem.Dres, 1.0, FlipManeuver.CutFlipRelight, 0, 20_000, stopAfterSeconds: 1, departFrom: KerbolSystem.Duna);
+            return Flights.Fly(name, KerbolSystem.Dres, 1.0, FlipManeuver.CutFlipRelight, 0, 20_000, trip: TripType.CoastInTheMiddle,
+                deltaVBudget: 0.02 * probe.PlannedDeltaV, turnRateDegPerSec: turnDeg, departFrom: KerbolSystem.Duna);
+        }
+
+        // A ship with little fuel, slowly to a small planet (cycle 15, in-game run 8): the Bebop V2.4 at Duna, 10.3 km/s at 1 g,
+        // to Dres. Run 7 flew it to 19.9 x 20.0 km; the braking floor then judged every trip too dear, because its arrival speed
+        // came from coasts aimed with gravity the planner hadn't worked out yet (CoastPlanner.TrustedArrivalSpeed). The planner
+        // must offer it, and it must keep the 10 % reserve.
+        [Fact]
+        public void LittleFuel_SlowlyToDres_KeepsTheReserve()
+        {
+            const double shipDeltaV = 10_289, budget = 0.9 * shipDeltaV;
+            FlightResult r = Flights.Fly("Bebop V2.4 Duna to Dres", KerbolSystem.Dres, 1.0, FlipManeuver.CutFlipRelight, 18_377_815_537, 20_000,
+                turnRateDegPerSec: 10, trip: TripType.CoastInTheMiddle, deltaVBudget: budget, departFrom: KerbolSystem.Duna);
+            double reserve = 1 - r.DeltaVUsed / shipDeltaV;
+            output.WriteLine($"planned {r.PlannedDeltaV:F0} m/s over {r.PlannedTripTime / 86400:F1} days; flown {r.DeltaVUsed:F0} m/s, reserve " +
+                             $"{reserve * 100:F1} %; orbit {r.FinalPeriapsisAltitude / 1000:F2} x {r.FinalApoapsisAltitude / 1000:F2} km");
+            Assert.True(r.PlannedDeltaV > 0, "the planner offered no trip");
+            Assert.True(r.Finished && !r.EndedInSafeOrbit, "didn't arrive as planned");
+            Assert.True(reserve >= 0.10, $"arrived with {reserve * 100:F1} %");
+            Assert.InRange(r.FinalPeriapsisAltitude, 19_000, 21_000);
+            Assert.InRange(r.FinalApoapsisAltitude, 19_000, 21_000);
         }
 
         public static FlightResult FlyCase(string name)
@@ -91,6 +120,7 @@ namespace FlipAndBurn.Core.Tests
                                               trip: TripType.CoastInTheMiddle, deltaVBudget: BebopBudget);
                 case "Jool coast Bebop":  return Flights.Fly(name, KerbolSystem.Jool, 1.0, FlipManeuver.CutFlipRelight, 0, 220_000,
                                               trip: TripType.CoastInTheMiddle, deltaVBudget: BebopBudget);
+                case "Duna to Dres slow coast": return DunaToDres(name, 5);
                 default: throw new ArgumentException(name);
             }
         }

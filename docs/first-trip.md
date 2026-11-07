@@ -80,8 +80,8 @@ warp is doing and why. [The windows explained](windows.md#the-trip-window) goes 
 **Reserve at arrival** is what the ship will most likely have left at Duna. It's usually a little more than the 10% the
 plan keeps, because the plan sets aside extra for steering and course corrections, and a trip rarely needs all of it.
 
-Now just watch. If you need to save or do something else along the way, press **Pause**: see
-[Saving, pausing and switching ships](saving-and-pausing.md).
+Now just watch. If you'd rather do something else along the way, press **Leave it flying** and go: the trip flies on
+without you, and a message tells you when it arrives. See [Saving, pausing and switching ships](saving-and-pausing.md).
 
 ## 5. The coast
 

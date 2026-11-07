@@ -30,6 +30,11 @@ why, in plain words, and usually what to change.
 **When the Sun is in the way** of a full burn, the trip doesn't fly through it: the planner routes it around the Sun in
 two legs, and says so. The numbers it shows include the detour.
 
+**Leaving a planet with the target on its far side,** the ship doesn't burn through the planet or waste fuel burning
+round it. It climbs until it's escaping, then coasts outward with the engine off until the way to the target is clear
+(the window says so), and only then turns and fires. With a weak engine it keeps climbing along its orbit instead, until
+it is far enough out that the planet's pull can't bring it back. The planner's fuel figures include all of this.
+
 **On a moon trip, the planet and its moons are kept clear the same way.**
 - **Leaving a low orbit with the target behind the planet (or moon):** the ship waits in its orbit, engine off, until it
   has come round to the target's side, and burns from there. Waiting costs no fuel; it's never more than one orbit, and
@@ -48,6 +53,17 @@ two legs, and says so. The numbers it shows include the detour.
   or it has drifted too far off course to reach the target. The engine is cut and the window says what happened.
 - **Abort** is always there. It cuts the engine, stops time warp, and hands the ship back to you with your settings as
   they were.
+
+## While you're away
+
+A trip you leave [flies on without you](saving-and-pausing.md#fleet-flights-trips-that-fly-without-you), with the same
+care:
+
+- **The same steering and the same safety net.** Planets and moons are kept clear, and an arrival that goes wrong ends
+  in the safest orbit the ship can reach, as below.
+- **No stepping back up.** It flies at the acceleration it held when you left, lower if the engines had overheated.
+  Heat isn't checked for a ship you aren't flying, so this is the figure the trip has proven it can hold.
+- **Warp stops** when it arrives or has to stop, and a message names the ship, where it is and its orbit.
 
 ## The arrival safety net
 
@@ -70,6 +86,10 @@ trips to Duna, Eve, Dres and Jool at accelerations from 0.25 g to 3 g, and every
 
 A **coast trip** always keeps 10% of your ship's delta-v unused. You arrive with some fuel left for whatever you came to
 do: landing, moving to a different orbit, or coming home. The planner shows the amount as **Kept in reserve**.
+
+Slowing down into a planet with a strong pull, like Jool, costs more than the speed you arrive with: the ship gains speed
+as it falls in. The planner prices the braking from that, and when a fast trip would eat into the 10%, it offers a
+slower one that doesn't.
 
 On top of that, the plan sets aside extra for steering and course corrections. Most trips don't need all of it, so
 they usually arrive with a bit more than 10%. As the trip flies, the trip window shows what the ship will most likely

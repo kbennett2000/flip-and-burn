@@ -172,6 +172,7 @@ namespace FlipAndBurn.Core.Guidance
         // gravity-free two-arc solve aims off by this much, so the plan already allows for it.
         private Vec3 wellVelocity, wellPosition;
         private StateVector coastEnd;         // coast trips: the arrival point (relative to the target), fixed at the coast's start
+        private bool arrivalReAimed;          // trips between planets: the arrival point chosen again from the real approach
         private bool correcting;              // coast trips: in a course correction burn
         private double brakeAtUT = double.NaN; // coast trips: braking start, latched once it is near (it may only come earlier)
         private bool correctionBurning;       // ... and the engine was on last step
@@ -274,8 +275,17 @@ namespace FlipAndBurn.Core.Guidance
         private double ParkingRadius => config.Target.Radius + config.ParkingAltitude;
         private bool IsCoastTrip => !double.IsNaN(coastArrivalUT);
 
+        /// <summary>
+        /// The ship is still inside the departure planet's sphere of influence. The burning left (<see cref="BurnDeltaVLeft"/>)
+        /// doesn't count that planet's pull, so until the ship is out the reserve shown comes from the plan.
+        /// </summary>
+        public bool LeavingDeparture { get; private set; }
+
         public GuidanceCommand Update(GuidanceInput input)
         {
+            TargetPlanet dep = config.Departure;
+            LeavingDeparture = dep != null && !dep.IsCentralBody && dep.SphereOfInfluence > 0 &&
+                               (input.Position - dep.Ephemeris.StateAt(input.UT).Position).Length < dep.SphereOfInfluence;
             if (safeOrbit)
             {
                 BurnTimeLeft = BurnDeltaVLeft = double.NaN;
@@ -334,7 +344,11 @@ namespace FlipAndBurn.Core.Guidance
                 if (!leg.IsWaypoint) UpdateGravityAllowance(input, arcs);
 
                 BurnTimeLeft = arcs.T1 + arcs.T2;
-                BurnDeltaVLeft = config.Acceleration * (arcs.T1 + BrakingFlown * arcs.T2);
+                double brakingLeft = config.Acceleration * BrakingFlown * arcs.T2;
+                if (IsCoastTrip && !config.PlanetSystemTrip && !leg.IsWaypoint)
+                    brakingLeft = Math.Max(brakingLeft, CoastPlanner.BrakingFloor(config.Target, config.ParkingAltitude, config.Acceleration,
+                        CoastPlanner.ArrivalSpeed(config.Target, config.SunGravParameter, input.UT, input.Position, input.Velocity, arcs)));
+                BurnDeltaVLeft = config.Acceleration * arcs.T1 + brakingLeft;
                 if (!IsCoastTrip)
                 {
                     lastArcs = arcs;
@@ -347,10 +361,12 @@ namespace FlipAndBurn.Core.Guidance
                     cmd.Acceleration = config.Acceleration;
                     cmd.TimeToFlip = arcs.T1;
                     cmd.TimeToArrival = arcs.Total;
-                    if (legIndex == 0 && NeedsToClimbOut(input, cmd.Direction, out Vec3 prograde))
+                    Vec3 climb = cmd.Direction;
+                    if (legIndex == 0 && NeedsToClimbOut(input, ref climb, out bool fire))
                     {
-                        cmd.Direction = prograde;
+                        cmd.Direction = climb;
                         cmd.Departing = true;
+                        if (!fire) cmd.Acceleration = 0;
                     }
 
                     return cmd;
@@ -484,12 +500,52 @@ namespace FlipAndBurn.Core.Guidance
             Vec3 r = input.Position - planet.Position, v = input.Velocity - planet.Velocity;
             double nominal = config.Acceleration * brakingFraction;
             double tb = Math.Min(plannedBrakingTime, tau);
+            // Trips between planets: the arrival point was chosen at the coast's start for a ship coming in along the straight
+            // line from where it was. A long coast curves around the Sun and comes in from elsewhere (a slow coast to Dres:
+            // the braking swung the ship round at the end, dipped below the parking height and used 20 % more delta-v). Once
+            // inside the target's sphere, well before braking, choose it again from the real approach, the ship's velocity
+            // relative to the target; a course correction then moves to it.
+            if (!config.PlanetSystemTrip && !arrivalReAimed && r.Length < config.Target.SphereOfInfluence && tau - tb > 2 * CorrectionCutoff)
+            {
+                arrivalReAimed = true;
+                Vec3 side = ParkingArrival.Side(v, config.EquatorNormal);
+                coastEnd = new StateVector(side * ParkingRadius, ParkingArrival.OrbitVelocity(side, config.EquatorNormal, config.Target.GravParameter, ParkingRadius));
+                brakeAtUT = double.NaN;
+            }
+
+            // Trips between planets: braking can't take less than braking all at once at the parking height would, for the speed
+            // the ship arrives with (falling into the target's pull adds to it), plus what finite thrust loses deep in a strong
+            // pull (CoastPlanner.OneShotBraking, DeepWellLoss). Planned shorter, it started too late: into Jool at 1 g on 2 % of
+            // a full burn's delta-v the arrival watch had to step in. The coast then aims for that longer, gentler braking.
+            double floorDeltaV = 0, floorTime = 0;
+            if (!config.PlanetSystemTrip)
+            {
+                double mu = config.Target.GravParameter;
+                // The speed it arrives with: inside the target's sphere, from its energy there; outside, where its coast around the
+                // Sun takes it by the time braking is due (the Sun's pull changes it over a long coast).
+                double arriving;
+                if (r.Length < config.Target.SphereOfInfluence || !(config.SunGravParameter > 0))
+                    arriving = Math.Sqrt(Math.Max(0, v.LengthSquared - 2 * mu / r.Length));
+                else
+                {
+                    double until = Math.Max(0, tau - tb);
+                    StateVector ship = TwoBody.Propagate(input.Position, input.Velocity, config.SunGravParameter, until);
+                    arriving = (ship.Velocity - config.Target.Ephemeris.StateAt(input.UT + until).Velocity).Length;
+                }
+                floorDeltaV = CoastPlanner.BrakingFloor(config.Target, config.ParkingAltitude, config.Acceleration, arriving);
+                floorTime = floorDeltaV / (config.Acceleration * CoastPlanner.BrakingFlownShare(brakingFraction));
+            }
+
             Vec3 want = v, brake = Vec3.Zero;
             bool tooLate = false;
-            for (int i = 0; i < (config.PlanetSystemTrip ? 3 : 2); i++)
+            // Inside the target's sphere of influence the smooth path guessed for a trip between planets misses how the target
+            // bends the approach (a slow coast into Dres drifted 34 m/s off course in its last ten minutes, with corrections
+            // already over): there, as on a moon trip, gravity is added up along the path really flown.
+            bool flownPath = config.PlanetSystemTrip || r.Length < config.Target.SphereOfInfluence;
+            for (int i = 0; i < (flownPath ? 3 : 2); i++)
             {
                 Vec3 g1, g2;
-                if (config.PlanetSystemTrip)
+                if (flownPath)
                     targetGravity.IntegratePlanned(input.UT, r, want, Vec3.Zero, 0, tau - tb, brake, tb, out g1, out g2);   // ADR 0005
                 else
                     targetGravity.Integrate(input.UT,
@@ -502,13 +558,18 @@ namespace FlipAndBurn.Core.Guidance
                 double disc = tau * tau - 2 * w.Length / nominal;
                 tooLate = disc <= 0;
                 tb = tooLate ? tau : tau - Math.Sqrt(disc);
+                if (floorTime > tb) tb = Math.Min(tau, floorTime);
                 brake = w / (tau - 0.5 * tb);
                 want = q - brake;
             }
 
             plannedBrakingTime = tb;
             BurnTimeLeft = tb;
-            BurnDeltaVLeft = config.Acceleration * BrakingFlown * tb;
+            // As the braking will be flown: the halfway share where the coast adds gravity up along the path really flown (a moon
+            // trip, or inside the target's sphere), the planned share otherwise (CoastPlanner.BrakingFlownShare); never under
+            // the floor.
+            BurnDeltaVLeft = Math.Max(floorDeltaV,
+                config.Acceleration * (flownPath ? CoastPlanner.BrakingFlownShare(brakingFraction) : BrakingFlown) * tb);
             double coastLeft = tau - tb;
             // Once braking is near, latch its start: it may come earlier, never later. Close to it the coast plan is
             // ill-conditioned at high speed (the time left is the square root of a small difference of large numbers: at
@@ -689,7 +750,10 @@ namespace FlipAndBurn.Core.Guidance
             // Done once the speed reaches circular (it has crossed over), or there is nothing left to do.
             if (trimming || circularizeSign * excess <= 0 || Math.Abs(excess) < 0.05)
             {
-                if (config.PlanetSystemTrip && Trim(input, r, v, up, vc, cmd)) return cmd;
+                // Every trip (moon trips since ADR 0005, trips between planets since cycle 15): a slow arrival at a small planet
+                // can end at orbital speed along the orbit but still sinking a few m/s (Duna to Dres on a small budget: 18 x 22 km
+                // at 20 km), which the check above doesn't see. The trim settles the height and the whole velocity.
+                if (Trim(input, r, v, up, vc, cmd)) return cmd;
                 circularizing = false;
                 phase = GuidancePhase.Done;
                 return new GuidanceCommand { Phase = phase, Leg = legIndex + 1, LegCount = legs.Count, Direction = input.Facing };
@@ -970,11 +1034,12 @@ namespace FlipAndBurn.Core.Guidance
 
         /// <summary>
         /// Near the departure planet, thrusting straight at the target can point into the planet (from its far side) or
-        /// fail to climb out. Burn prograde until the ship is escaping and the line toward the target clears the planet.
+        /// fail to climb out. Burn prograde until the ship is escaping, then until the line toward the target clears the planet
+        /// (<see cref="ClimbOut"/>).
         /// </summary>
-        private bool NeedsToClimbOut(GuidanceInput input, Vec3 direction, out Vec3 prograde)
+        private bool NeedsToClimbOut(GuidanceInput input, ref Vec3 direction, out bool fire)
         {
-            prograde = default;
+            fire = true;
             TargetPlanet dep = config.Departure;
             // Moon trips keep checking until the ship leaves the moon's sphere of influence: once out of orbit, the plan
             // can still swing to aim through the moon at the target behind it (ADR 0005).
@@ -988,22 +1053,13 @@ namespace FlipAndBurn.Core.Guidance
                 return false;
             }
 
-            // Leaving the planet a moon trip is centred on: getting clear of it is enough (escaping it would leave its system).
-            // Moon trips leave from the departure window, already climbing: only the line toward the target matters.
-            bool escaping = config.PlanetSystemTrip || v.LengthSquared / 2 - dep.GravParameter / r.Length >= 0;
             double safe = dep.SafeRadius > 0 ? dep.SafeRadius : dep.Radius;
-            // Moon trips (ADR 0005): a line skimming the moon's safe height still bends into it under the moon's pull, so it
-            // must pass 1.2 times that height; until then the ship keeps climbing along its orbit.
-            if (config.PlanetSystemTrip) safe *= 1.2;
-            double along = -Vec3.Dot(r, direction);
-            bool lineClear = along <= 0 || (r + direction * along).Length > safe;
-            if (escaping && lineClear)
+            if (!ClimbOut.Steer(r, v, dep.GravParameter, safe, direction, config.Acceleration, config.PlanetSystemTrip, out direction, out fire))
             {
                 climbedOut = true; // once out, stay out: no switching back and forth
                 return false;
             }
 
-            prograde = v.Normalized();
             return true;
         }
 

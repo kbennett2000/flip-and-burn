@@ -66,6 +66,8 @@ namespace FlipAndBurn
         private const double SecondsBetweenWarpChanges = 1.0;   // real seconds
         /// <summary>Real seconds the ship must be loaded, active and off rails before a paused trip resumes (lets the scene settle).</summary>
         public const float ResumeSettleSeconds = 3f;
+        /// <summary>After "Leave it flying": how long the engine stays off for the player to leave (real seconds) before the trip carries on here.</summary>
+        public const float LeaveSeconds = 60f;
         /// <summary>The trip's node in this module's part of MechJeb's per-ship settings (ADR 0004).</summary>
         public const string TripNodeName = "FLIPANDBURN_TRIP";
 
@@ -395,7 +397,7 @@ namespace FlipAndBurn
             // such trips really use.
             bool coast = trip.Trip == TripType.CoastInTheMiddle;
             double burnLeft = guidance.BurnDeltaVLeft;
-            double reserve = cmd.Departing || double.IsNaN(burnLeft)
+            double reserve = cmd.Departing || guidance.LeavingDeparture || double.IsNaN(burnLeft)
                 ? ReserveWatch.ExpectedAtArrival(have, ReserveWatch.ExpectedUse(reservePlanNeeded, coast), deltaVUsed - reservePlanUsedAt, allowanceLeft)
                 : have - ReserveWatch.RemainingUse(burnLeft, coast) - allowanceLeft;
             // Below the plan's own figure by more than a point: something since the plan, so say what.
@@ -586,6 +588,7 @@ namespace FlipAndBurn
             });
             Release();
             PausedByPlayer = byPlayer;
+            record.PausedByPlayer = byPlayer;
             settledSince = -1;
             string target = record.Target;
             Guard("naming the target", () => target = Planner.BodyName(trip.Target));
@@ -604,6 +607,7 @@ namespace FlipAndBurn
         {
             if (!Paused) return "No trip is paused.";
             PausedByPlayer = false;
+            LeavingUntil = -1;
             return Resume();
         }
 
@@ -655,26 +659,158 @@ namespace FlipAndBurn
                       (saved.Matches(TimeWarp.fetch.physicsWarpRates) ? "same array, same values" : "MISMATCH"));
         }
 
-        // Leaving the flight scene (Space Center, Tracking Station, main menu, a reload): pause first, so the warp rates and
-        // MechJeb settings go back while the flight scene is still there. KSP saved the game, trip included, just before.
+        // Leaving the flight scene (Space Center, Tracking Station, main menu, a reload): hand the trip over first, so the
+        // warp rates and MechJeb settings go back while the flight scene is still there. KSP saved the game, trip included
+        // (with what the ship needs to fly on), just before. The trip flies on without the player (ADR 0006).
         private void OnSceneLoadRequested(GameScenes scene)
         {
             if (!controlling) return;
             string where = scene == GameScenes.SPACECENTER ? "you went to the Space Center"
                 : scene == GameScenes.TRACKSTATION ? "you went to the Tracking Station"
                 : scene == GameScenes.MAINMENU ? "you went to the main menu"
-                : scene == GameScenes.FLIGHT ? "the game was reloaded"
+                : scene == GameScenes.FLIGHT ? "you switched ships or loaded a save"
                 : "the game left the flight scene";
-            Pause(where, byPlayer: false);
+            HandOver(where);
         }
 
-        // Switching to another ship: this one's trip pauses (only the active ship can fly a trip). A trip paused with the
-        // Pause button stops waiting for Resume once the player leaves: it carries on when they come back, like any other.
+        // Switching to another ship: this one's trip flies on without the player (ADR 0006). A trip paused with the Pause
+        // button stays paused while the player is away, and carries on when they come back, as before.
         private void OnVesselChange(Vessel now)
         {
             if (now == Vessel) return;
-            if (controlling) Pause("you switched to " + (now != null ? now.vesselName : "another ship"), byPlayer: false);
-            else if (record != null) PausedByPlayer = false;
+            if (controlling) HandOver("you switched to " + (now != null ? now.vesselName : "another ship"));
+            else if (record != null)
+            {
+                PausedByPlayer = false;
+                LeavingUntil = -1;   // gone: the fleet flies it now
+            }
+        }
+
+        /// <summary>
+        /// The player left the ship partway through the trip: it carries on without them (ADR 0006, Kris's decision 1).
+        /// The ship is given back as at a pause, and the trip, with what the ship needs to fly on (its acceleration now,
+        /// thrust, exhaust velocity, turn rate), is left for the fleet to fly.
+        /// </summary>
+        private void HandOver(string why)
+        {
+            if (!controlling) return;
+            double ut = double.NaN;
+            Guard("saving the trip for the fleet", () =>
+            {
+                ut = Planetarium.GetUniversalTime();
+                UpdateRecord(ut);
+                MarkHandover(ut);
+                record.Away = CaptureAway(Vessel) ?? record.Away;
+            });
+            Release();
+            PausedByPlayer = false;
+            record.PausedByPlayer = false;
+            settledSince = -1;
+            string target = record.Target, ship = record.Target;
+            Guard("naming the target", () =>
+            {
+                target = Planner.BodyName(trip.Target);
+                ship = Vessel.vesselName;
+            });
+            PauseNotice = $"The trip to {target} flies on without you ({why}). You'll get a message when {ship} arrives.";
+            Notice = null;
+            Guard("telling the player", () => ScreenMessages.PostScreenMessage(
+                $"Flip and Burn: {ship} flies on to {target} without you at {Planner.FormatG(record.Acceleration / TripCalculator.OneG)}. " +
+                "You'll get a message when it arrives.", 10f, ScreenMessageStyle.UPPER_CENTER));
+            Debug.Log($"[FlipAndBurn] trip handed over to the fleet ({why}) at UT {ut:F1}: delta-v used {record.DeltaVUsed:F0} m/s, holding " +
+                      $"{record.Acceleration / TripCalculator.OneG:F2} g, arrival planned at UT {record.PlannedArrivalUT:F0}; away figures " +
+                      (record.Away != null ? $"thrust {record.Away.FullThrust:F0} N, exhaust {record.Away.ExhaustVelocity:F0} m/s, dry mass {record.Away.DryMass:F0} kg, " +
+                                             $"turn {record.Away.TurnRate * 180 / Math.PI:F2} deg/s" : "MISSING") + $"; {SettingsCheck}");
+        }
+
+        // Where the ship is at this moment, relative to the trip's centre: the next handover measures its jump from here.
+        private void MarkHandover(double ut)
+        {
+            if (record == null || tripFrame == null) return;
+            StateVector s = tripFrame.ShipState(Vessel, ut);
+            record.HandoverUT = ut;
+            record.HandoverPosition = s.Position;
+            record.HandoverVelocity = s.Velocity;
+        }
+
+        /// <summary>What the ship needs to fly on unloaded (ADR 0006), read from the live ship; null if it can't be read.</summary>
+        private AwayShip CaptureAway(Vessel v)
+        {
+            if (v == null || !v.loaded) return null;
+            ShipReading reading = ShipPerformanceReader.Read(v, out string problem);
+            if (problem != null || reading.Report?.Performance == null) return null;
+            ShipPerformance p = reading.Report.Performance;
+            var a = new AwayShip
+            {
+                TurnRate = TurnRate > 0 ? TurnRate : EstimateTurnRate(),
+                FullThrust = p.FullThrust,
+                IspThrottleExponent = p.IspThrottleExponent,
+                DryMass = p.EndMass,
+                ExhaustVelocity = p.StartMass > p.EndMass && p.VacuumIsp > 0 ? p.VacuumIsp * ShipPerformance.StandardGravity : double.PositiveInfinity,
+                Propellants = AwayShip.MassShares(reading.Engines),
+                Facing = ToOrbitFrame(v.GetTransform().up),
+            };
+            if (p.Electric != null)
+            {
+                a.ChargePerNewton = p.Electric.FullThrust > 0 ? p.Electric.ChargeAtFull / p.Electric.FullThrust : 0;
+                a.ChargeMade = p.Electric.Supply;
+                a.ChargeFloor = p.Electric.Power.Floor;
+            }
+
+            return a.FullThrust > 0 ? a : null;
+        }
+
+        /// <summary>"Leave it flying" was pressed: until this moment (real time) the engine stays off so the player can leave.</summary>
+        public float LeavingUntil { get; private set; } = -1;
+        public bool ReadyToLeave => record != null && !controlling && LeavingUntil > Time.realtimeSinceStartup;
+
+        /// <summary>
+        /// The "Leave it flying" button (ADR 0006): KSP won't let a player switch ships or leave flight while the ship
+        /// accelerates at more than 0.1 g, so the engine goes off and the trip waits a minute for them to go. Once they
+        /// leave, the trip flies on without them; if they stay, it carries on here.
+        /// </summary>
+        public void PrepareToLeave()
+        {
+            if (!controlling) return;
+            double ut = double.NaN;
+            Guard("saving the trip for the fleet", () =>
+            {
+                ut = Planetarium.GetUniversalTime();
+                UpdateRecord(ut);
+                MarkHandover(ut);
+                record.Away = CaptureAway(Vessel) ?? record.Away;
+            });
+            Release();
+            PausedByPlayer = false;
+            record.PausedByPlayer = false;
+            settledSince = -1;
+            LeavingUntil = Time.realtimeSinceStartup + LeaveSeconds;
+            string target = record.Target;
+            Guard("naming the target", () => target = Planner.BodyName(trip.Target));
+            PauseNotice = $"The engine is off so you can leave: switch ships, or go to the Space Center or the Tracking Station, and the trip to " +
+                          $"{target} flies on without you. If you stay, it carries on here in {LeaveSeconds:0} s.";
+            Notice = null;
+            Guard("telling the player", () => ScreenMessages.PostScreenMessage("Flip and Burn: " + PauseNotice, 10f, ScreenMessageStyle.UPPER_CENTER));
+            Debug.Log($"[FlipAndBurn] ready to leave at UT {ut:F1}: engine off for up to {LeaveSeconds:0} s; delta-v used {record.DeltaVUsed:F0} m/s, holding " +
+                      $"{record.Acceleration / TripCalculator.OneG:F2} g; away figures {(record.Away != null ? "saved" : "MISSING")}; {SettingsCheck}");
+        }
+
+        /// <summary>The fleet flies this ship's trip (the ship is loaded near the player's): keep its record, the newest.</summary>
+        internal void AdoptFleetRecord(TripRecord r)
+        {
+            if (!controlling && r != null) record = r;
+        }
+
+        /// <summary>The fleet ended this ship's trip while the player was away (arrived, or stopped): forget it.</summary>
+        internal void AwayTripEnded(string report, bool arrived)
+        {
+            if (controlling) return;
+            record = null;
+            PausedByPlayer = false;
+            PauseNotice = null;
+            StopReason = report;
+            Arrived = arrived;
+            Enabled = false;
         }
 
         protected override void OnModuleDisabled()
@@ -684,8 +820,8 @@ namespace FlipAndBurn
 
         public override void OnDestroy()
         {
-            // The ship unloading, or the game quitting: pause, so the trip carries on from the last save.
-            if (controlling) Pause("the ship was unloaded", byPlayer: false);
+            // The ship unloading, or the game quitting: hand over, so the trip flies on from the last save.
+            if (controlling) HandOver("the ship was unloaded");
             GameEvents.onVesselChange.Remove(OnVesselChange);
             GameEvents.onGameSceneLoadRequested.Remove(OnSceneLoadRequested);
             base.OnDestroy();
@@ -743,7 +879,19 @@ namespace FlipAndBurn
             }
 
             if (local == null || record == null) return;
-            if (controlling) UpdateRecord(Planetarium.GetUniversalTime());
+            if (controlling)
+            {
+                // A save while flying carries what the ship needs to fly on unloaded: KSP saves just before the player
+                // leaves for the Space Center or the Tracking Station, and the fleet flies the trip from that save.
+                double ut = Planetarium.GetUniversalTime();
+                UpdateRecord(ut);
+                Guard("saving the trip for the fleet", () =>
+                {
+                    MarkHandover(ut);
+                    record.Away = CaptureAway(Vessel) ?? record.Away;
+                });
+            }
+
             ConfigNode node = local.AddNode(TripNodeName);
             foreach (KeyValuePair<string, string> kv in record.ToValues()) node.AddValue(kv.Key, kv.Value);
         }
@@ -947,7 +1095,7 @@ namespace FlipAndBurn
             Vessel v = Vessel;
             bool here = HighLogic.LoadedSceneIsFlight && FlightGlobals.ready && v != null && v == FlightGlobals.ActiveVessel && v.loaded && !v.packed &&
                         TimeWarp.fetch != null;
-            if (!here || PausedByPlayer)
+            if (!here || PausedByPlayer || ReadyToLeave)
             {
                 settledSince = -1;
                 return;
@@ -1012,6 +1160,26 @@ namespace FlipAndBurn
 
             string name = Planner.BodyName(target);
             double away = Math.Max(0, ut - record.LastFlownUT);
+            // Flown by the fleet while the player was away (ADR 0006): how long, and how far the ship jumped at the handover.
+            double fleetSince = record.FleetSinceUT;
+            LastFleetSeconds = double.IsNaN(fleetSince) ? double.NaN : Math.Max(0, ut - fleetSince);
+            LastHandoverJump = LastHandoverJumpSpeed = double.NaN;
+            if (!double.IsNaN(record.HandoverUT))
+            {
+                TripFrame f = TripFrame.Saved(record.Centre, target);
+                if (f != null)
+                {
+                    StateVector then = f.ShipState(v, record.HandoverUT);
+                    LastHandoverJump = (then.Position - record.HandoverPosition).Length;
+                    LastHandoverJumpSpeed = (then.Velocity - record.HandoverVelocity).Length;
+                    Debug.Log($"[FlipAndBurn] handover jump ({(double.IsNaN(fleetSince) ? "saved trip" : "fleet")} to player): position {LastHandoverJump:F2} m, " +
+                              $"velocity {LastHandoverJumpSpeed:F4} m/s, at UT {record.HandoverUT:F1} ({ut - record.HandoverUT:F1} s before now)");
+                }
+            }
+
+            record.FleetSinceUT = double.NaN;
+            record.PausedByPlayer = false;
+            LeavingUntil = -1;
             ShipPerformance ship = null;
             if (!CheatOptions.InfinitePropellant)
             {
@@ -1114,6 +1282,12 @@ namespace FlipAndBurn
 
         private bool announceResume, resumeKeptArrival;
 
+        /// <summary>The last resume after the fleet flew the trip: how long it flew without the player (s), else NaN.</summary>
+        public double LastFleetSeconds { get; private set; } = double.NaN;
+        /// <summary>The last resume: how far the ship's position (m) and velocity (m/s) jumped at the handover, else NaN.</summary>
+        public double LastHandoverJump { get; private set; } = double.NaN;
+        public double LastHandoverJumpSpeed { get; private set; } = double.NaN;
+
         private static string AwayText(double away) => away < 60 ? $"{away:0} s" : Planner.FormatTime(away);
 
         // The resume message, on the first guidance step after a resume: how long the player was away, and what that did to
@@ -1127,6 +1301,17 @@ namespace FlipAndBurn
             UpdateRecord(ut);
             double change = newArrival - oldArrival;
             string why = away >= 60 ? $": the engine was off for {AwayText(away)}" : ": the new plan from where the ship is now needs it";
+            if (!double.IsNaN(LastFleetSeconds))
+            {
+                Notice = $"Welcome back: the trip flew on without you for {AwayText(LastFleetSeconds)}. Arrival in {Planner.FormatTime(newArrival - ut)}. " +
+                         "The ship turns to its burn direction before the engine fires.";
+                noticePhase = cmd.Phase;
+                ScreenMessages.PostScreenMessage("Flip and Burn: " + Notice, 15f, ScreenMessageStyle.UPPER_CENTER);
+                Debug.Log($"[FlipAndBurn] resumed after the fleet flew it for {LastFleetSeconds:F1} s: arrival UT {newArrival:F0}, was {oldArrival:F0} " +
+                          $"({change:+0;-0} s); first command {cmd.Phase}, pointing error {PointingError:F1} deg");
+                return;
+            }
+
             string changeText = Math.Abs(change) < 60
                 ? "about when it was planned before"
                 : $"{Planner.FormatTime(Math.Abs(change))} {(change > 0 ? "later" : "earlier")} than planned before{(change > 0 ? why : "")}";
@@ -1146,7 +1331,7 @@ namespace FlipAndBurn
         }
 
         // A re-plan's problem in plain words.
-        private static string ProblemText(ReplanResult r, CelestialBody target, double acceleration, TripType tripType)
+        internal static string ProblemText(ReplanResult r, CelestialBody target, double acceleration, TripType tripType)
         {
             string g = Planner.FormatG(acceleration / TripCalculator.OneG), name = Planner.BodyName(target);
             switch (r.Problem)
@@ -1691,8 +1876,9 @@ namespace FlipAndBurn
 
         // ------------------------------------------------------------------ frames
 
-        // The guidance works in KSP's orbit frame (Orbit's vectors, Y and Z swapped relative to world space).
-        private static Vec3 ToOrbitFrame(Vector3d world) => new Vec3(world.x, world.z, world.y);
-        private static Vector3d ToWorld(Vec3 v) => new Vector3d(v.X, v.Z, v.Y);
+        // The guidance works in KSP's orbit frame with the inverse rotation taken out (KspFrame): world space turns while the
+        // ship is low over a body.
+        private static Vec3 ToOrbitFrame(Vector3d world) => KspFrame.FromWorld(world);
+        private static Vector3d ToWorld(Vec3 v) => KspFrame.ToWorld(v);
     }
 }

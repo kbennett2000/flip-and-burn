@@ -3,7 +3,8 @@ using System;
 namespace FlipAndBurn.Core.Guidance
 {
     /// <summary>
-    /// What the departure planet's gravity takes away while the ship burns out of its sphere of influence.
+    /// What the departure planet's gravity, and climbing out past it, take away while the ship burns out of its sphere of
+    /// influence.
     /// </summary>
     /// <remarks>
     /// A ship starting in low orbit doesn't keep its orbital speed, and climbing out of the well costs a little more.
@@ -33,11 +34,27 @@ namespace FlipAndBurn.Core.Guidance
             double mu = departure.GravParameter;
             Vec3 Pull(Vec3 p) => p * (-mu / Math.Pow(p.Length, 3));
             Vec3 r0 = r, v0 = v;
-            double t = 0;
+            double t = 0, burned = 0, a = burn.Length;
+            Vec3 aim = a > 0 ? burn * (1 / a) : Vec3.Zero;
+            double safe = departure.SafeRadius > 0 ? departure.SafeRadius : departure.Radius;
+            bool climbing = a > 0;
             while (r.Length < departure.SphereOfInfluence && t < remaining)
             {
                 double h = Math.Min(Step, remaining - t);
-                Vec3 thrust = t < t1 ? burn : Vec3.Zero;
+                // The first burn as the guidance flies it: climbing out first (ClimbOut), then along the plan.
+                Vec3 thrust = Vec3.Zero;
+                if (burned < t1)
+                {
+                    Vec3 direction = aim;
+                    bool fire = true;
+                    if (climbing && !ClimbOut.Steer(r, v, mu, safe, aim, a, false, out direction, out fire)) climbing = false;
+                    if (fire)
+                    {
+                        thrust = direction * a;
+                        burned += h;
+                    }
+                }
+
                 Vec3 k1v = Pull(r) + thrust, k1r = v;
                 Vec3 k2v = Pull(r + k1r * (h / 2)) + thrust, k2r = v + k1v * (h / 2);
                 Vec3 k3v = Pull(r + k2r * (h / 2)) + thrust, k3r = v + k2v * (h / 2);
@@ -47,8 +64,9 @@ namespace FlipAndBurn.Core.Guidance
                 t += h;
             }
 
-            // The same burn without the pull.
-            double tb = Math.Min(t, t1);
+            // The same burn time straight along the plan from the start, without the pull: the difference is what the pull
+            // and the climb-out (its steering and any coasting) cost.
+            double tb = Math.Min(burned, t1);
             Vec3 vFree = v0 + burn * tb;
             Vec3 rFree = r0 + v0 * t + burn * (0.5 * tb * tb) + burn * (tb * (t - tb));
             velocity = v - vFree;

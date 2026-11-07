@@ -274,10 +274,10 @@ namespace FlipAndBurn.Core.Tests
             double stopAfterSeconds = double.MaxValue, double traceFrom = double.MaxValue, double traceTo = double.MaxValue, double traceEvery = 50, Action<GuidanceConfig> configure = null,
             TripType trip = TripType.FullBurn, double deltaVBudget = 0, Action<ShipSimulator> start = null, bool watch = true,
             double wallSeconds = MaxWallSeconds, Action<double, GuidanceCommand, double, FlipAndBurnGuidance> observe = null,
-            SimSystem system = null, bool holdWhenOffPointing = true)
+            SimSystem system = null, bool holdWhenOffPointing = true, PlanetRecord departFrom = null)
         {
-            // The body the ship starts in orbit around: Kerbin for a trip between planets, or as the moon system says.
-            PlanetRecord kerbin = system?.Departure ?? KerbolSystem.Kerbin;
+            // The body the ship starts in orbit around: Kerbin for a trip between planets (or departFrom), or as the moon system says.
+            PlanetRecord kerbin = system?.Departure ?? departFrom ?? KerbolSystem.Kerbin;
             double a = accelG * TripCalculator.OneG;
             double turnRate = turnRateDegPerSec * Math.PI / 180;
             double centralMu = system?.CentralGravParameter ?? KerbolSystem.SunGravParameter;
@@ -434,14 +434,18 @@ namespace FlipAndBurn.Core.Tests
 
                 // The flip and the coast are engine-off (or turning) by design; the bar is about holding the acceleration while burning
                 // (course corrections during a coast included).
-                // The last burn turning before it burns (engine off) doesn't count either.
+                // The last burn turning before it burns (engine off) doesn't count either, nor coasting out of orbit while the
+                // departure planet is in the way (ClimbOut).
                 if (cmd.Phase != GuidancePhase.Flip && cmd.Phase != GuidancePhase.Waiting && !(cmd.Phase == GuidancePhase.Coast && cmd.Acceleration == 0) &&
+                    !(cmd.Departing && cmd.Acceleration == 0) &&
                     !(cmd.Circularizing && cmd.Acceleration == 0))
                 {
                     // Braking holds the arrival law's band, from its floor to the chosen acceleration (planned lower than 99 % in
                     // a deep well, CoastPlanner.BrakingFractionFor); everything else, the chosen acceleration.
                     bool braking = cmd.Phase == GuidancePhase.Decelerate || (cmd.Phase == GuidancePhase.FinalApproach && !cmd.Circularizing && !cmd.SafeOrbit);
-                    double off = !braking ? Math.Abs(cmd.Acceleration - a) / a
+                    // The last burn and its gentle trim (every trip since cycle 15) may use less than the chosen acceleration, never more.
+                    double off = cmd.Circularizing ? Math.Max(0, cmd.Acceleration - a) / a
+                        : !braking ? Math.Abs(cmd.Acceleration - a) / a
                         : cmd.Acceleration > a ? (cmd.Acceleration - a) / a
                         : Math.Max(0, guidance.BrakingFloor * a - cmd.Acceleration) / a;
                     result.MaxAccelErrorOutsideFlip = Math.Max(result.MaxAccelErrorOutsideFlip, off);
@@ -475,7 +479,7 @@ namespace FlipAndBurn.Core.Tests
                 if (sim.UT >= nextReserveSample && cmd.Phase != GuidancePhase.Done)
                 {
                     nextReserveSample = sim.UT + (cmd.Departing ? 120 : 3600);
-                    result.ReserveSamples.Add((sim.UT, cmd.Departing, result.DeltaVUsed, guidance.BurnDeltaVLeft, cmd.Phase));
+                    result.ReserveSamples.Add((sim.UT, cmd.Departing || guidance.LeavingDeparture, result.DeltaVUsed, guidance.BurnDeltaVLeft, cmd.Phase));
                 }
 
                 result.Steps++;
