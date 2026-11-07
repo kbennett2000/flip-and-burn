@@ -281,6 +281,9 @@ namespace FlipAndBurn.TestHarness
                     {
                         arriveShot = true;
                         Frame(cur.Ship, 0.15f, 2.8f, 2.2f);
+                        Log($"trip {spec.Name} acceleration row (arriving): {Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (aiming for " +
+                            $"{Planner.FormatG(pilot.AimingFor / Planner.OneG)}); line below: " +
+                            (pilot.AimingWhy != null ? $"Aiming below {Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)}: {pilot.AimingWhy}. The engines aren't overheating." : "(none)"));
                         yield return Shot($"{spec.Prefix}-5-arriving.png", cur);
                         continue;
                     }

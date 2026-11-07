@@ -206,6 +206,13 @@ namespace FlipAndBurn.TestHarness
                 if (failed) yield break;
             }
 
+            // Cycle 15: the trip window braking into Jool's pull, on a short trip from Laythe (only when asked: "joolrow").
+            if ((wanted ?? "").Split(',').Contains("joolrow"))
+            {
+                yield return ProofJoolRow();
+                if (failed) yield break;
+            }
+
             // Cycle 15: a watched coast trip from Jool orbit to Tylo (only when asked: "tylocoast").
             if ((wanted ?? "").Split(',').Contains("tylocoast"))
             {

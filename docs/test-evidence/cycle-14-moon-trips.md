@@ -5,7 +5,56 @@ orbit around Kerbin. The lines below are copied from KSP.log as the test helper 
 After each of the three launches the run's own check found MechJeb's settings, BetterTimeWarp's and KSP's settings.cfg identical to
 before, and no file in any other save changed.
 
-## The first launch: to the Mun, back to Kerbin, on to Minmus
+## The final build (cycle 15 review, 2026-11-06)
+
+The review found the last burn covering for braking that ran out of thrust in strong gravity (ADR 0005, addendum). The
+fixes change the guidance for every trip, so the moon trips, a Tylo coast trip and a Jool arrival were flown again on the
+final build. Each started from the test copy's own quicksave. After each launch, MechJeb's, BetterTimeWarp's and KSP's
+settings were checked identical to before.
+
+The moon trips flew on build 2753209. The changes after it change none of their commands: how a coast plan counts
+deep-well braking (61dd0a6) touches coast plans only where the braking is planned below 99 % (the Minmus coast keeps
+99 %), and the braking reason's own line in the trip window (36dc9a5) is display only. The Tylo coast trip's plan does
+change with 61dd0a6, so it was flown again on it. The trip window's braking line was moved onto its own row after the Jool
+trip (36dc9a5, display only), and photographed on a short trip from Laythe to Jool on the final build.
+
+| Trip | Orbit | Time against the plan at Start |
+|---|---|---|
+| Kerbin to the Mun, full burn at 1 g, cut-flip-relight (waited 15 min) | 19.91 × 20.11 km, planned 20 | +30 s (+1.0 %) |
+| The Mun back to Kerbin, full burn at 1 g, skew flip (waited 22 min; braking with headroom for Kerbin's pull) | 79.58 × 80.26 km, planned 80 | +78 s (+2.3 %) |
+| Kerbin to Minmus, coast at 1 g, fuel counted (lowered to 25 km/s) | 19.75 × 20.01 km, planned 20 | +21 s (+0.3 %), 14.3 % of the delta-v left |
+| Jool orbit to Tylo, coast at 1 g, fuel counted (lowered to 30 km/s; build 2753209) | 29.82 × 30.16 km, planned 30 | +38 s (+0.5 %), 11.8 % left |
+| Jool orbit to Tylo, coast at 1 g, fuel counted (final build) | 29.83 × 30.18 km, planned 30 | +34 s (+0.4 %), 14.7 % left |
+| Kerbin to Jool, full burn at 1 g, cut-flip-relight (build ab21c04) | 219.35 × 220.11 km, planned 220 | +8 s over 8 days 5 hours (+0.004 %) |
+| Laythe orbit to Jool, full burn at 1 g (final build; set-orbit cheat, test copy) | 217.36 × 223.58 km, planned 220 | +61 s (+1.6 %) |
+
+All arrived cleanly: engine off, out of warp before the last burn, MechJeb's settings identical apart from window sizes,
+and the engine at zero whenever the ship pointed more than 5° off (outside the skew flip).
+
+**The Tylo coast trip** needs the Bebop near Jool, which the test copy doesn't have: KSP's own set-orbit cheat (test copy
+only) put it in a 220 km orbit around Jool, and its propellant was lowered in memory so the trip had to coast. Before the
+fixes the same trip, flown watched in the game, arrived at 29.85 × 30.07 km; in the simulator its last burn took 727 s.
+
+**The Jool trip** is the planet arrival that overspeeded in the simulator (955 m/s at the last burn, now 29). It braked at
+0.850 g for 28 hours, the law rising to 0.89 g in the last minutes, and arrived 8 seconds after the time planned at Start.
+While it braked the window read "0.85 g (aiming for 0.85 g: braking leaves spare push for Jool's gravity)" in one row
+(`trip-j-4-slow-down.jpg`); the label column was squeezed, so the reason now has its own line. On the final build, braking
+into Jool from Laythe (`jool-row-5-arriving.jpg`; `docs/images/trip-braking-headroom.jpg` for Ways to fly):
+
+```
+Acceleration        0.84 g (aiming for 0.85 g)
+Aiming below 1.00 g: braking leaves spare push for Jool's gravity. The engines aren't overheating.
+```
+
+The Laythe trip used KSP's set-orbit cheat (test copy only) to put the Bebop 500 km above Laythe.
+
+Pictures: `tylo-coast-1-start.jpg`, `-3-coast.jpg`, `-5-arriving.jpg`, `-6-final-orbit-map.jpg`; the moon trips as below;
+`trip-j-1-start.jpg`, `-3-flip.jpg`, `-4-slow-down.jpg`, `-5-arriving.jpg`, `-6-final-orbit-map.jpg`; `jool-row-5-arriving.jpg`,
+`-6-final-orbit-map.jpg`.
+
+## Before the review's fixes
+
+### The first launch: to the Mun, back to Kerbin, on to Minmus
 
 Three trips back to back on one ship, with nothing touched in between. Trips 1 and 2 used the test-only cheats infinite
 propellant and ignore max temperature (the Bebop's drive holds about 0.45 g cool, and leaving a low Kerbin orbit needs
@@ -18,7 +67,7 @@ moon trips: orbiting Kerbin; Fly to: Moons of Kerbin: Mun, Minmus; Planets: Moho
 moon trips: orbiting Mun; Fly to: The Mun's planet: Kerbin; Other moons of Kerbin: Minmus | note: To fly to another planet, get into orbit around Kerbin first: Flip and Burn doesn't fly from a moon straight to another planet yet.
 ```
 
-### Trip 1: Kerbin orbit to the Mun, full burn at 1 g, cut, flip, relight
+#### Trip 1: Kerbin orbit to the Mun, full burn at 1 g, cut, flip, relight
 
 ```
 trip M1: waiting in orbit for the departure window, burn in 936 s; planner said 2960 s for the whole trip
@@ -31,7 +80,7 @@ trip M1: MechJeb settings files before Start and after arrival: identical apart 
 trip M1: ARRIVED CLEANLY (engine off True)
 ```
 
-### Trip 2: the Mun back to Kerbin orbit, full burn at 1 g with a skew flip
+#### Trip 2: the Mun back to Kerbin orbit, full burn at 1 g with a skew flip
 
 ```
 trip M2: waiting in orbit for the departure window, burn in 1299 s; planner said 3357 s for the whole trip
@@ -47,13 +96,13 @@ Kerbin was between the ship and the Mun at the start of trip 1, and the Mun betw
 trip 2. Both waited in orbit, engine off and on time warp, then burned. The skew flip fired through the turn by design;
 everywhere else the engine was at zero whenever the ship pointed more than 5° off.
 
-### Trip 3 in the first launch
+#### Trip 3 in the first launch
 
 It flew to Minmus and arrived cleanly (19.91 × 20.02 km), but it didn't really coast. With fuel counted, the Bebop
 carries 116 km/s of delta-v, and with that much the fastest coast trip is a full burn: the planner says so ("nothing to
 coast"). The run stopped there because the coast picture couldn't be taken.
 
-## The second launch: the coast trip to Minmus
+### The second launch: the coast trip to Minmus
 
 The Bebop's propellant was lowered in memory (test copy) until the planner read 25 km/s at 1 g, about half what a full
 burn to Minmus takes, so the trip had to coast. Fuel was counted; only ignore max temperature was on.
@@ -72,7 +121,7 @@ trip M3: ARRIVED CLEANLY (engine off True)
 
 It kept more than the 10 % reserve (14.1 % left), and made one course correction on the way.
 
-## The third launch: the Bebop to the Mun with real heat
+### The third launch: the Bebop to the Mun with real heat
 
 The trip a player flies first: the Bebop from its Kerbin orbit to the Mun at 1 g, full burn, **fuel counted and no
 cheats**. The planner's warp choice was set to its default, 10x, for the run and put back afterwards. The Bebop's orbit in
@@ -97,6 +146,8 @@ braking ran at normal speed: the drive stayed near its heat limit, where the hea
 
 ## Pictures
 
+The moon-trip pictures below are from the final build's launch (the same names as before the fixes).
+
 | Trip | Planner | On the way | Flip or coast | Arrival, map view |
 |---|---|---|---|---|
 | 1, to the Mun | `moon-1-mun-1-start.jpg` | `moon-1-mun-2-waiting.jpg`, `-2-mid-burn`, `-5-arriving` | `moon-1-mun-3-flip.jpg` | `moon-1-mun-6-final-orbit-map.jpg` |
@@ -105,7 +156,7 @@ braking ran at normal speed: the drive stayed near its heat limit, where the hea
 
 ## Not tested in the game
 
-- Duna, Jool and the Outer Planets Mod moons (only the simulator flew them).
+- Duna's moon and the Outer Planets Mod moons (only the simulator flew them); of Jool's, only Tylo, from a cheat-set orbit.
 - A detour around a planet.
 - A moon to a sibling moon.
 - Pause and resume, and save and load, during a moon trip.
