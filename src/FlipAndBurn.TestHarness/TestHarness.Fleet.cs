@@ -79,13 +79,19 @@ namespace FlipAndBurn.TestHarness
             foreach (string target in FleetSecondTargets)
             {
                 if (started || !m2.SelectTarget(target)) continue;
-                foreach ((TripType type, double g) in new[] { (TripType.CoastInTheMiddle, 0.4), (TripType.FullBurn, 0.4), (TripType.CoastInTheMiddle, 0.2) })
+                // The Bebop V2.4 has little delta-v at low acceleration; in cycle 10 a coast trip to Dres at 1 g was the one it could fly.
+                foreach ((TripType type, double g) in new[] { (TripType.CoastInTheMiddle, 1.0), (TripType.CoastInTheMiddle, 0.4), (TripType.FullBurn, 0.4) })
                 {
                     m2.AccelerationG.Val = g;
                     m2.SelectTripType(type);
                     yield return new WaitForSecondsRealtime(1f);
                     m2.Replan();
-                    if (!m2.Planner.CanStart) continue;
+                    if (!m2.Planner.CanStart)
+                    {
+                        Log($"fleet: second ship, {type} to {target} at {g} g: can't start; {string.Join(" ", m2.Planner.Notes)}");
+                        continue;
+                    }
+
                     problem = m2.PressStart();
                     Log($"fleet: second ship's trip to {target}, {type} at {g} g: {problem ?? "started"}");
                     started = problem == null;
