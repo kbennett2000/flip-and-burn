@@ -357,10 +357,12 @@ namespace FlipAndBurn.Core.Guidance
                     cmd.Acceleration = config.Acceleration;
                     cmd.TimeToFlip = arcs.T1;
                     cmd.TimeToArrival = arcs.Total;
-                    if (legIndex == 0 && NeedsToClimbOut(input, cmd.Direction, out Vec3 prograde))
+                    Vec3 climb = cmd.Direction;
+                    if (legIndex == 0 && NeedsToClimbOut(input, ref climb, out bool fire))
                     {
-                        cmd.Direction = prograde;
+                        cmd.Direction = climb;
                         cmd.Departing = true;
+                        if (!fire) cmd.Acceleration = 0;
                     }
 
                     return cmd;
@@ -1002,11 +1004,12 @@ namespace FlipAndBurn.Core.Guidance
 
         /// <summary>
         /// Near the departure planet, thrusting straight at the target can point into the planet (from its far side) or
-        /// fail to climb out. Burn prograde until the ship is escaping and the line toward the target clears the planet.
+        /// fail to climb out. Burn prograde until the ship is escaping, then until the line toward the target clears the planet
+        /// (<see cref="ClimbOut"/>).
         /// </summary>
-        private bool NeedsToClimbOut(GuidanceInput input, Vec3 direction, out Vec3 prograde)
+        private bool NeedsToClimbOut(GuidanceInput input, ref Vec3 direction, out bool fire)
         {
-            prograde = default;
+            fire = true;
             TargetPlanet dep = config.Departure;
             // Moon trips keep checking until the ship leaves the moon's sphere of influence: once out of orbit, the plan
             // can still swing to aim through the moon at the target behind it (ADR 0005).
@@ -1020,22 +1023,13 @@ namespace FlipAndBurn.Core.Guidance
                 return false;
             }
 
-            // Leaving the planet a moon trip is centred on: getting clear of it is enough (escaping it would leave its system).
-            // Moon trips leave from the departure window, already climbing: only the line toward the target matters.
-            bool escaping = config.PlanetSystemTrip || v.LengthSquared / 2 - dep.GravParameter / r.Length >= 0;
             double safe = dep.SafeRadius > 0 ? dep.SafeRadius : dep.Radius;
-            // Moon trips (ADR 0005): a line skimming the moon's safe height still bends into it under the moon's pull, so it
-            // must pass 1.2 times that height; until then the ship keeps climbing along its orbit.
-            if (config.PlanetSystemTrip) safe *= 1.2;
-            double along = -Vec3.Dot(r, direction);
-            bool lineClear = along <= 0 || (r + direction * along).Length > safe;
-            if (escaping && lineClear)
+            if (!ClimbOut.Steer(r, v, dep.GravParameter, safe, direction, config.Acceleration, config.PlanetSystemTrip, out direction, out fire))
             {
                 climbedOut = true; // once out, stay out: no switching back and forth
                 return false;
             }
 
-            prograde = v.Normalized();
             return true;
         }
 

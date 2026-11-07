@@ -333,7 +333,9 @@ namespace FlipAndBurn
         {
             switch (c.Phase)
             {
-                case GuidancePhase.Accelerate: return c.Departing ? "speeding up (climbing out of orbit)" : "speeding up";
+                case GuidancePhase.Accelerate:
+                    if (!c.Departing) return "speeding up";
+                    return c.Acceleration > 0 ? "speeding up (climbing out of orbit)" : "leaving orbit, engine off: waiting for the planet to be out of the way";
                 case GuidancePhase.Flip: return "flip";
                 case GuidancePhase.Coast: return c.Correcting ? "coasting (course correction)" : "coasting, engine off";
                 case GuidancePhase.Waiting: return "waiting in orbit, engine off: coming round to the target's side";

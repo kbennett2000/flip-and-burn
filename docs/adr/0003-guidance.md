@@ -79,6 +79,34 @@ low acceleration. Near the departure planet the ship first burns prograde until 
 line to the target, then steers normally; once out, it doesn't switch back. At 1 g from a 100 km Kerbin orbit this
 takes about 95 seconds.
 
+**Addendum (cycle 15): climbing out without wasting the burn.** Found by a slow coast from Duna to Dres that flew 35.0 km/s
+against 29.5 planned. With Dres almost straight through Duna, the ship burned prograde for 400 s (3.9 km/s) about 140°
+away from where it had to go, and taking that off again raised the speed-up from 15.6 to 24.2 km/s. A survey of coast
+trips leaving Kerbin and Duna (0.25 g and 1 g, budgets of 2, 10 and 40 % of a full burn) found two more trips arriving
+under the 10 % reserve (Kerbin to Duna at 0.25 g on 10 %: 0.5 % left; Kerbin to Dres at 1 g on 2 %: 9.4 %), and a worse
+one: at 0.25 g from Kerbin to Duna the ship turned for Duna as soon as it was escaping, against its own motion, and
+Kerbin's pull (stronger than the engine there) dragged it back through the planet. The simulator has no ground, so the
+trip still "arrived".
+
+The rule now (`ClimbOut`, trips between planets; moon trips unchanged):
+
+1. Not yet escaping: burn prograde, as before.
+2. Escaping: steer normally once the path toward the target, flown with thrust and the planet's pull, stays above the
+   safe height until it is 20 safe radii out. A straight line isn't enough when the thrust is weak.
+3. Otherwise burn along the clear line nearest the target line (grazing 1.1 times the safe height) if that is within 45°
+   of it and its path clears too.
+4. Otherwise, with thrust at least twice the planet's pull there, coast with the engine off, facing the target line,
+   until the way clears; with weaker thrust, keep climbing prograde.
+
+The coast planner's departure model (`DepartureGravity`) flies the same rule, so the plan counts what the climb-out
+costs. Survey after the change: every trip's speed-up within 2.2 % of the plan (it was up to 40 % over), every ship at
+100 km or more above the surface while leaving, every reserve 10.4 % or more except Kerbin to Jool at 1 g on 2 %
+(4.6 %, an overspend in the braking into Jool, not the departure; follow-up below). This changes watched trips too.
+The trip window names the engine-off part ("leaving orbit, engine off: waiting for the planet to be out of the way").
+
+Feeding the same model to the guidance while it climbs out (the follow-up below) was tried and dropped: near a close
+pass of the planet the fixed-arrival solve then found no solution, and two 1 g trips failed.
+
 ### The Sun in the way
 
 When the planner flags the straight path as passing within the Sun safety distance (ADR 0002), the guidance flies two

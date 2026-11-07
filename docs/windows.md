@@ -115,6 +115,7 @@ on.
 |---|---|
 | **waiting in orbit, engine off: coming round to the target's side** | Moon trips: waiting for the planet or moon you're leaving to be out of the way. The window shows **Burn starts in**, and time warp runs. |
 | **speeding up (climbing out of orbit)** | The first part of the burn, climbing away from the planet you're leaving |
+| **leaving orbit, engine off: waiting for the planet to be out of the way** | Leaving a planet when the target is on its far side: the ship coasts outward for a few minutes until the way to the target clears the planet, then fires. Burning sideways round the planet would waste fuel |
 | **speeding up** | Burning toward the destination |
 | **flip** | Turning end over end to face the other way |
 | **coasting, engine off** | Coast trips only: drifting at speed, with time warp doing the work |

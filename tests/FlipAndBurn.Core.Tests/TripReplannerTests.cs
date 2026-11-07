@@ -17,6 +17,7 @@ namespace FlipAndBurn.Core.Tests
         private const double ParkingAltitude = 60_000;
         private const double BurnSeconds = 1800;            // flown before the player leaves
         private const double AwaySeconds = 2 * 21_600;      // two Kerbin days coasting, engine off
+        private const double KeptAwaySeconds = 3 * 3600;    // a shorter absence, for keeping the arrival
         private static double A => AccelG * TripCalculator.OneG;
         private static double Budget => GuidanceSimulationTests.BebopBudget;
         /// <summary>The Bebop's delta-v at the start of the trip: the budget is 90 % of it, the rest the reserve.</summary>
@@ -187,9 +188,10 @@ namespace FlipAndBurn.Core.Tests
         [Fact]
         public void KeptArrival_OnlyAboveTheReserveFloor()
         {
-            FlightResult first = FirstBurn.Value;
-            ShipSimulator ship = At(first);
-            double left = Budget - first.DeltaVUsed;
+            // Left for a while first: since cycle 15 the first half hour flies on its plan, and keeping the arrival straight
+            // away fits the budget. After a few hours of coasting off the plan it goes into the reserve.
+            (ShipSimulator ship, FlightResult first, double used) = Interrupted(KeptAwaySeconds);
+            double left = Budget - used;
             CoastPlan keep = CoastPlanner.PlanArrivingAt(From(ship), left, first.PlannedTripTime);
             double over = keep.DeltaVNeeded - left;   // how far keeping the arrival goes into the reserve
             Assert.True(over > 0);

@@ -30,6 +30,11 @@ why, in plain words, and usually what to change.
 **When the Sun is in the way** of a full burn, the trip doesn't fly through it: the planner routes it around the Sun in
 two legs, and says so. The numbers it shows include the detour.
 
+**Leaving a planet with the target on its far side,** the ship doesn't burn through the planet or waste fuel burning
+round it. It climbs until it's escaping, then coasts outward with the engine off until the way to the target is clear
+(the window says so), and only then turns and fires. With a weak engine it keeps climbing along its orbit instead, until
+it is far enough out that the planet's pull can't bring it back. The planner's fuel figures include all of this.
+
 **On a moon trip, the planet and its moons are kept clear the same way.**
 - **Leaving a low orbit with the target behind the planet (or moon):** the ship waits in its orbit, engine off, until it
   has come round to the target's side, and burns from there. Waiting costs no fuel; it's never more than one orbit, and

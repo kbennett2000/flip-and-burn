@@ -106,12 +106,18 @@ otherwise arrive as before (planet sweep worst 0.9 %).
 - A ship inside the physics range of the one being flown (a few hundred metres) is moved by KSP, not the fleet. It waits
   until it is out of range or on rails.
 - Heat isn't checked while away (decision 2): the trip flies at the acceleration it held when the player left.
-- **Follow-up: slow approaches to small planets.** A coast from Duna to Dres on a small budget (2 % of a full burn's
-  delta-v) brakes too little early: near the end the path bends in, the ship dips below the parking height and the
-  braking law asks for twice the acceleration. Watched, the arrival safety net fires (down to 9 km over Dres, then a
-  19.8 × 20.2 km orbit); in the background the trim brings it to 19.8 × 20.0 km. Either way it uses about 20 % more
-  delta-v than planned. It predates fleet flights (watched trips have it too) and needs its own guidance work; the
-  sweeps now include the case in the background.
+- **Fixed: slow approaches to small planets** (1c1f040). A coast from Duna to Dres on a small budget (2 % of a full burn's
+  delta-v) chose its arrival point for a straight line from where the ship was, while a long coast curves in from
+  elsewhere: near the end the path bent in, the ship dipped below the parking height (to 9 km over Dres watched, with
+  the safety net firing), and the braking law asked for twice the acceleration. The arrival point is now chosen again
+  from the real approach once inside the target's sphere, and the target's pull is added up along the path flown
+  there. Watched: 19.91 x 20.00 km (5°/s), 20.00 x 20.07 km (10°/s), no safety net; in the background 19.86 x 20.04 and
+  19.98 x 20.00, 10 km above the safe height. This changes watched trips too.
+- **Fixed: the same trip's departure overspend.** It flew 35.0 km/s against 29.5 planned, leaving Duna: the climb-out
+  burned prograde away from the target. See ADR 0003, addendum (cycle 15); it changes watched trips too.
+- **Follow-up: slow arrivals into Jool.** A coast from Kerbin to Jool at 1 g on 2 % of a full burn's delta-v brakes
+  11.1 km/s against 7.1 planned and arrives with 4.6 % of its delta-v left, under the 10 % promise. It predates this
+  cycle (the same before and after the fixes above).
 
 ## Evidence
 

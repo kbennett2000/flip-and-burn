@@ -434,8 +434,10 @@ namespace FlipAndBurn.Core.Tests
 
                 // The flip and the coast are engine-off (or turning) by design; the bar is about holding the acceleration while burning
                 // (course corrections during a coast included).
-                // The last burn turning before it burns (engine off) doesn't count either.
+                // The last burn turning before it burns (engine off) doesn't count either, nor coasting out of orbit while the
+                // departure planet is in the way (ClimbOut).
                 if (cmd.Phase != GuidancePhase.Flip && cmd.Phase != GuidancePhase.Waiting && !(cmd.Phase == GuidancePhase.Coast && cmd.Acceleration == 0) &&
+                    !(cmd.Departing && cmd.Acceleration == 0) &&
                     !(cmd.Circularizing && cmd.Acceleration == 0))
                 {
                     // Braking holds the arrival law's band, from its floor to the chosen acceleration (planned lower than 99 % in

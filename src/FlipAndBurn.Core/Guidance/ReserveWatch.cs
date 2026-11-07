@@ -23,10 +23,13 @@ namespace FlipAndBurn.Core.Guidance
         /// What flying a coast plan typically costs over its two planned burns: course corrections, steering and the final
         /// settling into orbit. The plan allows 6 % (<see cref="CoastPlanner.GuidanceMargin"/>) to be safe; measured in the
         /// game, the trips used 2.7 % over their burns (trip B, 0.4 g: 64,044 of 66,058 m/s planned with the margin; the
-        /// 1 g trip in the guide: 101 of 104 km/s). The player is shown the realistic figure; the autopilot's own
-        /// decisions (re-plan, refuse) keep the whole margin.
+        /// 1 g trip in the guide: 101 of 104 km/s). Since cycle 15 the plan counts the climb-out from the departure planet
+        /// (ADR 0003 addendum) and the simulator's coasts fly closer to it (Kerbin to Duna +0.2 % over the burns, was +1.4 %;
+        /// Jool +1.0 %, was +1.4 %), so 1.9 %: both in-game trips still within a point of what they arrived with (shown 0.9
+        /// and 0.4 points low), the simulator's within 1.5 points. To be measured again on the next in-game coast. The
+        /// player is shown the realistic figure; the autopilot's own decisions (re-plan, refuse) keep the whole margin.
         /// </summary>
-        public const double TypicalCoastOverhead = 0.027;
+        public const double TypicalCoastOverhead = 0.019;
 
         /// <summary>
         /// The delta-v a plan will realistically use (m/s), from the figure the planner gives (<paramref name="plannedNeeded"/>):
