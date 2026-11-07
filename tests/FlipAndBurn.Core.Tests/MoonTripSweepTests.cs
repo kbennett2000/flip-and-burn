@@ -46,7 +46,8 @@ namespace FlipAndBurn.Core.Tests
             FlyRouteObserved(r, g, trip, flip, angle, null, turnDeg);
 
         public static FlightResult FlyRouteObserved(Route r, double g, TripType trip, FlipManeuver flip, double angle,
-            Action<double, GuidanceCommand, double, FlipAndBurnGuidance> observe, double turnDeg = 5)
+            Action<double, GuidanceCommand, double, FlipAndBurnGuidance> observe, double turnDeg = 5,
+            double ispThrottleExponent = Flights.KerbsteinIspThrottleExponent)
         {
             SimSystem sys = SimSystem.Around(r.Planet, r.From, SimSystem.DefaultParking(r.From == r.Planet ? r.Planet.AtCentre() : r.From), angle);
             PlanetRecord target = sys.TargetRecord(r.To);
@@ -60,7 +61,7 @@ namespace FlipAndBurn.Core.Tests
 
             string name = $"{r.Name}, {(trip == TripType.FullBurn ? "full burn" : "coast")}, {g:0.0} g, {(flip == FlipManeuver.SkewFlip ? "skew" : "cut-flip-relight")}, start {angle * 180 / Math.PI:0} deg, turning {turnDeg:0} deg/s";
             return Flights.Fly(name, target, g, flip, 0, parking, system: sys, trip: trip, deltaVBudget: budget, wallSeconds: 150, maxTimeFactor: 3,
-                observe: observe, turnRateDegPerSec: turnDeg);
+                observe: observe, turnRateDegPerSec: turnDeg, ispThrottleExponent: ispThrottleExponent);
         }
 
         /// <summary>Why a trip didn't meet the standard, or null.</summary>

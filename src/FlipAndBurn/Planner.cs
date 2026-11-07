@@ -101,6 +101,7 @@ namespace FlipAndBurn
             DeltaVNeeded = Trip == TripType.CoastInTheMiddle && Coast != null ? Coast.DeltaVNeeded : Plan?.TotalDeltaV ?? 0,
             StartDeltaV = InfinitePropellant || double.IsPositiveInfinity(lastAvailable) ? double.NaN : lastAvailable,
             Electric = Ship?.Electric != null,
+            IspThrottleExponent = Ship?.IspThrottleExponent ?? 0,
             PoweredAllTheWay = Ship?.Electric != null && double.IsPositiveInfinity(lastAvailable),
         };
 
@@ -232,6 +233,7 @@ namespace FlipAndBurn
             }
 
             TripRequest request = frame.Request(vessel, ut, requested, ParkingAltitude(target), starting: true);
+            request.IspThrottleExponent = Ship?.IspThrottleExponent ?? 0;
             Frame = frame;
             Plan = PlanFor(request, frame, ut);
 

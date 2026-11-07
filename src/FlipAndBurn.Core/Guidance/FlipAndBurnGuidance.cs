@@ -95,6 +95,9 @@ namespace FlipAndBurn.Core.Guidance
 
         /// <summary>Moon trips: the other moons to keep clear of.</summary>
         public System.Collections.Generic.List<Obstacle> Obstacles { get; set; } = new System.Collections.Generic.List<Obstacle>();
+
+        /// <summary>How the engines' Isp falls at part throttle (<see cref="TripRequest.IspThrottleExponent"/>): the delta-v left counts braking at what it costs.</summary>
+        public double IspThrottleExponent { get; set; }
     }
 
     /// <summary>The ship as it is right now. Positions and velocities are relative to the Sun.</summary>
@@ -223,7 +226,12 @@ namespace FlipAndBurn.Core.Guidance
         // The share of the acceleration the braking will average, before it starts, for the delta-v the trip still needs. Moon
         // trips: in a deep well the arrival law uses the headroom at the end (CoastPlanner.BrakingFlownShare). Between planets
         // the braking flies at its planned share, for the time the coast works out (which allows for the target's well).
+        // The share braking held to the floor is timed at, and flies at: halfway to full thrust in a deep well (the arrival law
+        // uses the headroom; 0.922 measured into Jool at 1 g for 0.925), so each m/s of it costs that share's Isp loss.
+        private double FloorShare => CoastPlanner.BrakingFlownShare(brakingFraction);
+
         private double BrakingFlown => config.PlanetSystemTrip ? CoastPlanner.BrakingFlownShare(brakingFraction) : brakingFraction;
+
 
         /// <summary>The lowest share of the acceleration the braking may use (the floor of the arrival law's band).</summary>
         public double BrakingFloor => MinThrust;
@@ -257,7 +265,9 @@ namespace FlipAndBurn.Core.Guidance
 
         /// <summary>
         /// Delta-v the burning left will use (m/s), as the latest plan has it: the speed-up at the chosen acceleration, the
-        /// braking at its own share (<see cref="BrakingFraction"/>). NaN when not known.
+        /// braking at its own share (<see cref="BrakingFraction"/>), counted in the ship's delta-v at the chosen acceleration
+        /// (braking below it costs more on an engine that loses Isp at part throttle). NaN when not known: a coast trip still
+        /// waiting for its departure window (its burns are the plan's).
         /// </summary>
         public double BurnDeltaVLeft { get; private set; } = double.NaN;
 
@@ -344,11 +354,16 @@ namespace FlipAndBurn.Core.Guidance
                 if (!leg.IsWaypoint) UpdateGravityAllowance(input, arcs);
 
                 BurnTimeLeft = arcs.T1 + arcs.T2;
-                double brakingLeft = config.Acceleration * BrakingFlown * arcs.T2;
+                double brakingLeft = config.Acceleration * BrakingFlown * arcs.T2, floor = 0;
                 if (IsCoastTrip && !config.PlanetSystemTrip && !leg.IsWaypoint)
-                    brakingLeft = Math.Max(brakingLeft, CoastPlanner.BrakingFloor(config.Target, config.ParkingAltitude, config.Acceleration,
-                        CoastPlanner.ArrivalSpeed(config.Target, config.SunGravParameter, input.UT, input.Position, input.Velocity, arcs)));
-                BurnDeltaVLeft = config.Acceleration * arcs.T1 + brakingLeft;
+                    floor = CoastPlanner.BrakingFloor(config.Target, config.ParkingAltitude, config.Acceleration,
+                        CoastPlanner.ArrivalSpeed(config.Target, config.SunGravParameter, input.UT, input.Position, input.Velocity, arcs));
+                // Braking below the chosen acceleration costs more on an engine that loses Isp at part throttle, at the share
+                // it will really be flown at (CoastPlanner.BrakingThrottleShare).
+                double throttle = CoastPlanner.BrakingThrottleShare(config.Target, config.Acceleration, brakingFraction, arcs.T2,
+                    config.PlanetSystemTrip, floor > brakingLeft);
+                BurnDeltaVLeft = config.Acceleration * arcs.T1 +
+                                 Math.Max(brakingLeft, floor) * ShipPerformance.ThrottleCost(throttle, config.IspThrottleExponent);
                 if (!IsCoastTrip)
                 {
                     lastArcs = arcs;
@@ -408,7 +423,7 @@ namespace FlipAndBurn.Core.Guidance
             Vec3 want = thrust.Normalized();
             cmd.TimeToArrival = timeToGo;
             BurnTimeLeft = timeToGo;
-            BurnDeltaVLeft = law.ForecastDeltaV();
+            BurnDeltaVLeft = law.ForecastDeltaV(config.Acceleration, config.IspThrottleExponent);
 
             if (phase == GuidancePhase.Flip)
             {
@@ -431,7 +446,7 @@ namespace FlipAndBurn.Core.Guidance
                         want = thrust.Normalized();
                         cmd.TimeToArrival = timeToGo;
                         BurnTimeLeft = timeToGo;
-                        BurnDeltaVLeft = law.ForecastDeltaV();
+                        BurnDeltaVLeft = law.ForecastDeltaV(config.Acceleration, config.IspThrottleExponent);
                     }
                 }
             }
@@ -533,7 +548,7 @@ namespace FlipAndBurn.Core.Guidance
                     arriving = (ship.Velocity - config.Target.Ephemeris.StateAt(input.UT + until).Velocity).Length;
                 }
                 floorDeltaV = CoastPlanner.BrakingFloor(config.Target, config.ParkingAltitude, config.Acceleration, arriving);
-                floorTime = floorDeltaV / (config.Acceleration * CoastPlanner.BrakingFlownShare(brakingFraction));
+                floorTime = floorDeltaV / (config.Acceleration * FloorShare);
             }
 
             Vec3 want = v, brake = Vec3.Zero;
@@ -567,9 +582,11 @@ namespace FlipAndBurn.Core.Guidance
             BurnTimeLeft = tb;
             // As the braking will be flown: the halfway share where the coast adds gravity up along the path really flown (a moon
             // trip, or inside the target's sphere), the planned share otherwise (CoastPlanner.BrakingFlownShare); never under
-            // the floor.
-            BurnDeltaVLeft = Math.Max(floorDeltaV,
-                config.Acceleration * (flownPath ? CoastPlanner.BrakingFlownShare(brakingFraction) : BrakingFlown) * tb);
+            // the floor; at what it costs on an engine that loses Isp at part throttle (ShipPerformance.ThrottleCost).
+            double brakingLeft = config.Acceleration * (flownPath ? CoastPlanner.BrakingFlownShare(brakingFraction) : BrakingFlown) * tb;
+            double throttle = CoastPlanner.BrakingThrottleShare(config.Target, config.Acceleration, brakingFraction, tb, config.PlanetSystemTrip,
+                floorDeltaV > brakingLeft);
+            BurnDeltaVLeft = ShipPerformance.ThrottleCost(throttle, config.IspThrottleExponent) * Math.Max(floorDeltaV, brakingLeft);
             double coastLeft = tau - tb;
             // Once braking is near, latch its start: it may come earlier, never later. Close to it the coast plan is
             // ill-conditioned at high speed (the time left is the square root of a small difference of large numbers: at
@@ -911,6 +928,7 @@ namespace FlipAndBurn.Core.Guidance
             PlanetSystemTrip = config.PlanetSystemTrip,
             DetourClearance = config.DetourClearance,
             Obstacles = config.Obstacles,
+            IspThrottleExponent = config.IspThrottleExponent,
         };
 
         private TwoArcSolver MakeSolver(Leg leg)
@@ -1016,7 +1034,9 @@ namespace FlipAndBurn.Core.Guidance
         private GuidanceCommand Waiting(GuidanceInput input)
         {
             BurnTimeLeft = plannedBurnTime;
-            BurnDeltaVLeft = plannedBurnDeltaV;
+            // A coast trip's burns aren't the full burn worked out for the departure direction: not known here (the window
+            // shows the plan's figure until the first burn).
+            BurnDeltaVLeft = config.Trip == TripType.CoastInTheMiddle ? double.NaN : plannedBurnDeltaV;
             return new GuidanceCommand
             {
                 Phase = GuidancePhase.Waiting,

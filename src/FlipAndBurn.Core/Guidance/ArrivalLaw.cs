@@ -126,7 +126,10 @@ namespace FlipAndBurn.Core.Guidance
         /// changes evenly from now to the deadline (the zero-effort solution: from 6 ZEM/τ² - 2 ZEV/τ now to
         /// -6 ZEM/τ² + 4 ZEV/τ at the end), each moment held within the band. In a deep well it rises toward full thrust at the end.
         /// </summary>
-        public double ForecastDeltaV()
+        /// <param name="chosen">The chosen acceleration (m/s^2), with <paramref name="ispThrottleExponent"/>: each moment's m/s
+        /// counted at what it costs out of the ship's delta-v there (<see cref="ShipPerformance.ThrottleCost"/>).</param>
+        /// <param name="ispThrottleExponent">How the engine's Isp falls at part throttle; 0 counts plain m/s.</param>
+        public double ForecastDeltaV(double chosen = 0, double ispThrottleExponent = 0)
         {
             double t = lastT;
             if (!(t > 0)) return 0;
@@ -136,7 +139,8 @@ namespace FlipAndBurn.Core.Guidance
             for (int i = 0; i <= n; i++)
             {
                 double x = (double)i / n, w = i == 0 || i == n ? 0.5 : 1;
-                sum += w * Math.Max(min, Math.Min(max, (now + (end - now) * x).Length));
+                double a = Math.Max(min, Math.Min(max, (now + (end - now) * x).Length));
+                sum += w * a * (chosen > 0 ? ShipPerformance.ThrottleCost(a / chosen, ispThrottleExponent) : 1);
             }
 
             return sum / n * t;

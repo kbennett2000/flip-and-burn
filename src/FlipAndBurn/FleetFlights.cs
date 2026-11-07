@@ -251,6 +251,7 @@ namespace FlipAndBurn
             request.ShipPosition = start.Position;
             request.ShipVelocity = start.Velocity;
             request.StartTime = ut0;
+            request.IspThrottleExponent = a.IspThrottleExponent;
             double keep = r.Trip == TripType.CoastInTheMiddle ? r.PlannedArrivalUT : double.NaN;
             double startDeltaV = infinite || !(r.DeltaVBudget > 0) ? double.NaN : (r.DeltaVBudget + r.LossAllowance) / (1 - Planner.Reserve);
             ReplanResult check = TripReplanner.Check(request, r.Trip, r.DeltaVLeft, perf, Planner.Reserve, keep, startDeltaV);
@@ -271,6 +272,7 @@ namespace FlipAndBurn
                 ParkingAltitude = r.ParkingAltitude,
                 TurnRate = a.TurnRate,
                 CoastArrivalUT = check.Coast != null ? check.Coast.ArrivalUT : double.NaN,
+                IspThrottleExponent = a.IspThrottleExponent,
             };
             frame.Configure(config, v, starting: !r.Departed);
 

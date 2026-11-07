@@ -50,6 +50,16 @@ namespace FlipAndBurn.Core
         /// default.
         /// </summary>
         public double IspThrottleExponent => phases[0].IspThrottleExponent;
+
+        /// <summary>
+        /// What one m/s burned at <paramref name="share"/> of the chosen acceleration costs out of the ship's delta-v at the
+        /// chosen acceleration (<see cref="DeltaVAtAcceleration"/>, the figure the planner and the window use), for an engine
+        /// whose Isp falls at part throttle (<see cref="IspThrottleExponent"/> k). Holding that share takes that share of the
+        /// throttle the chosen acceleration takes, at any mass, so Isp is share^k of its value there and each m/s takes
+        /// share^-k as much propellant. Braking at 85 % on the Kerbstein drive (k = 0.5): 8.5 % more per m/s. 1 for stock engines.
+        /// </summary>
+        public static double ThrottleCost(double share, double ispThrottleExponent) =>
+            share > 0 && ispThrottleExponent != 0 ? Math.Pow(share, -ispThrottleExponent) : 1;
         public double StartMass => phases[0].StartMass;               // kg
         public double EndMass => phases[phases.Count - 1].EndMass;   // kg, with all usable propellant burned
 

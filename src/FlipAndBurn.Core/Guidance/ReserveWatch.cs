@@ -42,7 +42,7 @@ namespace FlipAndBurn.Core.Guidance
         /// <summary>
         /// The delta-v the rest of the trip will realistically use (m/s), from the burning the guidance has left
         /// (<see cref="FlipAndBurnGuidance.BurnDeltaVLeft"/>: the speed-up at the acceleration being flown, the braking at its
-        /// own share), plus the small cost of steering and the last settling into orbit (<see cref="FlyingOverhead"/>).
+        /// own share and at what it costs there on an engine that loses Isp at part throttle), plus the small cost of steering and the last settling into orbit (<see cref="FlyingOverhead"/>).
         /// </summary>
         public static double RemainingUse(double burnDeltaVLeft, bool coastTrip) =>
             Math.Max(0, burnDeltaVLeft) * (1 + (coastTrip ? FlyingOverhead : 0));

@@ -53,8 +53,9 @@ namespace FlipAndBurn.TestHarness
                 What = "full burn to Jool at 1 g, cut, flip, relight; infinite propellant and ignore max temperature",
                 AccelG = 1.0, Trip = TripType.FullBurn, FlipStyle = 0, InfinitePropellant = true, IgnoreMaxTemperature = true, MaxPhysicsRate = 25,
             },
-            // Cycle 15: the reserve the window shows, flown on this planner. Trip B (cycle 11) was flown on a planner that no
-            // longer exists, so it is kept only as history; this trip is the in-game check, at the same 1-point limit.
+            // Cycle 15: the reserve the window shows, flown on this planner with fuel counted. Trip B (cycle 11) was flown on a
+            // planner that no longer exists, so it is kept only as history. Braking into Duna's pull at 0.4 g runs at 85 % of the
+            // acceleration, where the Kerbstein drive's Isp is lower (ShipPerformance.ThrottleCost).
             new TripSpec
             {
                 Name = "R", Prefix = "trip-r",
@@ -63,8 +64,8 @@ namespace FlipAndBurn.TestHarness
             },
         };
 
-        /// <summary>The reserve check (trip R): the figure the window shows at Start and while climbing out, within this many
-        /// points of what the ship arrives with.</summary>
+        /// <summary>The reserve check (trip R, the Tylo coast): every figure the window shows, from Start to the arrival, within
+        /// this many points of what the ship arrives with.</summary>
         private const double ReserveShownLimit = 1.0;
 
         /// <summary>The arrival tolerance, set before flying: periapsis and apoapsis both within this share of the parking altitude.</summary>
@@ -217,7 +218,7 @@ namespace FlipAndBurn.TestHarness
             bool tanks = !spec.InfinitePropellant;
             double nextTanks = startUT;
             GuidancePhase tanksPhase = GuidancePhase.Accelerate;
-            // Trip R: the reserve the window shows, every frame (the autopilot updates it every 30 real seconds).
+            // The reserve the window shows, every frame (the autopilot updates it every 30 real seconds).
             var shown = new List<(double ut, bool climbing, double share, double start)>();
             float t0 = Time.realtimeSinceStartup;
             while (Time.realtimeSinceStartup - t0 < 4.5f * 3600)
@@ -235,7 +236,8 @@ namespace FlipAndBurn.TestHarness
 
                 if (spec.ReserveCheck && c != null && pilot.ReserveShare > 0 && pilot.ReserveAtArrival > 0)
                 {
-                    bool climbing = c.Departing || cur.Ship.mainBody.bodyName == "Kerbin";
+                    // From the plan until the ship has climbed out (or, on a moon trip, while it waits for its window).
+                    bool climbing = c.Departing || c.Phase == GuidancePhase.Waiting || cur.Ship.mainBody.bodyName == "Kerbin";
                     if (shown.Count == 0 || shown[shown.Count - 1].share != pilot.ReserveShare || shown[shown.Count - 1].climbing != climbing)
                         shown.Add((ut, climbing, pilot.ReserveShare, pilot.ReserveAtArrival / pilot.ReserveShare));
                 }
@@ -390,9 +392,9 @@ namespace FlipAndBurn.TestHarness
             if (!ok) { Fail("trip " + spec.Name, "the arrival didn't meet the standard (see above)"); failed = true; }
         }
 
-        // Trip R: the reserve the window showed, against what the ship arrived with. Gated: the figure at Start and while
-        // climbing out of Kerbin's pull (from the plan, ReserveWatch.TypicalCoastOverhead), within ReserveShownLimit points.
-        // Measured and logged: the largest gap after that (from the burning the guidance has left).
+        // The reserve the window showed, against what the ship arrived with: at Start and while climbing out (from the plan,
+        // ReserveWatch.TypicalCoastOverhead), and after that (from the burning the guidance has left, braking at what it costs
+        // on the Kerbstein drive). Every figure within ReserveShownLimit points.
         private void CheckReserveShown(TripSpec spec, MechJebModuleFlipAndBurnAutopilot pilot, List<(double ut, bool climbing, double share, double start)> shown)
         {
             if (shown.Count == 0 || !(pilot.ArrivedDeltaVLeft > 0))
@@ -407,14 +409,16 @@ namespace FlipAndBurn.TestHarness
             double worstClimb = shown.Where(x => x.climbing).Select(x => Math.Abs(x.share * 100 - arrived)).DefaultIfEmpty(0).Max();
             double worstAfter = shown.Where(x => !x.climbing).Select(x => Math.Abs(x.share * 100 - arrived)).DefaultIfEmpty(0).Max();
             int after = shown.Count(x => !x.climbing);
-            bool ok = Math.Abs(atStart - arrived) <= ReserveShownLimit && worstClimb <= ReserveShownLimit;
+            bool ok = Math.Abs(atStart - arrived) <= ReserveShownLimit && worstClimb <= ReserveShownLimit && worstAfter <= ReserveShownLimit;
             Log($"trip {spec.Name} reserve shown: started with {start:F0} m/s; arrived with {pilot.ArrivedDeltaVLeft:F0} m/s ({arrived:F2} %); " +
                 $"the window showed {atStart:F2} % at Start (gap {atStart - arrived:+0.00;-0.00} points), largest gap while climbing out " +
-                $"{worstClimb:F2} points; after that {after} figures, largest gap {worstAfter:F2} points; limit {ReserveShownLimit:F1} point at Start and " +
-                $"while climbing out: {(ok ? "WITHIN" : "OUTSIDE")}; overhead allowed {ReserveWatch.TypicalCoastOverhead * 100:F1} %");
-            foreach (var x in shown.Where((x, i) => i == 0 || x.climbing != shown[i - 1].climbing || i == shown.Count - 1))
+                $"{worstClimb:F2} points; after that {after} figures, largest gap {worstAfter:F2} points; limit {ReserveShownLimit:F1} point: " +
+                $"{(ok ? "WITHIN" : "OUTSIDE")}; overhead allowed {ReserveWatch.TypicalCoastOverhead * 100:F1} %");
+            foreach (var x in shown.Where((x, i) => i == 0 || x.climbing != shown[i - 1].climbing || i == shown.Count - 1 ||
+                                                     Math.Abs(x.share - shown[i - 1].share) > 0.002))
                 Log($"trip {spec.Name} reserve shown at UT {x.ut:F0}: {x.share * 100:F2} % ({(x.climbing ? "climbing out" : "on the way")})");
-            if (!ok) { Fail("trip " + spec.Name, "the reserve shown at Start or while climbing out was more than a point from the arrival"); failed = true; }
+            // The trip itself flew; the run fails at the end, so the next trip asked for still flies.
+            if (!ok) reserveMisses.Add($"trip {spec.Name}: the reserve the window showed was more than a point from the arrival");
         }
 
         // ------------------------------------------------------------------ pictures
