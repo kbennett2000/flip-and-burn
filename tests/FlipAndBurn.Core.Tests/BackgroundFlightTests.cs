@@ -34,6 +34,7 @@ namespace FlipAndBurn.Core.Tests
             public SimSystem System;           // null: a trip between planets from an orbit 100 km above Kerbin
             public double BudgetShare;         // coast trips: share of a full burn's delta-v
             public double TurnDeg = 10;        // the ship's turn rate (degrees a second)
+            public PlanetRecord From;          // trips between planets: the planet left (Kerbin if not set)
         }
 
         public sealed class Outcome
@@ -68,7 +69,7 @@ namespace FlipAndBurn.Core.Tests
         {
             // The ship's own turn rate, as captured when the player leaves (the sweep flies each case at 5 and 10 degrees a second).
             double a = c.AccelG * TripCalculator.OneG, turn = c.TurnDeg * Math.PI / 180;
-            PlanetRecord departure = c.System?.Departure ?? KerbolSystem.Kerbin;
+            PlanetRecord departure = c.System?.Departure ?? c.From ?? KerbolSystem.Kerbin;
             PlanetRecord target = c.System != null ? c.System.TargetRecord(c.Target) : c.Target;
             double centralMu = c.System?.CentralGravParameter ?? KerbolSystem.SunGravParameter;
             var sim = new ShipSimulator(departure, target, turn, centralMu, c.System?.Others);
@@ -113,7 +114,7 @@ namespace FlipAndBurn.Core.Tests
         {
             FlightResult probe = c.System != null
                 ? Flights.Fly("probe", c.System.TargetRecord(c.Target), c.AccelG, c.Flip, c.StartUT, c.Parking, system: c.System, stopAfterSeconds: 1)
-                : Flights.Fly("probe", c.Target, c.AccelG, c.Flip, c.StartUT, c.Parking, stopAfterSeconds: 1);
+                : Flights.Fly("probe", c.Target, c.AccelG, c.Flip, c.StartUT, c.Parking, stopAfterSeconds: 1, departFrom: c.From);
             time = probe.PlannedTripTime;
             return probe.PlannedDeltaV;
         }
@@ -182,6 +183,26 @@ namespace FlipAndBurn.Core.Tests
             new Case { Name = "Jool coast", Target = KerbolSystem.Jool, Parking = 220_000, Trip = TripType.CoastInTheMiddle, BudgetShare = 0.4 },
         };
 
+        // A small planet reached slowly (the fleet's in-game Dres arrival, cycle 15): a known follow-up (ADR 0006, "Known limits"):
+        // the braking falls behind near the end, dips toward the safe height and uses about 20 % more delta-v than planned.
+        private static Case SlowDres => new Case { Name = "Duna to Dres slow coast", Target = KerbolSystem.Dres, From = KerbolSystem.Duna, Parking = 20_000, Trip = TripType.CoastInTheMiddle, BudgetShare = 0.02 };
+
+        /// <summary>Reports the slow Dres arrival in the background (a known follow-up), without failing on it.</summary>
+        [Fact]
+        [Trait("Category", "LongRunning")]
+        [Trait("Category", "KnownIssue")]
+        public void KnownIssue_SlowApproachToASmallPlanet()
+        {
+            foreach (double turn in new[] { 5.0, 10.0 })
+            {
+                Case c = SlowDres;
+                c.TurnDeg = turn;
+                Outcome o = FlyBackground(c);
+                output.WriteLine($"{c.Name}, turning {turn:0} deg/s: {o.Problem() ?? "to the standard"} | orbit {o.Pe / 1000:F1} x {o.Ap / 1000:F1} km, " +
+                                 $"delta-v {o.DeltaV / 1000:F2} km/s against {o.PlannedDeltaV / 1000:F2} planned, lowest margin {o.LowestMargin / 1000:F1} km");
+            }
+        }
+
         private static Case Moon(string name, PlanetRecord planet, PlanetRecord from, PlanetRecord to, double g, double angle,
             FlipManeuver flip = FlipManeuver.CutFlipRelight, TripType trip = TripType.FullBurn)
         {
@@ -221,7 +242,7 @@ namespace FlipAndBurn.Core.Tests
             .SelectMany(c => new[] { 5.0, 10.0 }.Select(turn => new Case
             {
                 Name = $"{c.Name}, turning {turn:0} deg/s", Target = c.Target, AccelG = c.AccelG, Parking = c.Parking, StartUT = c.StartUT,
-                Angle = c.Angle, Flip = c.Flip, Trip = c.Trip, System = c.System, BudgetShare = c.BudgetShare, TurnDeg = turn,
+                Angle = c.Angle, Flip = c.Flip, Trip = c.Trip, System = c.System, BudgetShare = c.BudgetShare, TurnDeg = turn, From = c.From,
             })));
 
         [Fact]

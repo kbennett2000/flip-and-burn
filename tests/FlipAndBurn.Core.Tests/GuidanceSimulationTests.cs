@@ -71,8 +71,17 @@ namespace FlipAndBurn.Core.Tests
                                               trip: TripType.CoastInTheMiddle, deltaVBudget: BebopBudget, turnRateDegPerSec: t);
                 case "Jool coast Bebop":  return Flights.Fly(name + " (10 deg/s)", KerbolSystem.Jool, 1.0, FlipManeuver.CutFlipRelight, 0, 220_000,
                                               trip: TripType.CoastInTheMiddle, deltaVBudget: BebopBudget, turnRateDegPerSec: t);
+                case "Duna to Dres slow coast": return DunaToDres(name + " (10 deg/s)", t);
                 default: throw new ArgumentException(name);
             }
+        }
+
+        // A small planet reached slowly (cycle 15: the fleet's in-game Dres arrival): from Duna, a coast on 2 % of a full burn's delta-v.
+        private static FlightResult DunaToDres(string name, double turnDeg)
+        {
+            FlightResult probe = Flights.Fly("probe", KerbolSystem.Dres, 1.0, FlipManeuver.CutFlipRelight, 0, 20_000, stopAfterSeconds: 1, departFrom: KerbolSystem.Duna);
+            return Flights.Fly(name, KerbolSystem.Dres, 1.0, FlipManeuver.CutFlipRelight, 0, 20_000, trip: TripType.CoastInTheMiddle,
+                deltaVBudget: 0.02 * probe.PlannedDeltaV, turnRateDegPerSec: turnDeg, departFrom: KerbolSystem.Duna);
         }
 
         public static FlightResult FlyCase(string name)
@@ -91,6 +100,7 @@ namespace FlipAndBurn.Core.Tests
                                               trip: TripType.CoastInTheMiddle, deltaVBudget: BebopBudget);
                 case "Jool coast Bebop":  return Flights.Fly(name, KerbolSystem.Jool, 1.0, FlipManeuver.CutFlipRelight, 0, 220_000,
                                               trip: TripType.CoastInTheMiddle, deltaVBudget: BebopBudget);
+                case "Duna to Dres slow coast": return DunaToDres(name, 5);
                 default: throw new ArgumentException(name);
             }
         }

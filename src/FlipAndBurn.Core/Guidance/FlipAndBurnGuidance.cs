@@ -689,7 +689,10 @@ namespace FlipAndBurn.Core.Guidance
             // Done once the speed reaches circular (it has crossed over), or there is nothing left to do.
             if (trimming || circularizeSign * excess <= 0 || Math.Abs(excess) < 0.05)
             {
-                if (config.PlanetSystemTrip && Trim(input, r, v, up, vc, cmd)) return cmd;
+                // Every trip (moon trips since ADR 0005, trips between planets since cycle 15): a slow arrival at a small planet
+                // can end at orbital speed along the orbit but still sinking a few m/s (Duna to Dres on a small budget: 18 x 22 km
+                // at 20 km), which the check above doesn't see. The trim settles the height and the whole velocity.
+                if (Trim(input, r, v, up, vc, cmd)) return cmd;
                 circularizing = false;
                 phase = GuidancePhase.Done;
                 return new GuidanceCommand { Phase = phase, Leg = legIndex + 1, LegCount = legs.Count, Direction = input.Facing };

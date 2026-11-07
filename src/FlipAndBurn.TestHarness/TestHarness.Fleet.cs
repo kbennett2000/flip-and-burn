@@ -249,7 +249,7 @@ namespace FlipAndBurn.TestHarness
                     yield break;
                 }
 
-                if (TimeWarp.fetch != null && TimeWarp.CurrentRateIndex < top) TimeWarp.SetRate(TimeWarp.CurrentRateIndex + 1, false);
+                if (TimeWarp.fetch != null && TimeWarp.CurrentRateIndex < top && !FleetFlights.HoldingWarp) TimeWarp.SetRate(TimeWarp.CurrentRateIndex + 1, false);
                 if (Time.realtimeSinceStartup >= nextLog)
                 {
                     nextLog = Time.realtimeSinceStartup + 20;

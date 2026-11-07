@@ -60,9 +60,11 @@ A KSP add-on present in every scene, acting in flight, the Space Center and the 
   - the propellant burned, out of the tanks by each propellant's share of the mass, and the electric charge (in the
     parts of a loaded ship, the saved part resources of an unloaded one);
   - the saved trip: delta-v used, last flown, the arrival, departed, facing and the handover state.
-- **Falling behind:** at the highest warp a trip can fall behind the game clock. Until it catches up, KSP carries the
-  ship on along the last orbit written: right while it coasts, behind the burn while it burns. The trip itself isn't
-  changed by it, and the arrival is flown step by step, the same at any warp.
+- **Keeping up with time warp:** in the cruise, far from any body and an hour or more from the next event, the flight
+  steps up to a minute at a time (2 s otherwise, 0.1 s near a body, 0.02 s for the arrival). If a trip still falls more
+  than a minute behind the game clock, or its arrival is a few real seconds away at the warp in use, time warp is
+  stepped down a notch at a time until it keeps up. The first in-game run, without this, flew a Mun arrival 17 days of
+  game time late at 100,000x: the warp drop and the message came long after the ship had arrived.
 - **Scene changes:** the flights are kept across them, and dropped when a save is loaded (the save's trips are flown
   from what it says).
 
@@ -92,11 +94,24 @@ MechJebModuleFlipAndBurnAutopilot, FLIPANDBURN_TRIP). So saving, loading and qui
 mid-trip leaves a ship coasting on its orbit. The new values are optional and the format number is unchanged, so earlier
 versions read the record as before (and resume it when the player comes back, as they did).
 
+### Every trip ends with the trim
+
+The gentle last trim that moon trips have (ADR 0005: settle the height and the whole velocity) now ends every trip.
+Found by the fleet's first Dres arrival: a slow coast from Duna arrived at orbital speed along the orbit but still
+sinking a few m/s, which the last burn's check didn't look at (18 × 22 km for a 20 km orbit). Trips between planets
+otherwise arrive as before (planet sweep worst 0.9 %).
+
 ### Known limits
 
 - A ship inside the physics range of the one being flown (a few hundred metres) is moved by KSP, not the fleet. It waits
   until it is out of range or on rails.
 - Heat isn't checked while away (decision 2): the trip flies at the acceleration it held when the player left.
+- **Follow-up: slow approaches to small planets.** A coast from Duna to Dres on a small budget (2 % of a full burn's
+  delta-v) brakes too little early: near the end the path bends in, the ship dips below the parking height and the
+  braking law asks for twice the acceleration. Watched, the arrival safety net fires (down to 9 km over Dres, then a
+  19.8 × 20.2 km orbit); in the background the trim brings it to 19.8 × 20.0 km. Either way it uses about 20 % more
+  delta-v than planned. It predates fleet flights (watched trips have it too) and needs its own guidance work; the
+  sweeps now include the case in the background.
 
 ## Evidence
 

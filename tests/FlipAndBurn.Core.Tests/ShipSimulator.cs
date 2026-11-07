@@ -274,10 +274,10 @@ namespace FlipAndBurn.Core.Tests
             double stopAfterSeconds = double.MaxValue, double traceFrom = double.MaxValue, double traceTo = double.MaxValue, double traceEvery = 50, Action<GuidanceConfig> configure = null,
             TripType trip = TripType.FullBurn, double deltaVBudget = 0, Action<ShipSimulator> start = null, bool watch = true,
             double wallSeconds = MaxWallSeconds, Action<double, GuidanceCommand, double, FlipAndBurnGuidance> observe = null,
-            SimSystem system = null, bool holdWhenOffPointing = true)
+            SimSystem system = null, bool holdWhenOffPointing = true, PlanetRecord departFrom = null)
         {
-            // The body the ship starts in orbit around: Kerbin for a trip between planets, or as the moon system says.
-            PlanetRecord kerbin = system?.Departure ?? KerbolSystem.Kerbin;
+            // The body the ship starts in orbit around: Kerbin for a trip between planets (or departFrom), or as the moon system says.
+            PlanetRecord kerbin = system?.Departure ?? departFrom ?? KerbolSystem.Kerbin;
             double a = accelG * TripCalculator.OneG;
             double turnRate = turnRateDegPerSec * Math.PI / 180;
             double centralMu = system?.CentralGravParameter ?? KerbolSystem.SunGravParameter;
@@ -441,7 +441,9 @@ namespace FlipAndBurn.Core.Tests
                     // Braking holds the arrival law's band, from its floor to the chosen acceleration (planned lower than 99 % in
                     // a deep well, CoastPlanner.BrakingFractionFor); everything else, the chosen acceleration.
                     bool braking = cmd.Phase == GuidancePhase.Decelerate || (cmd.Phase == GuidancePhase.FinalApproach && !cmd.Circularizing && !cmd.SafeOrbit);
-                    double off = !braking ? Math.Abs(cmd.Acceleration - a) / a
+                    // The last burn and its gentle trim (every trip since cycle 15) may use less than the chosen acceleration, never more.
+                    double off = cmd.Circularizing ? Math.Max(0, cmd.Acceleration - a) / a
+                        : !braking ? Math.Abs(cmd.Acceleration - a) / a
                         : cmd.Acceleration > a ? (cmd.Acceleration - a) / a
                         : Math.Max(0, guidance.BrakingFloor * a - cmd.Acceleration) / a;
                     result.MaxAccelErrorOutsideFlip = Math.Max(result.MaxAccelErrorOutsideFlip, off);

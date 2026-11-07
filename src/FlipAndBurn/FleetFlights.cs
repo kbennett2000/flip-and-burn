@@ -113,6 +113,8 @@ namespace FlipAndBurn
                 Advance(t, now);
             }
 
+            HoldWarp(now);
+
             if (Time.realtimeSinceStartup >= nextReport)
             {
                 nextReport = Time.realtimeSinceStartup + 30f;
@@ -120,6 +122,40 @@ namespace FlipAndBurn
                     Debug.Log($"[FlipAndBurn] fleet: {t.ShipName} to {t.TargetName}: {t.Flight.Last?.Phase}, {Math.Max(0, now - t.Flight.UT):F1} s behind the game clock, " +
                               $"{t.Flight.Steps} steps; delta-v used {t.Record.DeltaVUsed:F0} m/s; arrival planned at UT {t.Record.PlannedArrivalUT:F0}");
             }
+        }
+
+        /// <summary>A trip may fall this far behind the game clock (game s) before time warp is held down for it.</summary>
+        public const double LagLimit = 60;
+
+        private float nextWarpHold;
+        private static float lastWarpHold = -100;
+
+        /// <summary>True for two real seconds after the fleet held time warp down (the test helper doesn't raise it meanwhile).</summary>
+        public static bool HoldingWarp => Time.realtimeSinceStartup - lastWarpHold < 2;
+        private static readonly HashSet<Guid> HeldFor = new HashSet<Guid>();
+
+        // Time warp faster than the fleet can fly: step it down, a notch at a time, when a trip falls more than a minute behind
+        // the game clock or its arrival is a few real seconds away at this warp. So a ship's map position stays right and its
+        // arrival (warp to normal, the message) comes when it really arrives.
+        private void HoldWarp(double now)
+        {
+            if (TimeWarp.fetch == null || TimeWarp.CurrentRateIndex <= 0 || Time.realtimeSinceStartup < nextWarpHold) return;
+            AwayTrip behind = null;
+            foreach (AwayTrip t in Trips.Values)
+            {
+                if (t.Flight.Finished) continue;
+                double lag = now - t.Flight.UT, toArrival = t.Flight.Last?.TimeToArrival ?? double.PositiveInfinity;
+                if (lag > LagLimit || (toArrival > 0 && toArrival < 5 * TimeWarp.CurrentRate)) { behind = t; break; }
+            }
+
+            if (behind == null) return;
+            int from = TimeWarp.CurrentRateIndex;
+            TimeWarp.SetRate(from - 1, false);
+            nextWarpHold = Time.realtimeSinceStartup + 0.5f;
+            lastWarpHold = Time.realtimeSinceStartup;
+            if (HeldFor.Add(behind.Id))
+                Debug.Log($"[FlipAndBurn] fleet: time warp held down (from x{TimeWarp.fetch.warpRates[from]:0}) to fly {behind.ShipName}'s trip: " +
+                          $"{now - behind.Flight.UT:F0} s behind the game clock, arrival in {behind.Flight.Last?.TimeToArrival:F0} s");
         }
 
         // ------------------------------------------------------------------ finding the trips

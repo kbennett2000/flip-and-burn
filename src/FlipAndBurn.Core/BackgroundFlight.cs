@@ -42,6 +42,10 @@ namespace FlipAndBurn.Core
     {
         /// <summary>Step while burning in the cruise, far from bodies and events (game s).</summary>
         public const double CruiseStep = 2.0;
+        /// <summary>The last part of the final approach flown in physics steps (game s before arrival).</summary>
+        public const double FinalStepSeconds = 120;
+        /// <summary>Longest step while burning in the cruise, an hour or more from the next event (game s).</summary>
+        public const double MaxCruiseStep = 60.0;
         /// <summary>Step while burning near a body or an event (game s).</summary>
         public const double NearStep = 0.1;
         /// <summary>Step for the final approach and the last burn into the orbit: a physics step, as a watched trip.</summary>
@@ -160,8 +164,21 @@ namespace FlipAndBurn.Core
                        ((cmd.Phase == GuidancePhase.Accelerate && cmd.TimeToFlip > 600) ||
                         (cmd.Phase == GuidancePhase.Decelerate && cmd.TimeToArrival > 600) ||
                         (cmd.Phase == GuidancePhase.Coast && cmd.Acceleration == 0));
-            if (far) step = CruiseStep;
-            else if (cmd.Phase == GuidancePhase.FinalApproach || cmd.Circularizing || cmd.SafeOrbit) step = ArrivalStep;
+            if (far)
+            {
+                // In the cruise, bigger steps the further the next event is (up to a minute): the guidance re-aims every step,
+                // and steady thrust in an almost uniform field integrates accurately. Keeps the fleet up with high time warp.
+                double next = cmd.Phase == GuidancePhase.Accelerate ? cmd.TimeToFlip : cmd.Phase == GuidancePhase.Decelerate ? cmd.TimeToArrival : 0;
+                step = Math.Max(CruiseStep, Math.Min(MaxCruiseStep, next / 50));
+                if (Vec3.Angle(Facing, cmd.Direction) * 180 / Math.PI > PointingTolerance) step = CruiseStep;   // turning: small steps
+            }
+            else if (cmd.Circularizing || cmd.SafeOrbit) step = ArrivalStep;
+            else if (cmd.Phase == GuidancePhase.FinalApproach)
+            {
+                // The final approach starts at the edge of the target's sphere, thousands of seconds out: step in proportion
+                // to the time left (0.1 to 2 s), and as a physics step for the last two minutes.
+                step = cmd.TimeToArrival > FinalStepSeconds ? Math.Max(NearStep, Math.Min(2.0, cmd.TimeToArrival / 500)) : ArrivalStep;
+            }
             step = Math.Max(1e-3, Math.Min(step, until - UT));
 
             Turn(cmd.Direction, step);
