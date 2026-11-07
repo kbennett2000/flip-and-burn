@@ -42,6 +42,11 @@ trip then waits until you come back.) See [Saving, pausing and switching ships](
 That's the trip flying on without you: the burns use fuel and electric charge as they would with you watching. See
 [Fleet flights](saving-and-pausing.md#fleet-flights-trips-that-fly-without-you).
 
+### Time warp keeps stepping down while a ship I left is on a trip
+
+That's on purpose: a ship you left is close to arriving, or warp is faster than Flip and Burn can fly it. Warp steps
+down until the ship is flown in time, so its arrival (and the message) comes when it really arrives.
+
 ### Time warp stopped by itself while I was flying another ship
 
 A ship you left on a trip has arrived (or had to stop). The message on screen names the ship, where it is and its orbit.
