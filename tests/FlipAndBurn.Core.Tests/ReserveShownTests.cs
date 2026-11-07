@@ -62,8 +62,11 @@ namespace FlipAndBurn.Core.Tests
             double shownGuide = ReserveWatch.ExpectedAtArrival(116_051, ReserveWatch.ExpectedUse(104_446, true), 0);
             output.WriteLine($"the guide's trip: shown {shownGuide / 116_051 * 100:F2} %, arrived 13.10 %");
             Assert.InRange(shownGuide / 116_051 * 100 - 13.10, -1.0, 1.0);
-            // Trip R (0.4 g coast to Duna, cycle 15, on this planner) is gated in the game run itself (TestHarness.Trips,
-            // CheckReserveShown) at the same 1-point limit; its figures go here once flown.
+            // Trip R (0.4 g coast to Duna, cycle 15, in-game run 9, on this planner; also gated in the harness, CheckReserveShown):
+            // 73,397 m/s at Start, 66,058 planned with the margin, arrived with 10,451 m/s (14.24 %).
+            double shownR = ReserveWatch.ExpectedAtArrival(73_397, ReserveWatch.ExpectedUse(66_058, true), 0);
+            output.WriteLine($"trip R: shown {shownR / 73_397 * 100:F2} %, arrived 14.24 %");
+            Assert.InRange(shownR / 73_397 * 100 - 14.24, -1.0, 1.0);
         }
 
         // History, not a gate: trip B (0.4 g, cycle 11) was flown on a planner that no longer exists (before the climb-out and
