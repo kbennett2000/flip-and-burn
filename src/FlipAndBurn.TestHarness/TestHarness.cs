@@ -24,6 +24,7 @@ namespace FlipAndBurn.TestHarness
 
         private const string SaveFolder = "FlipAndBurn-Test";
         private const string SaveFile = "persistent";
+        private const string StartSave = "quicksave";   // the state every proof starts from (build.sh copies it to persistent)
         private const string ScreenshotFolder = "FlipAndBurnTest";
         private const string PlannerTarget = "Duna";
 
@@ -192,6 +193,34 @@ namespace FlipAndBurn.TestHarness
                 if (failed) yield break;
             }
 
+            // Cycle 15: the trip window braking into Jool's pull, on a short trip from Laythe (only when asked: "joolrow").
+            if ((wanted ?? "").Split(',').Contains("joolrow"))
+            {
+                yield return ProofJoolRow();
+                if (failed) yield break;
+            }
+
+            // Cycle 15: a watched coast trip from Jool orbit to Tylo (only when asked: "tylocoast").
+            if ((wanted ?? "").Split(',').Contains("tylocoast"))
+            {
+                yield return ProofTyloCoast();
+                if (failed) yield break;
+            }
+
+            // Cycle 14 review: the Bebop to the Mun with real heat (only when asked: "moonheat").
+            if ((wanted ?? "").Split(',').Contains("moonheat"))
+            {
+                yield return ProofMoonHeat();
+                if (failed) yield break;
+            }
+
+            // Cycle 14: trips among Kerbin's moons, back to back (only when asked: "moontrips").
+            if ((wanted ?? "").Split(',').Contains("moontrips"))
+            {
+                yield return ProofMoonTrips();
+                if (failed) yield break;
+            }
+
             if ((wanted ?? "").Split(',').Contains("docstart"))
             {
                 yield return ProofDocStart();
@@ -256,11 +285,15 @@ namespace FlipAndBurn.TestHarness
             {
                 // Same order as KSP's own MainMenu.OnLoadDialogPipelineFinished: the flight scene's Game.Load() reads
                 // HighLogic.CurrentGame, so it must be set before switching scenes.
+                // Every proof starts from the test save as build.sh set it up: its quicksave, never written by a run. (The
+                // persistent save is, by KSP's autosave too: after a proof that moved the Bebop to Jool, the next one found it
+                // there.)
+                if (saveName == SaveFile) saveName = StartSave;
                 ConfigNode node = GamePersistence.LoadSFSFile(saveName, SaveFolder);
                 Game game = node == null ? null : GamePersistence.LoadGameCfg(node, SaveFolder, true, false);
                 if (game == null || game.flightState == null)
                 {
-                    Fail("step " + step, "could not load saves/" + SaveFolder + "/" + SaveFile + ".sfs");
+                    Fail("step " + step, "could not load saves/" + SaveFolder + "/" + saveName + ".sfs");
                     yield break;
                 }
 

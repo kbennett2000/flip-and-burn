@@ -42,6 +42,44 @@ namespace FlipAndBurn
 
             return new StateVector(pos, vel);
         }
+
+        /// <summary>
+        /// The vessel's position and velocity relative to <paramref name="centre"/> (the Sun, or a planet for a moon trip,
+        /// ADR 0005), adding up the orbits from the body the vessel orbits until that centre is reached.
+        /// </summary>
+        public static StateVector StateRelativeTo(Vessel vessel, double ut, CelestialBody centre)
+        {
+            if (centre == null || centre == Planetarium.fetch.Sun) return HeliocentricState(vessel, ut);
+            Vec3 pos = KspOrbitEphemeris.ToVec(vessel.orbit.getRelativePositionAtUT(ut));
+            Vec3 vel = KspOrbitEphemeris.ToVec(vessel.orbit.getOrbitalVelocityAtUT(ut));
+            for (CelestialBody body = vessel.mainBody; body != centre; body = body.referenceBody)
+            {
+                if (body == null || body == Planetarium.fetch.Sun || body.orbit == null)
+                {
+                    // Not inside the centre's system (shouldn't happen): the difference of the two Sun-relative states.
+                    StateVector ship = HeliocentricState(vessel, ut), c = BodyState(centre, ut);
+                    return new StateVector(ship.Position - c.Position, ship.Velocity - c.Velocity);
+                }
+
+                pos += KspOrbitEphemeris.ToVec(body.orbit.getRelativePositionAtUT(ut));
+                vel += KspOrbitEphemeris.ToVec(body.orbit.getOrbitalVelocityAtUT(ut));
+            }
+
+            return new StateVector(pos, vel);
+        }
+
+        // A body's position and velocity relative to the Sun.
+        private static StateVector BodyState(CelestialBody body, double ut)
+        {
+            Vec3 pos = Vec3.Zero, vel = Vec3.Zero;
+            for (CelestialBody b = body; b != null && b != Planetarium.fetch.Sun && b.orbit != null; b = b.referenceBody)
+            {
+                pos += KspOrbitEphemeris.ToVec(b.orbit.getRelativePositionAtUT(ut));
+                vel += KspOrbitEphemeris.ToVec(b.orbit.getOrbitalVelocityAtUT(ut));
+            }
+
+            return new StateVector(pos, vel);
+        }
     }
 
     /// <summary>What the reader found: the engines' combined performance, notes for the window, and the stages below.</summary>

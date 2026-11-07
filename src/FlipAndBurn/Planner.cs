@@ -14,6 +14,13 @@ namespace FlipAndBurn
         SkewFlip = 1,
     }
 
+    /// <summary>A heading in the "Fly to" list and the bodies under it (ADR 0005).</summary>
+    public sealed class TargetGroup
+    {
+        public string Heading;
+        public List<CelestialBody> Bodies = new List<CelestialBody>();
+    }
+
     /// <summary>
     /// Everything behind the Flip and Burn window except drawing: which targets are offered, the player's inputs, and the
     /// latest trip estimate turned into display text.
@@ -37,6 +44,10 @@ namespace FlipAndBurn
         /// <summary>When set, the ship can't plan from where it is; this says what to do instead. Nothing else is shown.</summary>
         public string SituationMessage { get; private set; }
         public List<CelestialBody> Targets { get; } = new List<CelestialBody>();
+        /// <summary>The same targets, grouped for the window: the moons reachable from here under their planet, and the planets.</summary>
+        public List<TargetGroup> TargetGroups { get; } = new List<TargetGroup>();
+        /// <summary>A line under the list when some trips need another start (orbiting a moon: other planets).</summary>
+        public string TargetListNote { get; private set; }
         public string DepartureName { get; private set; }
         public TripPlan Plan { get; private set; }
         public ShipPerformance Ship { get; private set; }
@@ -86,7 +97,7 @@ namespace FlipAndBurn
             DeltaVBudget = double.IsPositiveInfinity(lastAvailable) ? 0
                 : (1 - Reserve) * lastAvailable - (Trip == TripType.CoastInTheMiddle ? LossAllowance : 0),
             LossAllowance = Trip == TripType.CoastInTheMiddle ? LossAllowance : 0,
-            PlannedTripTime = Trip == TripType.CoastInTheMiddle && Coast != null ? Coast.TripTime : Plan?.TripTime ?? 0,
+            PlannedTripTime = Trip == TripType.CoastInTheMiddle && Coast != null ? Coast.TripTime : Plan != null ? Shown(Plan.TripTime) : 0,
             DeltaVNeeded = Trip == TripType.CoastInTheMiddle && Coast != null ? Coast.DeltaVNeeded : Plan?.TotalDeltaV ?? 0,
             StartDeltaV = InfinitePropellant || double.IsPositiveInfinity(lastAvailable) ? double.NaN : lastAvailable,
             Electric = Ship?.Electric != null,
@@ -150,6 +161,7 @@ namespace FlipAndBurn
             ShipRows.Clear();
             Notes.Clear();
             Plan = null;
+            Frame = null;
             Coast = null;
             LossAllowance = 0;
             LossBlocks = false;
@@ -199,7 +211,7 @@ namespace FlipAndBurn
 
             if (Target == null)
             {
-                Notes.Insert(0, "Pick a planet to fly to.");
+                Notes.Insert(0, "Pick where to fly to.");
                 return;
             }
 
@@ -212,20 +224,16 @@ namespace FlipAndBurn
             CelestialBody target = Target;
             double ut = Planetarium.GetUniversalTime();
             PlannedAtUT = ut;
-            StateVector ship = KspShip.HeliocentricState(vessel, ut);
-            CelestialBody sun = Planetarium.fetch.Sun;
-            var request = new TripRequest
+            TripFrame frame = TripFrame.For(vessel.mainBody, target);
+            if (frame == null)
             {
-                ShipPosition = ship.Position,
-                ShipVelocity = ship.Velocity,
-                StartTime = ut,
-                Target = AsPlanet(target),
-                Departure = vessel.mainBody != sun ? AsPlanet(vessel.mainBody) : null,
-                Acceleration = requested,
-                ParkingAltitude = ParkingAltitude(target),
-                SunGravParameter = sun.gravParameter,
-            };
-            Plan = TripCalculator.Plan(request);
+                Notes.Insert(0, $"Flip and Burn can't fly from here to {BodyName(target)}.");
+                return;
+            }
+
+            TripRequest request = frame.Request(vessel, ut, requested, ParkingAltitude(target), starting: true);
+            Frame = frame;
+            Plan = PlanFor(request, frame, ut);
 
             if (!Plan.Feasible)
             {
@@ -246,7 +254,11 @@ namespace FlipAndBurn
             else
                 RefreshFullBurn(request, target, available, canHold, engineProblem == null);
 
-            if (Plan.UsesSunDetour)
+            if (frame.PlanetSystem)
+            {
+                AddMoonTripNotes(request, target, frame);
+            }
+            else if (Plan.UsesSunDetour)
             {
                 Notes.Add($"The Sun is in the way: the straight path passes {FormatDistance(Plan.StraightClosestSunDistance)} from it, closer than the " +
                           $"safe {FormatDistance(request.SunSafetyDistance)}. The trip goes around it in two legs; the numbers above include the detour.");
@@ -257,10 +269,41 @@ namespace FlipAndBurn
             }
         }
 
+        /// <summary>The frame of the trip shown (the Sun, or the planet for a moon trip).</summary>
+        internal TripFrame Frame { get; private set; }
+
+        // What a detour goes around: the Sun, or the planet a moon trip is centred on.
+        private string InTheWay => Frame != null && Frame.PlanetSystem ? BodyName(Frame.Centre) : "the Sun";
+
+        // Moon trips (ADR 0005): the wait for the departure window, the planet's pull, a detour around the planet.
+        private void AddMoonTripNotes(TripRequest request, CelestialBody target, TripFrame frame)
+        {
+            string planet = BodyName(frame.Centre);
+            double wait = Trip == TripType.CoastInTheMiddle && Coast != null && Coast.Feasible ? Coast.DepartureWait : Shown(Plan.DepartureWait);
+            if (wait > 1)
+            {
+                string from = BodyName(FlightGlobals.Bodies.FirstOrDefault(b => b.bodyName == request.Departure?.Name) ?? frame.Centre);
+                Notes.Add($"{from} is between the ship and {BodyName(target)}: the burn starts in {FormatTime(wait)}, when the ship has come round " +
+                          $"to {BodyName(target)}'s side of {from}. Waiting in orbit costs no fuel, and the trip time includes it.");
+            }
+
+            if (Plan.UsesSunDetour)
+            {
+                Notes.Add($"{planet} is in the way: the straight path passes {FormatDistance(Plan.StraightClosestSunDistance)} from its centre. " +
+                          $"The trip goes around it in two legs, at least {FormatDistance(request.DetourClearance)} from its centre; " +
+                          "the numbers above are for the detour and only rough.");
+            }
+            else if (Plan.GravityIncluded)
+            {
+                Notes.Add($"These numbers allow for {planet}'s gravity along the way.");
+            }
+        }
+
         private void RefreshFullBurn(TripRequest request, CelestialBody target, double available, bool canHold, bool shipKnown)
         {
-            TripRows.Add(Row("Trip time", FormatTime(Plan.TripTime)));
-            TripRows.Add(Row("Flip in", FormatTime(Plan.TimeToFlip)));
+            if (Shown(Plan.DepartureWait) > 1) TripRows.Add(Row("Burn starts in", FormatTime(Shown(Plan.DepartureWait))));
+            TripRows.Add(Row("Trip time", FormatTime(Shown(Plan.TripTime))));
+            TripRows.Add(Row("Flip in", FormatTime(Shown(Plan.TimeToFlip))));
             TripRows.Add(Row($"Top speed (relative to {DepartureName})", FormatSpeed(Plan.PeakSpeed)));
             TripRows.Add(Row("Delta-v needed", FormatSpeed(Plan.TotalDeltaV)));
             if (!shipKnown) return;
@@ -275,7 +318,7 @@ namespace FlipAndBurn
                       $"this ship has {has}. Short by {shortBy}.");
             if (Plan.UsesSunDetour)
             {
-                Notes.Add("A trip with a coast in the middle can't go around the Sun yet, so there's no coast trip to suggest right now.");
+                Notes.Add($"A trip with a coast in the middle can't go around {InTheWay} yet, so there's no coast trip to suggest right now.");
                 return;
             }
 
@@ -291,7 +334,7 @@ namespace FlipAndBurn
         {
             if (Plan.UsesSunDetour)
             {
-                Notes.Insert(0, $"A trip with a coast in the middle can't go around the Sun yet, and the Sun is between here and {BodyName(target)}. " +
+                Notes.Insert(0, $"A trip with a coast in the middle can't go around {InTheWay} yet, and {InTheWay} is between here and {BodyName(target)}. " +
                                 "Choose \"Full burn\", or wait until the Sun is out of the way.");
                 return;
             }
@@ -310,6 +353,14 @@ namespace FlipAndBurn
             }
 
             Coast = CoastPlanFor(request, (1 - Reserve) * available);
+            if (!Coast.Feasible && Coast.MinimumAcceleration > 0)
+            {
+                Notes.Insert(0, $"A coast trip down to {BodyName(target)}'s {(request.ParkingAltitude / 1000).ToString("N0", CultureInfo.InvariantCulture)} km orbit " +
+                                $"needs at least {FormatG(Math.Ceiling(Coast.MinimumAcceleration / OneG * 100) / 100)}: the coast speeds up all the way down, " +
+                                $"and the braking has to beat {BodyName(target)}'s pull near the end. Choose that or more, or \"Full burn\".");
+                return;
+            }
+
             if (!Coast.Feasible)
             {
                 Notes.Insert(0, LossBlocks
@@ -322,6 +373,7 @@ namespace FlipAndBurn
             }
 
             HasShortfall = !canHold;
+            if (Coast.DepartureWait > 1) TripRows.Add(Row("Burn starts in", FormatTime(Coast.DepartureWait)));
             TripRows.Add(Row("Burn to speed up", FormatTime(Coast.BurnUpTime)));
             TripRows.Add(Row("Coast", FormatTime(Coast.CoastTime)));
             TripRows.Add(Row("Burn to stop", FormatTime(Coast.BurnDownTime)));
@@ -384,9 +436,38 @@ namespace FlipAndBurn
             CelestialBody sun = Planetarium.fetch.Sun;
             double here = (vessel.GetWorldPos3D() - sun.position).magnitude;
             CelestialBody target = Target;
-            double there = target != null && target.orbit != null && target.referenceBody == sun ? target.orbit.ApR : here;
+            CelestialBody planet = target != null ? TripFrame.SystemPlanet(target) : null;
+            double there = planet != null && planet != sun && planet.orbit != null ? planet.orbit.ApR : here;
             return Math.Max(here, there);
         }
+
+        // A moon trip's estimate flies the burns with gravity and searches for the departure window: up to a tenth of a second
+        // (ADR 0005). Reuse it for a few seconds unless an input changed; the times shown count down meanwhile (planAge).
+        private const double MoonPlanRefreshSeconds = 5.0;
+        private TripPlan cachedPlan;
+        private string cachedPlanKey = "";
+        private double cachedPlanUntil, cachedPlanUT, planAge;
+
+        private TripPlan PlanFor(TripRequest request, TripFrame frame, double ut)
+        {
+            planAge = 0;
+            if (!frame.PlanetSystem) return TripCalculator.Plan(request);
+            double now = UnityEngine.Time.realtimeSinceStartup;
+            if (cachedPlan != null && cachedPlanKey == lastKey && now < cachedPlanUntil)
+            {
+                planAge = Math.Max(0, ut - cachedPlanUT);
+                return cachedPlan;
+            }
+
+            cachedPlan = TripCalculator.Plan(request);
+            cachedPlanKey = lastKey;
+            cachedPlanUT = ut;
+            cachedPlanUntil = now + MoonPlanRefreshSeconds;
+            return cachedPlan;
+        }
+
+        // A time from the plan, counted down for the plan's age.
+        private double Shown(double seconds) => Math.Max(0, seconds - planAge);
 
         // A coast plan takes a tenth of a second or so, so reuse it for a while unless an input changed.
         private const double CoastRefreshSeconds = 10.0;
@@ -450,6 +531,13 @@ namespace FlipAndBurn
                     return $"{BodyName(target)}'s gravity at the {km.ToString("N0", CultureInfo.InvariantCulture)} km parking orbit is " +
                            $"{FormatG(plan.TargetGravityAtParking / OneG)}, and the ship has to out-pull it to settle into that orbit. " +
                            $"Choose at least {FormatG(Math.Ceiling(plan.MinimumAcceleration / OneG * 100) / 100)}, or a higher parking orbit.";
+                case TripProblem.DepartureGravityTooStrong:
+                    string from = request.Departure != null ? BodyName(FlightGlobals.Bodies.FirstOrDefault(b => b.bodyName == request.Departure.Name) ?? target) : BodyName(target);
+                    return $"{from}'s gravity where the ship is now is {FormatG(plan.DepartureGravity / OneG)}, and the ship has to out-pull it to leave. " +
+                           $"Choose at least {FormatG(Math.Ceiling(plan.MinimumDepartureAcceleration / OneG * 100) / 100)}, or start from a higher orbit.";
+                case TripProblem.ObstacleInTheWay:
+                    return $"{plan.ClosestObstacle} is in the way right now: the path to {BodyName(target)} would pass too close to it. " +
+                           "Try again in a few minutes, when it has moved on.";
                 case TripProblem.InvalidInput:
                     return $"Can't plan this trip: {plan.ProblemDetail}.";
                 default:
@@ -483,24 +571,44 @@ namespace FlipAndBurn
                            "Finish getting into orbit first.";
             }
 
-            if (body != sun && body.referenceBody != sun)
-            {
-                string parent = BodyName(body.referenceBody);
-                return $"You're orbiting {name}, a moon of {parent}. Flip and Burn flies between planets: " +
-                       $"get into orbit around {parent} first, or leave it for an orbit around the Sun.";
-            }
-
             return null;
         }
 
         private void CollectTargets(Vessel vessel)
         {
             Targets.Clear();
-            CelestialBody sun = Planetarium.fetch.Sun;
-            // Every planet orbiting the Sun, read at runtime, so Outer Planets Mod's planets appear on their own.
-            Targets.AddRange(FlightGlobals.Bodies
-                .Where(b => b != sun && b.referenceBody == sun && b != vessel.mainBody)
-                .OrderBy(b => b.orbit.semiMajorAxis));
+            TargetGroups.Clear();
+            TargetListNote = null;
+            CelestialBody sun = Planetarium.fetch.Sun, here = vessel.mainBody;
+            CelestialBody home = TripFrame.SystemPlanet(here);
+            // Bodies are read at runtime, so Outer Planets Mod's planets and moons appear on their own.
+            List<CelestialBody> MoonsOf(CelestialBody planet) => FlightGlobals.Bodies
+                .Where(b => b.referenceBody == planet && b != planet && b != here && b.orbit != null)
+                .OrderBy(b => b.orbit.semiMajorAxis).ToList();
+            List<CelestialBody> planets = FlightGlobals.Bodies
+                .Where(b => b != sun && b.referenceBody == sun && b != here)
+                .OrderBy(b => b.orbit.semiMajorAxis).ToList();
+
+            if (here == sun)
+            {
+                TargetGroups.Add(new TargetGroup { Heading = "Planets", Bodies = planets });
+            }
+            else if (here == home)
+            {
+                // Orbiting a planet: its moons, then the other planets.
+                TargetGroups.Add(new TargetGroup { Heading = $"Moons of {BodyName(home)}", Bodies = MoonsOf(home) });
+                TargetGroups.Add(new TargetGroup { Heading = "Planets", Bodies = planets });
+            }
+            else
+            {
+                // Orbiting a moon: its planet, then the planet's other moons. Other planets need a start from the planet's orbit.
+                TargetGroups.Add(new TargetGroup { Heading = $"{BodyName(here)}'s planet", Bodies = new List<CelestialBody> { home } });
+                TargetGroups.Add(new TargetGroup { Heading = $"Other moons of {BodyName(home)}", Bodies = MoonsOf(home) });
+                TargetListNote = $"To fly to another planet, get into orbit around {BodyName(home)} first: Flip and Burn doesn't fly from a moon " +
+                                 "straight to another planet yet.";
+            }
+
+            foreach (TargetGroup g in TargetGroups) Targets.AddRange(g.Bodies);
         }
 
         private static KeyValuePair<string, string> Row(string label, string value) => new KeyValuePair<string, string>(label, value);

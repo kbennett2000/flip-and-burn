@@ -6,33 +6,40 @@ using FlipAndBurn.Core.Guidance;
 namespace FlipAndBurn.Core.Tests
 {
     /// <summary>
-    /// Flies a ship under the guidance, outside KSP. Gravity: the Sun, the target planet (on its real orbit) and the
-    /// departure planet while the ship is inside its sphere of influence. KSP's physics step is 0.02 s; physics warp
-    /// multiplies it. The ship turns no faster than its turn rate and thrusts along where it actually points.
+    /// Flies a ship under the guidance, outside KSP. Gravity: the central body at the origin (the Sun, or a planet for a
+    /// trip among its moons), the target (on its real orbit) and the departure body and any other moons while the ship is
+    /// inside their spheres of influence. KSP's physics step is 0.02 s; physics warp multiplies it. The ship turns no
+    /// faster than its turn rate and thrusts along where it actually points.
     /// </summary>
     public sealed class ShipSimulator
     {
         public const double PhysicsStep = 0.02;
 
         private readonly PlanetRecord target, departure;
-        private readonly double sunMu = KerbolSystem.SunGravParameter;
+        private readonly PlanetRecord[] others;
+        private readonly double sunMu;   // the central body's (the Sun's, or the planet's for a moon trip)
         private readonly double turnRate;
 
         public double UT;
         public Vec3 Position, Velocity, Facing;
 
-        public ShipSimulator(PlanetRecord departure, PlanetRecord target, double turnRate)
+        /// <param name="centralGravParameter">The central body's; the Sun's when not given.</param>
+        /// <param name="others">Other bodies that pull while the ship is in their sphere of influence (a system's other moons).</param>
+        public ShipSimulator(PlanetRecord departure, PlanetRecord target, double turnRate, double centralGravParameter = double.NaN,
+            PlanetRecord[] others = null)
         {
             this.departure = departure;
             this.target = target;
             this.turnRate = turnRate;
+            sunMu = double.IsNaN(centralGravParameter) ? KerbolSystem.SunGravParameter : centralGravParameter;
+            this.others = others ?? new PlanetRecord[0];
         }
 
         /// <summary>Put the ship in a circular, equatorial, prograde orbit around <paramref name="body"/>.</summary>
         public void StartInOrbit(PlanetRecord body, double altitude, double ut, double angleRad = 0)
         {
             UT = ut;
-            StateVector planet = body.Orbit.StateAt(ut);
+            StateVector planet = body.Ephemeris.StateAt(ut);
             double r = body.Radius + altitude, v = Math.Sqrt(body.GravParameter / r);
             var radial = new Vec3(Math.Cos(angleRad), Math.Sin(angleRad), 0);
             var along = new Vec3(-Math.Sin(angleRad), Math.Cos(angleRad), 0);
@@ -67,8 +74,8 @@ namespace FlipAndBurn.Core.Tests
         {
             Turn(direction, dt);
             PlanetRecord frame = null;
-            foreach (PlanetRecord p in new[] { target, departure })
-                if (p != null && (Position - p.Orbit.StateAt(UT).Position).Length < p.SphereOfInfluence) frame = p;
+            foreach (PlanetRecord p in Bodies())
+                if ((Position - p.Ephemeris.StateAt(UT).Position).Length < p.SphereOfInfluence) frame = p;
 
             Kick(dt / 2, frame);
             if (frame == null)
@@ -79,7 +86,7 @@ namespace FlipAndBurn.Core.Tests
             }
             else
             {
-                StateVector p0 = frame.Orbit.StateAt(UT), p1 = frame.Orbit.StateAt(UT + dt);
+                StateVector p0 = frame.Ephemeris.StateAt(UT), p1 = frame.Ephemeris.StateAt(UT + dt);
                 StateVector rel = TwoBody.Propagate(Position - p0.Position, Velocity - p0.Velocity, frame.GravParameter, dt);
                 Position = p1.Position + rel.Position;
                 Velocity = p1.Velocity + rel.Velocity;
@@ -99,7 +106,7 @@ namespace FlipAndBurn.Core.Tests
             }
             else
             {
-                StateVector p = frame.Orbit.StateAt(UT);
+                StateVector p = frame.Ephemeris.StateAt(UT);
                 Vec3 d = Position - p.Position;
                 g -= d * (-frame.GravParameter / Math.Pow(d.Length, 3));            // the frame planet's own pull: in the Kepler step
                 g -= p.Position * (-sunMu / Math.Pow(p.Position.Length, 3));        // the Sun's pull on the planet: in its orbit
@@ -137,14 +144,25 @@ namespace FlipAndBurn.Core.Tests
         {
             double rs = r.Length;
             Vec3 g = r * (-sunMu / (rs * rs * rs));
-            g += PlanetPull(target, t, r, always: true);
-            if (departure != null && departure != target) g += PlanetPull(departure, t, r, always: false);
+            if (!target.IsCentre) g += PlanetPull(target, t, r, always: true);
+            if (departure != null && departure != target && !departure.IsCentre) g += PlanetPull(departure, t, r, always: false);
+            foreach (PlanetRecord o in others)
+                if (o != target && o != departure) g += PlanetPull(o, t, r, always: false);
             return g;
+        }
+
+        // The bodies with a sphere of influence of their own (not the central body).
+        private System.Collections.Generic.IEnumerable<PlanetRecord> Bodies()
+        {
+            foreach (PlanetRecord p in new[] { target, departure })
+                if (p != null && !p.IsCentre) yield return p;
+            foreach (PlanetRecord o in others)
+                if (o != target && o != departure && !o.IsCentre) yield return o;
         }
 
         private static Vec3 PlanetPull(PlanetRecord p, double t, Vec3 r, bool always)
         {
-            Vec3 d = r - p.Orbit.StateAt(t).Position;
+            Vec3 d = r - p.Ephemeris.StateAt(t).Position;
             double dl = d.Length;
             if (!always && dl > p.SphereOfInfluence) return Vec3.Zero;
             return d * (-p.GravParameter / (dl * dl * dl));
@@ -152,7 +170,7 @@ namespace FlipAndBurn.Core.Tests
 
         public OrbitShape OrbitAround(PlanetRecord body)
         {
-            StateVector p = body.Orbit.StateAt(UT);
+            StateVector p = body.Ephemeris.StateAt(UT);
             return TwoBody.Shape(Position - p.Position, Velocity - p.Velocity, body.GravParameter);
         }
     }
@@ -165,6 +183,8 @@ namespace FlipAndBurn.Core.Tests
         public int Corrections;
         public double WallSeconds, PlannedDeltaVNeeded;
         public double TripTime, DeltaVUsed, MaxAccelErrorOutsideFlip, ClosestToSun, MinAltitudeAtTarget = double.MaxValue;
+        /// <summary>Moon trips: the least height above any other body's safe altitude (the planet's atmosphere, a moon's terrain).</summary>
+        public double ClosestToObstacle = double.MaxValue;
         public double FinalPeriapsisAltitude, FinalApoapsisAltitude, FinalEccentricity;
         public double PlannedTripTime, PlannedDeltaV;
         public bool Coast;
@@ -184,13 +204,18 @@ namespace FlipAndBurn.Core.Tests
         /// Every game hour (every 2 minutes while climbing out): the time, whether the ship was climbing out, the delta-v
         /// burned so far and the guidance's burning left (for the reserve the window shows, ReserveShownTests).
         /// </summary>
-        public readonly List<(double UT, bool Climbing, double Used, double BurnTimeLeft, GuidancePhase Phase)> ReserveSamples =
+        public readonly List<(double UT, bool Climbing, double Used, double BurnDeltaVLeft, GuidancePhase Phase)> ReserveSamples =
             new List<(double, bool, double, double, GuidancePhase)>();
         /// <summary>Where the ship was when the flight ended (finished, or stopped by <c>stopAfterSeconds</c>).</summary>
         public double EndUT;
         public Vec3 EndPosition, EndVelocity, EndFacing;
         public string SolverStats = "";
         public readonly List<string> Trace = new List<string>();
+        /// <summary>
+        /// When the last burn (circularizing) began: speed along the orbit above circular (m/s, negative if slow), climb rate
+        /// (m/s), altitude (m), and how long the last burn took (s). NaN if it never began.
+        /// </summary>
+        public double LastBurnExcess = double.NaN, LastBurnClimb = double.NaN, LastBurnAltitude = double.NaN, LastBurnStartUT = double.NaN, LastBurnSeconds = double.NaN;
         public double TraceFrom = double.MaxValue, TraceTo = double.MaxValue, TraceEvery = 50;
     }
 
@@ -206,6 +231,15 @@ namespace FlipAndBurn.Core.Tests
                 case "Jool": return 201_000;
                 case "Kerbin": return 71_000;
                 case "Laythe": return 51_000;
+                // Airless moons: their highest terrain plus 1 km (KSP wiki figures; the game reads its own, PQS radiusMax).
+                case "Mun": return 8_100;
+                case "Minmus": return 6_800;
+                case "Ike": return 13_800;
+                case "Gilly": return 7_500;
+                case "Vall": return 9_000;
+                case "Tylo": return 12_300;
+                case "Bop": return 22_800;
+                case "Pol": return 6_600;
                 default: return 10_000;   // airless: clear of the terrain
             }
         }
@@ -213,11 +247,12 @@ namespace FlipAndBurn.Core.Tests
         /// <summary>Physics warp in a full burn's cruise (0.02 s x 100 = 2 s steps; KSP physics warp does the same).</summary>
         public const double DefaultCruiseWarp = 100;
 
-        private static bool FarFromPlanets(ShipSimulator sim, PlanetRecord targetRecord, PlanetRecord departureRecord)
+        private static bool FarFromPlanets(ShipSimulator sim, PlanetRecord targetRecord, PlanetRecord departureRecord, SimSystem system)
         {
             foreach (PlanetRecord p in new[] { targetRecord, departureRecord })
-                if (p != null && (sim.Position - p.Orbit.StateAt(sim.UT).Position).Length < p.SphereOfInfluence) return false;
-            return true;
+                if (p != null && !p.IsCentre && (sim.Position - p.Ephemeris.StateAt(sim.UT).Position).Length < p.SphereOfInfluence) return false;
+            // In a moon system, the planet at the centre counts as near within four times its safe radius.
+            return system == null || sim.Position.Length > 4 * system.CentralSafeRadius;
         }
 
         /// <summary>
@@ -238,13 +273,16 @@ namespace FlipAndBurn.Core.Tests
             double parkingAltitude, double cruiseWarp = DefaultCruiseWarp, double turnRateDegPerSec = 5, double maxTimeFactor = 4,
             double stopAfterSeconds = double.MaxValue, double traceFrom = double.MaxValue, double traceTo = double.MaxValue, double traceEvery = 50, Action<GuidanceConfig> configure = null,
             TripType trip = TripType.FullBurn, double deltaVBudget = 0, Action<ShipSimulator> start = null, bool watch = true,
-            double wallSeconds = MaxWallSeconds, Action<double, GuidanceCommand, double, FlipAndBurnGuidance> observe = null)
+            double wallSeconds = MaxWallSeconds, Action<double, GuidanceCommand, double, FlipAndBurnGuidance> observe = null,
+            SimSystem system = null, bool holdWhenOffPointing = true)
         {
-            PlanetRecord kerbin = KerbolSystem.Kerbin;
+            // The body the ship starts in orbit around: Kerbin for a trip between planets, or as the moon system says.
+            PlanetRecord kerbin = system?.Departure ?? KerbolSystem.Kerbin;
             double a = accelG * TripCalculator.OneG;
             double turnRate = turnRateDegPerSec * Math.PI / 180;
-            var sim = new ShipSimulator(kerbin, target, turnRate);
-            sim.StartInOrbit(kerbin, 100_000, startUT);
+            double centralMu = system?.CentralGravParameter ?? KerbolSystem.SunGravParameter;
+            var sim = new ShipSimulator(kerbin, target, turnRate, centralMu, system?.Others);
+            sim.StartInOrbit(kerbin, system?.StartAltitude ?? 100_000, startUT, system?.StartAngle ?? 0);
             if (start != null)
             {
                 // Pick a trip up from somewhere else (a resumed trip, ADR 0004).
@@ -254,9 +292,13 @@ namespace FlipAndBurn.Core.Tests
 
             TargetPlanet targetPlanet = target.AsTarget();
             targetPlanet.SphereOfInfluence = target.SphereOfInfluence;
-            TargetPlanet departure = kerbin.AsTarget();
-            departure.SphereOfInfluence = kerbin.SphereOfInfluence;
-            departure.SafeRadius = kerbin.Radius + 80_000;
+            targetPlanet.IsCentralBody = target.IsCentre;
+            TargetPlanet departure = system != null ? system.DepartureFor() : kerbin.AsTarget();
+            if (system == null)
+            {
+                departure.SphereOfInfluence = kerbin.SphereOfInfluence;
+                departure.SafeRadius = kerbin.Radius + 80_000;
+            }
 
             var config = new GuidanceConfig
             {
@@ -266,18 +308,21 @@ namespace FlipAndBurn.Core.Tests
                 Flip = flip,
                 ParkingAltitude = parkingAltitude,
                 TurnRate = turnRate,
-                SunGravParameter = KerbolSystem.SunGravParameter,
+                SunGravParameter = centralMu,
                 Trip = trip,
                 DeltaVBudget = deltaVBudget,
             };
+            if (system != null) system.Configure(config);
             configure?.Invoke(config);
             var guidance = new FlipAndBurnGuidance(config);
 
-            TripPlan plan = TripCalculator.Plan(new TripRequest
+            var planRequest = new TripRequest
             {
                 ShipPosition = sim.Position, ShipVelocity = sim.Velocity, StartTime = startUT, Target = targetPlanet, Departure = departure,
-                Acceleration = a, ParkingAltitude = parkingAltitude, SunGravParameter = KerbolSystem.SunGravParameter,
-            });
+                Acceleration = a, ParkingAltitude = parkingAltitude, SunGravParameter = centralMu,
+            };
+            system?.Configure(planRequest);
+            TripPlan plan = TripCalculator.Plan(planRequest);
 
             var wall = System.Diagnostics.Stopwatch.StartNew();
             var result = new FlightResult
@@ -288,11 +333,13 @@ namespace FlipAndBurn.Core.Tests
             if (trip == TripType.CoastInTheMiddle)
             {
                 // The planner's coast numbers, from the same starting state.
-                CoastPlan coast = CoastPlanner.Plan(new TripRequest
+                var coastRequest = new TripRequest
                 {
                     ShipPosition = sim.Position, ShipVelocity = sim.Velocity, StartTime = startUT, Target = targetPlanet, Departure = departure,
-                    Acceleration = a, ParkingAltitude = parkingAltitude, SunGravParameter = KerbolSystem.SunGravParameter,
-                }, deltaVBudget);
+                    Acceleration = a, ParkingAltitude = parkingAltitude, SunGravParameter = centralMu,
+                };
+                system?.Configure(coastRequest);
+                CoastPlan coast = CoastPlanner.Plan(coastRequest, deltaVBudget);
                 result.Coast = true;
                 result.CoastBudget = deltaVBudget;
                 result.PlannedTripTime = coast.TripTime;
@@ -323,9 +370,9 @@ namespace FlipAndBurn.Core.Tests
                 GuidanceCommand cmd = guidance.Update(input);
 
                 // The arrival watch, as the autopilot runs it: a normal trip must never trip it.
-                if (watch && !cmd.Circularizing && !cmd.SafeOrbit && cmd.Phase != GuidancePhase.Done)
+                if (watch && !cmd.Circularizing && !cmd.SafeOrbit && cmd.Phase != GuidancePhase.Done && ArrivalSafety.Watching(target.IsCentre, cmd.Phase))
                 {
-                    StateVector tp0 = target.Orbit.StateAt(sim.UT);
+                    StateVector tp0 = target.Ephemeris.StateAt(sim.UT);
                     if ((sim.Position - tp0.Position).Length < target.SphereOfInfluence)
                         result.WatchPeakShare = Math.Max(result.WatchPeakShare, ArrivalSafety.FallShare(sim.Position - tp0.Position, sim.Velocity - tp0.Velocity,
                             target.GravParameter, target.Radius + TargetSafeAltitude(target), ArrivalSafety.RescueHeadroom * a));
@@ -354,15 +401,28 @@ namespace FlipAndBurn.Core.Tests
                     lastLeg = cmd.Leg;
                 }
 
+                if (cmd.Circularizing && double.IsNaN(result.LastBurnStartUT))
+                {
+                    StateVector tp0 = target.Ephemeris.StateAt(sim.UT);
+                    Vec3 r0 = sim.Position - tp0.Position, v0 = sim.Velocity - tp0.Velocity;
+                    double climb = Vec3.Dot(v0, r0.Normalized());
+                    result.LastBurnStartUT = sim.UT;
+                    result.LastBurnClimb = climb;
+                    result.LastBurnAltitude = r0.Length - target.Radius;
+                    result.LastBurnExcess = (v0 - r0.Normalized() * climb).Length - Math.Sqrt(target.GravParameter / r0.Length);
+                }
+
+                if (cmd.Phase == GuidancePhase.Done && !double.IsNaN(result.LastBurnStartUT) && double.IsNaN(result.LastBurnSeconds))
+                    result.LastBurnSeconds = sim.UT - result.LastBurnStartUT;
                 result.Legs = cmd.LegCount;
                 double since = sim.UT - startUT;
                 if (since >= nextTrace && since <= traceTo)
                 {
                     nextTrace += traceEvery;
-                    StateVector tp = target.Orbit.StateAt(sim.UT);
+                    StateVector tp = target.Ephemeris.StateAt(sim.UT);
                     Vec3 rr = sim.Position - tp.Position, vr = sim.Velocity - tp.Velocity;
                     double radialSpeed = Vec3.Dot(vr, rr.Normalized());
-                    result.Trace.Add($"{since,10:F0} s {cmd.Phase,-13} alt {(rr.Length - target.Radius) / 1000,12:F1} km  v {vr.Length,10:F1} m/s  vrad {radialSpeed,10:F1}  tgo {cmd.TimeToArrival,9:F1}  tburn {cmd.TimeToBurn,9:F1}  tflip {cmd.TimeToFlip,8:F1}  cerr {cmd.CourseError,8:F2}{(cmd.Correcting ? " CORR" : "")}  acc {cmd.Acceleration:F2}  ang(-v) {Vec3.Angle(cmd.Direction, -vr) * 180 / Math.PI,6:F1}  ang(up) {Vec3.Angle(cmd.Direction, rr) * 180 / Math.PI,6:F1}");
+                    result.Trace.Add($"{since,10:F0} s off {Vec3.Angle(sim.Facing, cmd.Direction) * 180 / Math.PI,6:F1} {cmd.Phase,-13}{(cmd.Circularizing ? "C" : " ")} alt {(rr.Length - target.Radius) / 1000,12:F1} km  v {vr.Length,10:F1} m/s  vrad {radialSpeed,10:F1}  tgo {cmd.TimeToArrival,9:F1}  tburn {cmd.TimeToBurn,9:F1}  tflip {cmd.TimeToFlip,8:F1}  cerr {cmd.CourseError,8:F2}{(cmd.Correcting ? " CORR" : "")}  acc {cmd.Acceleration:F2}  ang(-v) {Vec3.Angle(cmd.Direction, -vr) * 180 / Math.PI,6:F1}  ang(up) {Vec3.Angle(cmd.Direction, rr) * 180 / Math.PI,6:F1}");
                 }
 
                 if (cmd.Phase == GuidancePhase.Done)
@@ -374,10 +434,20 @@ namespace FlipAndBurn.Core.Tests
 
                 // The flip and the coast are engine-off (or turning) by design; the bar is about holding the acceleration while burning
                 // (course corrections during a coast included).
-                if (cmd.Phase != GuidancePhase.Flip && !(cmd.Phase == GuidancePhase.Coast && cmd.Acceleration == 0))
-                    result.MaxAccelErrorOutsideFlip = Math.Max(result.MaxAccelErrorOutsideFlip, Math.Abs(cmd.Acceleration - a) / a);
+                // The last burn turning before it burns (engine off) doesn't count either.
+                if (cmd.Phase != GuidancePhase.Flip && cmd.Phase != GuidancePhase.Waiting && !(cmd.Phase == GuidancePhase.Coast && cmd.Acceleration == 0) &&
+                    !(cmd.Circularizing && cmd.Acceleration == 0))
+                {
+                    // Braking holds the arrival law's band, from its floor to the chosen acceleration (planned lower than 99 % in
+                    // a deep well, CoastPlanner.BrakingFractionFor); everything else, the chosen acceleration.
+                    bool braking = cmd.Phase == GuidancePhase.Decelerate || (cmd.Phase == GuidancePhase.FinalApproach && !cmd.Circularizing && !cmd.SafeOrbit);
+                    double off = !braking ? Math.Abs(cmd.Acceleration - a) / a
+                        : cmd.Acceleration > a ? (cmd.Acceleration - a) / a
+                        : Math.Max(0, guidance.BrakingFloor * a - cmd.Acceleration) / a;
+                    result.MaxAccelErrorOutsideFlip = Math.Max(result.MaxAccelErrorOutsideFlip, off);
+                }
 
-                bool cruise = !cmd.Departing && FarFromPlanets(sim, target, kerbin) &&
+                bool cruise = !cmd.Departing && FarFromPlanets(sim, target, kerbin, system) &&
                               ((cmd.Phase == GuidancePhase.Accelerate && cmd.TimeToFlip > 600) ||
                                (cmd.Phase == GuidancePhase.Decelerate && cmd.TimeToArrival > 600));
                 double warp = cruise ? cruiseWarp : 1;
@@ -385,7 +455,8 @@ namespace FlipAndBurn.Core.Tests
 
                 // Coasting with the engine off and the braking burn not yet due: KSP time-warps on rails, so move the ship
                 // along its orbit in big steps, closing in on the burn time so the burn starts on the step it is due.
-                bool onRails = cmd.Phase == GuidancePhase.Coast && cmd.Acceleration == 0 && !cmd.Correcting && cmd.TimeToBurn > 1;
+                bool onRails = (cmd.Phase == GuidancePhase.Coast || cmd.Phase == GuidancePhase.Waiting) && cmd.Acceleration == 0 &&
+                               !cmd.Correcting && cmd.TimeToBurn > 1;
                 if (onRails)
                 {
                     dt = Math.Min(MaxRailsStep, cmd.TimeToBurn / 2);
@@ -393,20 +464,27 @@ namespace FlipAndBurn.Core.Tests
                 }
                 else
                 {
-                    result.DeltaVUsed += cmd.Acceleration * dt;
-                    sim.Step(dt, cmd.Direction, cmd.Acceleration);
+                    // The live autopilot's rule (EngineCommand): outside the flip, no thrust while pointing more than 5 degrees off.
+                    double thrustNow = cmd.Acceleration;
+                    if (holdWhenOffPointing && cmd.Phase != GuidancePhase.Flip && Vec3.Angle(sim.Facing, cmd.Direction) * 180 / Math.PI > 5) thrustNow = 0;
+                    result.DeltaVUsed += thrustNow * dt;
+                    sim.Step(dt, cmd.Direction, thrustNow);
                 }
 
                 observe?.Invoke(sim.UT, cmd, result.DeltaVUsed, guidance);
                 if (sim.UT >= nextReserveSample && cmd.Phase != GuidancePhase.Done)
                 {
                     nextReserveSample = sim.UT + (cmd.Departing ? 120 : 3600);
-                    result.ReserveSamples.Add((sim.UT, cmd.Departing, result.DeltaVUsed, guidance.BurnTimeLeft, cmd.Phase));
+                    result.ReserveSamples.Add((sim.UT, cmd.Departing, result.DeltaVUsed, guidance.BurnDeltaVLeft, cmd.Phase));
                 }
 
                 result.Steps++;
                 result.ClosestToSun = Math.Min(result.ClosestToSun, sim.Position.Length);
-                double alt = (sim.Position - target.Orbit.StateAt(sim.UT).Position).Length - target.Radius;
+                if (system != null)
+                    foreach (PlanetRecord o in system.Obstacles(target))
+                        result.ClosestToObstacle = Math.Min(result.ClosestToObstacle,
+                            (sim.Position - o.Ephemeris.StateAt(sim.UT).Position).Length - o.Radius - TargetSafeAltitude(o));
+                double alt = (sim.Position - target.Ephemeris.StateAt(sim.UT).Position).Length - target.Radius;
                 result.MinAltitudeAtTarget = Math.Min(result.MinAltitudeAtTarget, alt);
             }
 

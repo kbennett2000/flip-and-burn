@@ -31,6 +31,9 @@ namespace FlipAndBurn.Core.Guidance
         /// <summary>Diagnostics: how often the warm start worked and how often the slow bracketing search ran.</summary>
         public int WarmSolves, RobustSolves;
 
+        /// <summary>The last solve came from the warm start (the previous solution carried on), not a fresh search.</summary>
+        public bool LastWasWarm { get; private set; }
+
         private readonly EndStateAt endState;
         private readonly double accel1, accel2;
         private readonly double maxTime;
@@ -59,12 +62,14 @@ namespace FlipAndBurn.Core.Guidance
                 if (warm.Valid)
                 {
                     WarmSolves++;
+                    LastWasWarm = true;
                     Remember(ut, warm);
                     return warm;
                 }
             }
 
             RobustSolves++;
+            LastWasWarm = false;
             Arcs robust = Robust(ut, r0, v0, coast);
             if (robust.Valid) Remember(ut, robust);
             return robust;

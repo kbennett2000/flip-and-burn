@@ -38,7 +38,7 @@ namespace FlipAndBurn.Core.Tests
             {
                 double shown = climbing || double.IsNaN(burnLeft)
                     ? ReserveWatch.ExpectedAtArrival(start - used, ReserveWatch.ExpectedUse(planned, coast), used)
-                    : start - used - ReserveWatch.RemainingUse(a, burnLeft, coast);
+                    : start - used - ReserveWatch.RemainingUse(burnLeft, coast);
                 double gap = Math.Abs(shown - arrived) / start * 100;
                 if (climbing) worstClimb = Math.Max(worstClimb, gap);
                 else { worst = Math.Max(worst, gap); after++; }

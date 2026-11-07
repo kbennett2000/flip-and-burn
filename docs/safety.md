@@ -17,15 +17,25 @@ why, in plain words, and usually what to change.
 | The planner says | What to do |
 |---|---|
 | You're landed, in the atmosphere, or not in a stable orbit yet | Get into a stable orbit first. Trips start from orbit. |
-| You're orbiting a moon | Flip and Burn flies between planets. Get into orbit around the planet, or out into orbit around the Sun. |
+| You're orbiting a moon and want another planet | From a moon, Flip and Burn flies to its planet and the planet's other moons. For another planet, get into orbit around this moon's planet first. |
 | No engine is active | Stage or activate your main engine, so Flip and Burn can read its thrust. |
 | This ship can reach only *X* g | Lower the acceleration to what the ship can do. |
 | Not enough delta-v | The ship doesn't have the fuel for a full burn. Try **Coast in the middle**; the planner suggests it with its trip time. |
 | The destination's gravity is too strong at this acceleration | Choose at least the acceleration it names, or a higher parking orbit. |
+| *Kerbin*'s gravity where the ship is now is too strong to leave | Moon trips: leaving a low orbit, the engines have to out-pull the planet or moon there. Choose at least the acceleration it names, or start from a higher orbit. |
+| A coast trip down to *Kerbin* needs at least *X* g | Moon trips: coasting down to the planet speeds the ship up all the way, so the braking needs more push. Choose that or more, or **Full burn**. |
+| *The Mun* is in the way right now | Moon trips: the path to the target would pass too close to another moon. Try again in a few minutes. |
 | A coast trip can't go around the Sun yet | The Sun is between you and the target. Choose **Full burn**, or wait a while. |
 
 **When the Sun is in the way** of a full burn, the trip doesn't fly through it: the planner routes it around the Sun in
 two legs, and says so. The numbers it shows include the detour.
+
+**On a moon trip, the planet and its moons are kept clear the same way.**
+- **Leaving a low orbit with the target behind the planet (or moon):** the ship waits in its orbit, engine off, until it
+  has come round to the target's side, and burns from there. Waiting costs no fuel; it's never more than one orbit, and
+  the planner says how long.
+- **The planet between two moons:** the trip goes around it in two legs, far enough out that its pull stays small.
+- **Leaving a moon:** if the burn would ever aim through the moon, the ship climbs along its orbit until the way is clear.
 
 ## During the trip
 

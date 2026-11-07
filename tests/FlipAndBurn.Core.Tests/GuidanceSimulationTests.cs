@@ -36,6 +36,45 @@ namespace FlipAndBurn.Core.Tests
             this.output = output;
         }
 
+        /// <summary>The planet cases again with a ship turning 10 degrees a second (the cases above turn 5).</summary>
+        [Theory]
+        [Trait("Category", "LongRunning")]
+        [Trait("Category", "PlanetSweep10")]
+        [InlineData("Duna 1g cut")]
+        [InlineData("Duna 1g skew")]
+        [InlineData("Jool 1g cut")]
+        [InlineData("Jool 1g skew")]
+        [InlineData("Duna Sun in way")]
+        [InlineData("Duna 0.25g cut")]
+        [InlineData("Duna coast Bebop")]
+        [InlineData("Jool coast Bebop")]
+        public void FliesToAParkingOrbit_TurningTenDegreesASecond(string name)
+        {
+            FlightResult r = FlyCase(name, 10);
+            Report(r);
+            CheckBar(r);
+        }
+
+        public static FlightResult FlyCase(string name, double turnDeg) => turnDeg == 5 ? FlyCase(name) : FlyCaseAt(name, turnDeg);
+
+        private static FlightResult FlyCaseAt(string name, double t)
+        {
+            switch (name)
+            {
+                case "Duna 1g cut":       return Flights.Fly(name + " (10 deg/s)", KerbolSystem.Duna, 1.0, FlipManeuver.CutFlipRelight, 0, 60_000, turnRateDegPerSec: t);
+                case "Duna 1g skew":      return Flights.Fly(name + " (10 deg/s)", KerbolSystem.Duna, 1.0, FlipManeuver.SkewFlip, 0, 60_000, turnRateDegPerSec: t);
+                case "Jool 1g cut":       return Flights.Fly(name + " (10 deg/s)", KerbolSystem.Jool, 1.0, FlipManeuver.CutFlipRelight, 0, 220_000, turnRateDegPerSec: t);
+                case "Jool 1g skew":      return Flights.Fly(name + " (10 deg/s)", KerbolSystem.Jool, 1.0, FlipManeuver.SkewFlip, 0, 220_000, turnRateDegPerSec: t);
+                case "Duna Sun in way":   return Flights.Fly(name + " (10 deg/s)", KerbolSystem.Duna, 1.0, FlipManeuver.CutFlipRelight, DunaBehindSunUT, 60_000, turnRateDegPerSec: t);
+                case "Duna 0.25g cut":    return Flights.Fly(name + " (10 deg/s)", KerbolSystem.Duna, 0.25, FlipManeuver.CutFlipRelight, 0, 60_000, turnRateDegPerSec: t);
+                case "Duna coast Bebop":  return Flights.Fly(name + " (10 deg/s)", KerbolSystem.Duna, 1.0, FlipManeuver.CutFlipRelight, 0, 60_000,
+                                              trip: TripType.CoastInTheMiddle, deltaVBudget: BebopBudget, turnRateDegPerSec: t);
+                case "Jool coast Bebop":  return Flights.Fly(name + " (10 deg/s)", KerbolSystem.Jool, 1.0, FlipManeuver.CutFlipRelight, 0, 220_000,
+                                              trip: TripType.CoastInTheMiddle, deltaVBudget: BebopBudget, turnRateDegPerSec: t);
+                default: throw new ArgumentException(name);
+            }
+        }
+
         public static FlightResult FlyCase(string name)
         {
             switch (name)
