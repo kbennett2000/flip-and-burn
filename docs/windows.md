@@ -84,8 +84,9 @@ For a ship with engines that run on electricity, the delta-v row ends in **(powe
 4. **Arrival in:** the time until the ship is parked at the destination.
 5. **Acceleration:** what the ship is doing now, and what it's aiming for. They match during a burn. A lower "aiming
    for" than you chose has one of two reasons, and the window says which:
-   - followed by "braking leaves spare push for *Jool*'s gravity": braking into strong gravity is planned a little below
-     your acceleration (see [Ways to fly](ways-to-fly.md#braking-into-strong-gravity)). Nothing is wrong;
+   - with a line under it, "Aiming below 1.00 g: braking leaves spare push for *Jool*'s gravity. The engines aren't
+     overheating.": braking into strong gravity is planned a little below your acceleration (see
+     [Ways to fly](ways-to-fly.md#braking-into-strong-gravity)). Nothing is wrong;
    - otherwise, the trip stepped down to stop the engines overheating, and a message said so when it happened.
 6. **Pointing off by:** how far the ship is from pointing where it should. The engine only fires when this is under 5°
    (except during a skew flip).

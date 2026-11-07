@@ -248,8 +248,11 @@ namespace FlipAndBurn
                     ? "engine off (waiting in orbit)"
                     : c.Phase == GuidancePhase.Coast && !c.Correcting
                     ? "engine off (coasting)"
-                    : $"{Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (aiming for {Planner.FormatG(pilot.AimingFor / Planner.OneG)}" +
-                      (pilot.AimingWhy != null ? $": {pilot.AimingWhy})" : ")"));
+                    : $"{Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (aiming for {Planner.FormatG(pilot.AimingFor / Planner.OneG)})");
+                // Braking into strong gravity aims below the chosen acceleration: say why, on its own line, so it isn't taken
+                // for the engines overheating.
+                if (pilot.AimingWhy != null && c.Phase != GuidancePhase.Waiting && !(c.Phase == GuidancePhase.Coast && !c.Correcting))
+                    GUILayout.Label($"Aiming below {Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)}: {pilot.AimingWhy}. The engines aren't overheating.", wrapStyle);
                 GuiUtils.SimpleLabel("Pointing off by", $"{pilot.PointingError:0.0}°");
             }
 
