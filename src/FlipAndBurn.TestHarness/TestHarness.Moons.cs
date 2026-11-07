@@ -182,6 +182,34 @@ namespace FlipAndBurn.TestHarness
             if (!failed && ok.Ok) Log("tylo coast: ARRIVED CLEANLY");
         }
 
+        // The trip window while braking into strong gravity (cycle 15, the braking-headroom line), on a short trip: KSP's own
+        // set-orbit cheat (test copy only) puts the Bebop 500 km above Laythe, and it flies to Jool at 1 g. Jool pulls 0.74 g
+        // at its 220 km parking orbit, so the braking is planned at 85 % and the window says why. Only when asked: "joolrow".
+        private IEnumerator ProofJoolRow()
+        {
+            var f = new Flown();
+            yield return PlanOnShip(ResumeShip, null, null, f, SaveFile);
+            if (!f.Ok) yield break;
+            CelestialBody laythe = FlightGlobals.Bodies.First(b => b.bodyName == "Laythe");
+            FlightGlobals.fetch.SetShipOrbit(FlightGlobals.Bodies.IndexOf(laythe), 0, laythe.Radius + 500_000, 0, 0, 0, 0, 0);
+            float until = Time.realtimeSinceStartup + 60;
+            while (Time.realtimeSinceStartup < until && (f.Ship.mainBody != laythe || f.Ship.packed)) yield return new WaitForSecondsRealtime(0.5f);
+            yield return new WaitForSecondsRealtime(5f);
+            Orbit o = f.Ship.orbit;
+            Log($"jool row: the Bebop set into orbit around {f.Ship.mainBody.bodyName} with KSP's set-orbit cheat (test copy): periapsis {o.PeA / 1000:F1} km, " +
+                $"apoapsis {o.ApA / 1000:F1} km");
+            if (f.Ship.mainBody != laythe) { Fail("jool row", "the Bebop isn't around Laythe"); failed = true; yield break; }
+            var spec = new TripSpec
+            {
+                Name = "L", Prefix = "jool-row", Target = "Jool",
+                What = "Laythe orbit to Jool, full burn at 1 g; infinite propellant and ignore max temperature",
+                AccelG = 1.0, Trip = TripType.FullBurn, FlipStyle = 0, InfinitePropellant = true, IgnoreMaxTemperature = true, MaxPhysicsRate = 10,
+            };
+            var ok = new CaptureResult();
+            yield return RunTrip(f, spec, ok, null);
+            if (!failed && ok.Ok) Log("jool row: ARRIVED CLEANLY");
+        }
+
         /// <summary>The coast trip's delta-v (m/s): about half a full burn's to Minmus at 1 g (44 km/s), so it has to coast.</summary>
         private const double CoastDeltaV = 25_000;
 
