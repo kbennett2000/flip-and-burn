@@ -1876,8 +1876,9 @@ namespace FlipAndBurn
 
         // ------------------------------------------------------------------ frames
 
-        // The guidance works in KSP's orbit frame (Orbit's vectors, Y and Z swapped relative to world space).
-        private static Vec3 ToOrbitFrame(Vector3d world) => new Vec3(world.x, world.z, world.y);
-        private static Vector3d ToWorld(Vec3 v) => new Vector3d(v.X, v.Z, v.Y);
+        // The guidance works in KSP's orbit frame with the inverse rotation taken out (KspFrame): world space turns while the
+        // ship is low over a body.
+        private static Vec3 ToOrbitFrame(Vector3d world) => KspFrame.FromWorld(world);
+        private static Vector3d ToWorld(Vec3 v) => KspFrame.ToWorld(v);
     }
 }

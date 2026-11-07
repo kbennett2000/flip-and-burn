@@ -487,7 +487,7 @@ namespace FlipAndBurn
             }
 
             Vec3 r = position - bodyPos, w = velocity - bodyVel;
-            v.orbitDriver.orbit.UpdateFromStateVectors(new Vector3d(r.X, r.Y, r.Z), new Vector3d(w.X, w.Y, w.Z), body, ut);
+            v.orbitDriver.orbit.UpdateFromStateVectors(KspFrame.ToOrbit(r), KspFrame.ToOrbit(w), body, ut);
             if (!v.loaded && v.protoVessel != null) v.protoVessel.orbitSnapShot = new OrbitSnapshot(v.orbitDriver.orbit);
         }
 

@@ -39,6 +39,7 @@ namespace FlipAndBurn.TestHarness
             yield return new WaitForSecondsRealtime(2f);
             string problem = module.Planner.CanStart ? module.PressStart() : "the planner won't start: " + string.Join(" ", module.Planner.Notes);
             if (problem != null) { Fail("fleet", "Start refused: " + problem); failed = true; yield break; }
+            LogFrame("the Bebop's trip started, watched");
             MechJebModuleFlipAndBurnAutopilot pilot = module.Autopilot;
             LogPlan(pilot);
             statusEvery = 30f;
@@ -268,8 +269,26 @@ namespace FlipAndBurn.TestHarness
             failed = true;
         }
 
+        // The frame check (cycle 15): KSP's world axes turn while the active ship is low over a body. Duna's position at one fixed
+        // time, raw from KSP and in Flip and Burn's fixed frame (KspFrame): the fixed one must read the same everywhere.
+        private static void LogFrame(string when)
+        {
+            CelestialBody duna = FlightGlobals.Bodies.FirstOrDefault(b => b.bodyName == "Duna");
+            if (duna == null) return;
+            const double ut0 = 18_000_000_000;
+            Vector3d raw = duna.orbit.getRelativePositionAtUT(ut0);
+            double t = Planetarium.InverseRotAngle * Math.PI / 180;
+            var fixedFrame = new Vector3d(raw.x * Math.Cos(t) - raw.y * Math.Sin(t), raw.x * Math.Sin(t) + raw.y * Math.Cos(t), raw.z);   // as KspFrame
+            Vessel active = FlightGlobals.ActiveVessel;
+            string low = active == null ? "no active ship" : $"active ship {active.vesselName} {active.altitude / 1000:F1} km over {active.mainBody.bodyName} " +
+                $"(inverse rotation below {active.mainBody.inverseRotThresholdAltitude / 1000:F0} km: {active.mainBody.inverseRotation})";
+            Log($"frame [{when}]: rotating {Planetarium.FrameIsRotating()}, inverse angle {Planetarium.InverseRotAngle:F6} deg; {low}; " +
+                $"Duna at UT {ut0:F0}: raw ({raw.x:F0}, {raw.y:F0}, {raw.z:F0}), fixed ({fixedFrame.x:F0}, {fixedFrame.y:F0}, {fixedFrame.z:F0})");
+        }
+
         private static void LogFleet(string when)
         {
+            LogFrame(when);
             double now = Planetarium.GetUniversalTime();
             List<AwayTrip> trips = FleetFlights.Flying.ToList();
             Log($"fleet [{when}]: {trips.Count} trip(s) flown without the player" + string.Concat(trips.Select(t =>

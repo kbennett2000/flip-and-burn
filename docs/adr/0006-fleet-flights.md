@@ -94,6 +94,22 @@ MechJebModuleFlipAndBurnAutopilot, FLIPANDBURN_TRIP). So saving, loading and qui
 mid-trip leaves a ship coasting on its orbit. The new values are optional and the format number is unchanged, so earlier
 versions read the record as before (and resume it when the player comes back, as they did).
 
+### A frame that doesn't turn
+
+While the active ship is low over a body (below its inverse-rotation height: 100 km over Kerbin, the Mun or Duna), KSP
+turns its whole frame with the body, and every vector from KSP's Orbit methods turns with it. Within one frame that does
+no harm, but anything kept from one frame to the next does: a background flight's state, the saved handover state, a
+watched trip's plan. Found by the fleet proof: after loading a save with the player 20 km over the Mun, a background
+ship's orbit and its saved trip disagreed by 182 km (241 km on the next run). The game's own figures showed it: Duna's
+angle in KSP's orbit frame plus `Planetarium.InverseRotAngle` stayed at 150.174 degrees while the angle went from 230.000
+to 230.030.
+
+Every vector into the core now passes through `KspFrame`, which takes the inverse rotation out (a turn about the up axis
+by that angle), and every vector back out (orbit writes, the direction to steer) has it put back. This changes watched
+trips too: their plan no longer drifts while the ship is low over a body. A first try through `Planetarium.Zup` was wrong
+(it neither undid the turn nor kept the up axis) and was dropped after the game showed it. With the fix, the same load
+measured a jump of 0.00 m, and Duna's position in the core's frame read the same turning or not.
+
 ### Every trip ends with the trim
 
 The gentle last trim that moon trips have (ADR 0005: settle the height and the whole velocity) now ends every trip.
