@@ -344,7 +344,11 @@ namespace FlipAndBurn.Core.Guidance
                 if (!leg.IsWaypoint) UpdateGravityAllowance(input, arcs);
 
                 BurnTimeLeft = arcs.T1 + arcs.T2;
-                BurnDeltaVLeft = config.Acceleration * (arcs.T1 + BrakingFlown * arcs.T2);
+                double brakingLeft = config.Acceleration * BrakingFlown * arcs.T2;
+                if (IsCoastTrip && !config.PlanetSystemTrip && !leg.IsWaypoint)
+                    brakingLeft = Math.Max(brakingLeft, CoastPlanner.BrakingFloor(config.Target, config.ParkingAltitude, config.Acceleration,
+                        CoastPlanner.ArrivalSpeed(config.Target, config.SunGravParameter, input.UT, input.Position, input.Velocity, arcs)));
+                BurnDeltaVLeft = config.Acceleration * arcs.T1 + brakingLeft;
                 if (!IsCoastTrip)
                 {
                     lastArcs = arcs;
@@ -509,6 +513,29 @@ namespace FlipAndBurn.Core.Guidance
                 brakeAtUT = double.NaN;
             }
 
+            // Trips between planets: braking can't take less than braking all at once at the parking height would, for the speed
+            // the ship arrives with (falling into the target's pull adds to it), plus what finite thrust loses deep in a strong
+            // pull (CoastPlanner.OneShotBraking, DeepWellLoss). Planned shorter, it started too late: into Jool at 1 g on 2 % of
+            // a full burn's delta-v the arrival watch had to step in. The coast then aims for that longer, gentler braking.
+            double floorDeltaV = 0, floorTime = 0;
+            if (!config.PlanetSystemTrip)
+            {
+                double mu = config.Target.GravParameter;
+                // The speed it arrives with: inside the target's sphere, from its energy there; outside, where its coast around the
+                // Sun takes it by the time braking is due (the Sun's pull changes it over a long coast).
+                double arriving;
+                if (r.Length < config.Target.SphereOfInfluence || !(config.SunGravParameter > 0))
+                    arriving = Math.Sqrt(Math.Max(0, v.LengthSquared - 2 * mu / r.Length));
+                else
+                {
+                    double until = Math.Max(0, tau - tb);
+                    StateVector ship = TwoBody.Propagate(input.Position, input.Velocity, config.SunGravParameter, until);
+                    arriving = (ship.Velocity - config.Target.Ephemeris.StateAt(input.UT + until).Velocity).Length;
+                }
+                floorDeltaV = CoastPlanner.BrakingFloor(config.Target, config.ParkingAltitude, config.Acceleration, arriving);
+                floorTime = floorDeltaV / (config.Acceleration * CoastPlanner.BrakingFlownShare(brakingFraction));
+            }
+
             Vec3 want = v, brake = Vec3.Zero;
             bool tooLate = false;
             // Inside the target's sphere of influence the smooth path guessed for a trip between planets misses how the target
@@ -531,6 +558,7 @@ namespace FlipAndBurn.Core.Guidance
                 double disc = tau * tau - 2 * w.Length / nominal;
                 tooLate = disc <= 0;
                 tb = tooLate ? tau : tau - Math.Sqrt(disc);
+                if (floorTime > tb) tb = Math.Min(tau, floorTime);
                 brake = w / (tau - 0.5 * tb);
                 want = q - brake;
             }
@@ -538,8 +566,10 @@ namespace FlipAndBurn.Core.Guidance
             plannedBrakingTime = tb;
             BurnTimeLeft = tb;
             // As the braking will be flown: the halfway share where the coast adds gravity up along the path really flown (a moon
-            // trip, or inside the target's sphere), the planned share otherwise (CoastPlanner.BrakingFlownShare).
-            BurnDeltaVLeft = config.Acceleration * (flownPath ? CoastPlanner.BrakingFlownShare(brakingFraction) : BrakingFlown) * tb;
+            // trip, or inside the target's sphere), the planned share otherwise (CoastPlanner.BrakingFlownShare); never under
+            // the floor.
+            BurnDeltaVLeft = Math.Max(floorDeltaV,
+                config.Acceleration * (flownPath ? CoastPlanner.BrakingFlownShare(brakingFraction) : BrakingFlown) * tb);
             double coastLeft = tau - tb;
             // Once braking is near, latch its start: it may come earlier, never later. Close to it the coast plan is
             // ill-conditioned at high speed (the time left is the square root of a small difference of large numbers: at

@@ -131,9 +131,9 @@ otherwise arrive as before (planet sweep worst 0.9 %).
   19.98 x 20.00, 10 km above the safe height. This changes watched trips too.
 - **Fixed: the same trip's departure overspend.** It flew 35.0 km/s against 29.5 planned, leaving Duna: the climb-out
   burned prograde away from the target. See ADR 0003, addendum (cycle 15); it changes watched trips too.
-- **Follow-up: slow arrivals into Jool.** A coast from Kerbin to Jool at 1 g on 2 % of a full burn's delta-v brakes
-  11.1 km/s against 7.1 planned and arrives with 4.6 % of its delta-v left, under the 10 % promise. It predates this
-  cycle (the same before and after the fixes above).
+- **Fixed: fast coasts into Jool's pull.** A coast from Kerbin to Jool at 1 g on 2 % of a full burn's delta-v braked
+  11.1 km/s against 7.1 priced and arrived with 4.6 % left. The braking is now priced from the physics of falling into
+  the target's pull: ADR 0003, second cycle-15 addendum. It changes watched trips too.
 
 ## Evidence
 

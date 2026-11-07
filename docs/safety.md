@@ -87,6 +87,10 @@ trips to Duna, Eve, Dres and Jool at accelerations from 0.25 g to 3 g, and every
 A **coast trip** always keeps 10% of your ship's delta-v unused. You arrive with some fuel left for whatever you came to
 do: landing, moving to a different orbit, or coming home. The planner shows the amount as **Kept in reserve**.
 
+Slowing down into a planet with a strong pull, like Jool, costs more than the speed you arrive with: the ship gains speed
+as it falls in. The planner prices the braking from that, and when a fast trip would eat into the 10%, it offers a
+slower one that doesn't.
+
 On top of that, the plan sets aside extra for steering and course corrections. Most trips don't need all of it, so
 they usually arrive with a bit more than 10%. As the trip flies, the trip window shows what the ship will most likely
 have left at arrival, worked out from the burning still to do. In testing it matched the arrival to within a point.
