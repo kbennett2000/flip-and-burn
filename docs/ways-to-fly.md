@@ -39,8 +39,10 @@ words. Overheating is said separately, in a message, as below.
 
 <p align="center">
   <img src="images/trip-braking-headroom.jpg" alt="The trip window braking into Jool at 1 g: Acceleration 0.84 g (aiming for 0.85 g), and under it: Aiming below 1.00 g: braking leaves spare push for Jool's gravity. The engines aren't overheating." width="55%">
-</p> The planner's trip time and fuel already allow for it: braking more gently takes a little longer
-and uses a little less fuel.
+</p>
+
+The planner's trip time and fuel already allow for it: braking more gently takes a little longer and uses a little less
+fuel.
 
 ### What overheating does
 
