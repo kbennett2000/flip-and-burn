@@ -269,8 +269,9 @@ namespace FlipAndBurn.TestHarness
                         slowShot = true;
                         Frame(cur.Ship, 0.25f, 4.0f, 1.3f);
                         Log($"trip {spec.Name} acceleration row: {Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (aiming for " +
-                            $"{Planner.FormatG(pilot.AimingFor / Planner.OneG)}{(pilot.AimingWhy != null ? ": " + pilot.AimingWhy : "")}); trip acceleration " +
-                            $"{Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)}, step-downs {pilot.Replans}");
+                            $"{Planner.FormatG(pilot.AimingFor / Planner.OneG)}); line below: " +
+                            (pilot.AimingWhy != null ? $"Aiming below {Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)}: {pilot.AimingWhy}. The engines aren't overheating." : "(none)") +
+                            $"; step-downs {pilot.Replans}");
                         yield return Shot($"{spec.Prefix}-4-slow-down.png", cur);
                         continue;
                     }

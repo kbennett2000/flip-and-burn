@@ -298,7 +298,30 @@ So the plan counts the braking's delta-v at halfway between its planned share an
 | Jool to Laythe, 1 g | | | −5.1 % |
 | The Mun to Kerbin, 2 g | | | −4.0 % |
 
-Moon coast trips fly a little under their plan, as they always have (7.4 % under to 2.2 % over across the sweep). The
+Moon coast trips fly a little under their plan, as they always have (7.4 % under to 2.2 % over across the sweep).
+
+**The halfway share is a fit to measured flights, not derived.** It was measured in the simulator over these coast trips,
+each flown by a ship turning at 5°/s and one turning at 10°/s, with the same result at both rates (planned against flown):
+
+| Coast trip | Acceleration | Braking planned at | Flown against plan |
+|---|---|---|---|
+| Kerbin to Jool (Bebop, between planets) | 1 g | 85 % | +1.2 % |
+| Jool to Tylo | 1 g | 85 % | −2.6 % |
+| Jool to Laythe | 1 g | 85 % | −5.1 % |
+| The Mun to Kerbin | 2 g | 86 % | −4.0 % |
+
+The shallow-well coast trips (Duna, Ike, the Mun, Minmus, the Mun to Minmus) brake at 99 % and are counted at it, as
+before (−0.2 to +2.2 %). No other acceleration was measured for a deep-well coast trip, and no coast trip to Eve, Laythe
+at 2 g, or an Outer Planets Mod planet.
+
+It needs revisiting if any of these show up:
+- a deep-well coast trip flying more than about 3 % over its plan (the plan's margin is 6 %; the 10 % reserve is kept
+  only while the burns stay inside it), or the reserve shown at arrival more than a point off (ReserveShownTests);
+- a different arrival law, braking band or gravity model for the plan, any of which changes how the braking is flown;
+- coast trips at other accelerations, or to other deep wells, falling outside the range above.
+
+The simulator's last-burn report (`LastBurnReport`) and the planned-against-flown figures in the sweeps are where it
+shows. The
 reserve the trip window shows uses the same figures (the arrival law's own forecast once braking), and still matches the
 arrival to within a point (ReserveShownTests: Jool 0.99, Duna 0.50; while climbing out, 1.28 and 1.13).
 

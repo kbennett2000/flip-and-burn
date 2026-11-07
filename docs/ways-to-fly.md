@@ -34,9 +34,9 @@ example), the braking is planned a little below your acceleration, down to 85% o
 to hold the ship up against the planet's pull as well as slow it down, and that needs the spare push. Without it the
 ship would reach its parking orbit going too fast.
 
-While it brakes, the trip window's **Acceleration** row says so in plain words, for example "aiming for 0.85 g:
-braking leaves spare push for Jool's gravity". **Your engines aren't overheating:** that's said separately, in a
-message, as below. The planner's trip time and fuel already allow for it: braking more gently takes a little longer
+While it brakes, the trip window's **Acceleration** row shows the lower aim, and the line under it says why in plain
+words, for example "Aiming below 1.00 g: braking leaves spare push for Jool's gravity. The engines aren't overheating."
+Overheating is said separately, in a message, as below. The planner's trip time and fuel already allow for it: braking more gently takes a little longer
 and uses a little less fuel.
 
 ### What overheating does
