@@ -477,7 +477,7 @@ namespace FlipAndBurn.Core.Tests
                 if (sim.UT >= nextReserveSample && cmd.Phase != GuidancePhase.Done)
                 {
                     nextReserveSample = sim.UT + (cmd.Departing ? 120 : 3600);
-                    result.ReserveSamples.Add((sim.UT, cmd.Departing, result.DeltaVUsed, guidance.BurnDeltaVLeft, cmd.Phase));
+                    result.ReserveSamples.Add((sim.UT, cmd.Departing || guidance.LeavingDeparture, result.DeltaVUsed, guidance.BurnDeltaVLeft, cmd.Phase));
                 }
 
                 result.Steps++;

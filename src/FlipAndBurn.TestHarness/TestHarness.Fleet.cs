@@ -132,7 +132,12 @@ namespace FlipAndBurn.TestHarness
             yield return Shot("fleet-5-bebop-at-the-mun.png", back);
             yield return MapShot(back, "fleet-6-bebop-orbit-map.png");
             LogFleet("on the Bebop after loading the mid-trip save");
-            if (!FleetFlights.Flying.Any(t => t.ShipName == SecondShip)) { Fail("fleet", "the second ship's trip didn't carry on after the load"); failed = true; yield break; }
+            AwayTrip afterLoad = FleetFlights.Flying.FirstOrDefault(t => t.ShipName == SecondShip);
+            if (afterLoad == null) { Fail("fleet", "the second ship's trip didn't carry on after the load"); failed = true; yield break; }
+            // The jump at the load: where the save's orbit puts the ship against where the saved trip had it (once 182 km).
+            Log($"fleet: handover jump after loading the mid-trip save: {afterLoad.HandoverJump:F2} m, {afterLoad.HandoverJumpSpeed:F4} m/s " +
+                $"({(afterLoad.HandoverJump <= 10 ? "within 10 m" : "MORE THAN 10 m")})");
+            if (!(afterLoad.HandoverJump <= 10)) { Fail("fleet", $"the second ship jumped {afterLoad.HandoverJump:F0} m when the save was loaded"); failed = true; yield break; }
 
             // 7. Switch to the second ship mid-trip: the trip comes back to the player (the jump measured); then leave again.
             yield return new WaitForSecondsRealtime(5f);
@@ -270,7 +275,8 @@ namespace FlipAndBurn.TestHarness
             Log($"fleet [{when}]: {trips.Count} trip(s) flown without the player" + string.Concat(trips.Select(t =>
                 $"; {t.ShipName} to {t.TargetName}: {t.Flight.Last?.Phase}, at {t.Record.Acceleration / 9.81:F2} g, {Math.Max(0, now - t.Flight.UT):F1} s behind, " +
                 $"delta-v used {t.Record.DeltaVUsed:F0} m/s, propellant {t.Flight.PropellantUsed:F1} kg, arrival in {t.Record.PlannedArrivalUT - now:F0} s, " +
-                $"handover jump {t.HandoverJump:F2} m / {t.HandoverJumpSpeed:F4} m/s, orbit around {t.Vessel?.mainBody?.bodyName}")));
+                $"handover jump {t.HandoverJump:F2} m / {t.HandoverJumpSpeed:F4} m/s, orbit around {t.Vessel?.mainBody?.bodyName}, " +
+                $"warp held {t.WarpHolds} times ({t.WarpHoldSeconds:F0} s real), orbit write check {t.MaxWriteError:F3} m")));
         }
 
         private static void LogOrbit(string what, Vessel v, string expectBody, double parking)

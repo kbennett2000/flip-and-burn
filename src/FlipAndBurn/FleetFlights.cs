@@ -114,13 +114,15 @@ namespace FlipAndBurn
             }
 
             HoldWarp(now);
+            if (HoldingWarp && Trips.TryGetValue(heldFor, out AwayTrip held)) held.WarpHoldSeconds += Time.unscaledDeltaTime;
 
             if (Time.realtimeSinceStartup >= nextReport)
             {
                 nextReport = Time.realtimeSinceStartup + 30f;
                 foreach (AwayTrip t in Trips.Values)
                     Debug.Log($"[FlipAndBurn] fleet: {t.ShipName} to {t.TargetName}: {t.Flight.Last?.Phase}, {Math.Max(0, now - t.Flight.UT):F1} s behind the game clock, " +
-                              $"{t.Flight.Steps} steps; delta-v used {t.Record.DeltaVUsed:F0} m/s; arrival planned at UT {t.Record.PlannedArrivalUT:F0}");
+                              $"{t.Flight.Steps} steps; delta-v used {t.Record.DeltaVUsed:F0} m/s; arrival planned at UT {t.Record.PlannedArrivalUT:F0}; " +
+                              $"warp held {t.WarpHolds} times ({t.WarpHoldSeconds:F0} s real); orbit write check {t.MaxWriteError:F3} m");
             }
         }
 
@@ -129,6 +131,7 @@ namespace FlipAndBurn
 
         private float nextWarpHold;
         private static float lastWarpHold = -100;
+        private static Guid heldFor;   // the trip the last hold was for: credited with the real time the hold lasts
 
         /// <summary>True for two real seconds after the fleet held time warp down (the test helper doesn't raise it meanwhile).</summary>
         public static bool HoldingWarp => Time.realtimeSinceStartup - lastWarpHold < 2;
@@ -149,6 +152,8 @@ namespace FlipAndBurn
             }
 
             if (behind == null) return;
+            behind.WarpHolds++;
+            heldFor = behind.Id;
             int from = TimeWarp.CurrentRateIndex;
             TimeWarp.SetRate(from - 1, false);
             nextWarpHold = Time.realtimeSinceStartup + 0.5f;
@@ -343,6 +348,15 @@ namespace FlipAndBurn
             Vessel v = t.Vessel;
             BackgroundFlight f = t.Flight;
             SetOrbit(v, t.Frame.Centre, f.UT, f.Position, f.Velocity);
+            // Check: the orbit written gives back the state flown (a load once showed a 182 km jump).
+            StateVector back = t.Frame.ShipState(v, f.UT);
+            double err = (back.Position - f.Position).Length;
+            if (err > t.MaxWriteError)
+            {
+                t.MaxWriteError = err;
+                if (err > 1) Debug.LogWarning($"[FlipAndBurn] fleet: {t.ShipName}'s orbit written {err:F1} m from the state flown, around {v.mainBody.bodyName} " +
+                                              $"(orbit epoch {v.orbit.epoch:F1}, flight at UT {f.UT:F1})");
+            }
 
             if (!CheatOptions.InfinitePropellant)
             {
@@ -410,7 +424,8 @@ namespace FlipAndBurn
             Debug.Log($"[FlipAndBurn] fleet: trip over for {t.ShipName}: {f.End}; around {v.mainBody.bodyName}, periapsis {o.PeA:F0} m, apoapsis {o.ApA:F0} m, " +
                       $"eccentricity {o.eccentricity:F5}; flown {f.UT - t.StartUT:F0} s without the player, {f.Steps} steps; delta-v {f.DeltaVUsed:F0} m/s, " +
                       $"propellant {f.PropellantUsed:F1} kg (mass {t.StartMass:F0} -> {f.Mass:F0} kg), charge {f.ChargeUsed:F1}; " +
-                      $"{Math.Max(0, Planetarium.GetUniversalTime() - f.UT):F1} s behind the game clock");
+                      $"{Math.Max(0, Planetarium.GetUniversalTime() - f.UT):F1} s behind the game clock; warp held {t.WarpHolds} times ({t.WarpHoldSeconds:F0} s real); " +
+                      $"orbit write check {t.MaxWriteError:F3} m");
             EndTrip(v, t.Record, t.ShipName, t.TargetName, report, arrived);
             Ended.Add(t);
         }
@@ -544,6 +559,11 @@ namespace FlipAndBurn
         public CelestialBody Target;
         public double UsedBefore, StartUT, StartMass, PropellantWritten, ChargeWritten;
         public double HandoverJump = double.NaN, HandoverJumpSpeed = double.NaN;
+        /// <summary>The largest distance (m) between an orbit written and the state flown, read back from KSP's orbit.</summary>
+        public double MaxWriteError;
+        /// <summary>Times the fleet held time warp down for this trip, and the real seconds it held it.</summary>
+        public int WarpHolds;
+        public double WarpHoldSeconds;
         public string Report;
         public double EndedUT = double.NaN;
 

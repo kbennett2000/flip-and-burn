@@ -397,7 +397,7 @@ namespace FlipAndBurn
             // such trips really use.
             bool coast = trip.Trip == TripType.CoastInTheMiddle;
             double burnLeft = guidance.BurnDeltaVLeft;
-            double reserve = cmd.Departing || double.IsNaN(burnLeft)
+            double reserve = cmd.Departing || guidance.LeavingDeparture || double.IsNaN(burnLeft)
                 ? ReserveWatch.ExpectedAtArrival(have, ReserveWatch.ExpectedUse(reservePlanNeeded, coast), deltaVUsed - reservePlanUsedAt, allowanceLeft)
                 : have - ReserveWatch.RemainingUse(burnLeft, coast) - allowanceLeft;
             // Below the plan's own figure by more than a point: something since the plan, so say what.

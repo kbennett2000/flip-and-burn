@@ -42,6 +42,8 @@ namespace FlipAndBurn.Core
     {
         /// <summary>Step while burning in the cruise, far from bodies and events (game s).</summary>
         public const double CruiseStep = 2.0;
+        /// <summary>Within this many parking radii of the target, the final approach is flown in physics steps.</summary>
+        public const double NearTargetRadii = 2;
         /// <summary>The last part of the final approach flown in physics steps (game s before arrival).</summary>
         public const double FinalStepSeconds = 120;
         /// <summary>Longest step while burning in the cruise, an hour or more from the next event (game s).</summary>
@@ -176,8 +178,13 @@ namespace FlipAndBurn.Core
             else if (cmd.Phase == GuidancePhase.FinalApproach)
             {
                 // The final approach starts at the edge of the target's sphere, thousands of seconds out: step in proportion
-                // to the time left (0.1 to 2 s), and as a physics step for the last two minutes.
-                step = cmd.TimeToArrival > FinalStepSeconds ? Math.Max(NearStep, Math.Min(2.0, cmd.TimeToArrival / 500)) : ArrivalStep;
+                // to the time left (0.1 to 2 s); in physics steps for the last two minutes, and whenever the ship is within twice
+                // the parking radius of the target (a slow approach to Dres dipped 0.8 km below the safe height with coarser steps).
+                double distance = (Position - config.Target.Ephemeris.StateAt(UT).Position).Length;
+                double parkingRadius = config.Target.Radius + config.ParkingAltitude;
+                step = cmd.TimeToArrival > FinalStepSeconds && distance > NearTargetRadii * parkingRadius
+                    ? Math.Max(NearStep, Math.Min(2.0, cmd.TimeToArrival / 500))
+                    : ArrivalStep;
             }
             step = Math.Max(1e-3, Math.Min(step, until - UT));
 

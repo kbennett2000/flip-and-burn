@@ -59,7 +59,7 @@ namespace FlipAndBurn.Core.Tests
             public override string ToString() =>
                 $"{(Problem() == null ? "OK  " : "FAIL")} | {Name} | orbit {Pe / 1000:F1} x {Ap / 1000:F1} km (target {Parking / 1000:F0}) | time {TripTime:F0} s, planned {PlannedTime:F0} " +
                 $"({(TripTime / PlannedTime - 1) * 100:+0.0;-0.0} %) | delta-v {DeltaV / 1000:F2} km/s, planned {PlannedDeltaV / 1000:F2} | fuel {Fuel:F0} kg, " +
-                $"rocket equation for the delta-v flown {FuelExpected:F0} kg | {Steps} steps, {WallSeconds:F1} s | {Problem()}";
+                $"rocket equation for the delta-v flown {FuelExpected:F0} kg | {Steps} steps, {WallSeconds:F1} s | lowest {LowestMargin / 1000:F1} km above a safe height | {Problem()}";
         }
 
         // ---- set-up shared with the watched simulator flights
@@ -149,8 +149,10 @@ namespace FlipAndBurn.Core.Tests
             double startUT = p.Start.UT, limit = startUT + 4 * Math.Max(plannedTime, 3600);
             while (!flight.Finished && flight.UT < limit && wall.Elapsed.TotalSeconds < 150)
             {
-                // A frame's worth at high warp, as the game advances it.
-                flight.AdvanceTo(flight.UT + 600, 5000);
+                // A frame's worth at high warp, as the game advances it; every game second once the arrival is near (an hour
+                // or less), so the lowest height over the target is measured, not sampled every 10 minutes.
+                double toArrival = flight.Last?.TimeToArrival ?? double.PositiveInfinity;
+                flight.AdvanceTo(flight.UT + (toArrival < 3600 ? 1 : 600), 5000);
                 foreach (GravitySource b in p.Bodies)
                     outcome.LowestMargin = Math.Min(outcome.LowestMargin, (flight.Position - b.Ephemeris.StateAt(flight.UT).Position).Length - b.SafeRadius);
             }
@@ -181,27 +183,10 @@ namespace FlipAndBurn.Core.Tests
             new Case { Name = "Duna 0.25g cut", Target = KerbolSystem.Duna, Parking = 60_000, AccelG = 0.25 },
             new Case { Name = "Duna coast", Target = KerbolSystem.Duna, Parking = 60_000, Trip = TripType.CoastInTheMiddle, BudgetShare = 0.4 },
             new Case { Name = "Jool coast", Target = KerbolSystem.Jool, Parking = 220_000, Trip = TripType.CoastInTheMiddle, BudgetShare = 0.4 },
+            // A small planet reached slowly (the fleet's in-game Dres arrival, cycle 15).
+            new Case { Name = "Duna to Dres slow coast", Target = KerbolSystem.Dres, From = KerbolSystem.Duna, Parking = 20_000, Trip = TripType.CoastInTheMiddle, BudgetShare = 0.02 },
         };
 
-        // A small planet reached slowly (the fleet's in-game Dres arrival, cycle 15): a known follow-up (ADR 0006, "Known limits"):
-        // the braking falls behind near the end, dips toward the safe height and uses about 20 % more delta-v than planned.
-        private static Case SlowDres => new Case { Name = "Duna to Dres slow coast", Target = KerbolSystem.Dres, From = KerbolSystem.Duna, Parking = 20_000, Trip = TripType.CoastInTheMiddle, BudgetShare = 0.02 };
-
-        /// <summary>Reports the slow Dres arrival in the background (a known follow-up), without failing on it.</summary>
-        [Fact]
-        [Trait("Category", "LongRunning")]
-        [Trait("Category", "KnownIssue")]
-        public void KnownIssue_SlowApproachToASmallPlanet()
-        {
-            foreach (double turn in new[] { 5.0, 10.0 })
-            {
-                Case c = SlowDres;
-                c.TurnDeg = turn;
-                Outcome o = FlyBackground(c);
-                output.WriteLine($"{c.Name}, turning {turn:0} deg/s: {o.Problem() ?? "to the standard"} | orbit {o.Pe / 1000:F1} x {o.Ap / 1000:F1} km, " +
-                                 $"delta-v {o.DeltaV / 1000:F2} km/s against {o.PlannedDeltaV / 1000:F2} planned, lowest margin {o.LowestMargin / 1000:F1} km");
-            }
-        }
 
         private static Case Moon(string name, PlanetRecord planet, PlanetRecord from, PlanetRecord to, double g, double angle,
             FlipManeuver flip = FlipManeuver.CutFlipRelight, TripType trip = TripType.FullBurn)
