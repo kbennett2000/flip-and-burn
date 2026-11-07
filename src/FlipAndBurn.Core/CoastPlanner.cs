@@ -151,7 +151,7 @@ namespace FlipAndBurn.Core
 
         /// <summary>
         /// The speed relative to the target at the end of a plan's coast (the ship on its orbit around the Sun, the target's
-        /// pull left out): what it arrives with before falling in.
+        /// pull left out): what it arrives with before falling in, as far as that orbit can be trusted (<see cref="TrustedArrivalSpeed"/>).
         /// </summary>
         /// <param name="departure">What leaving the departure planet adds to the velocity (its pull and the climb-out,
         /// <see cref="DepartureGravity"/>), zero if it is already behind.</param>
@@ -160,7 +160,25 @@ namespace FlipAndBurn.Core
         {
             Vec3 r1 = position + velocity * arcs.T1 + arcs.A1 * (0.5 * arcs.T1 * arcs.T1), v1 = velocity + arcs.A1 * arcs.T1 + departure;
             StateVector ship = arcs.Tc > 0 && sunMu > 0 ? TwoBody.Propagate(r1, v1, sunMu, arcs.Tc) : new StateVector(r1, v1);
-            return (ship.Velocity - target.Ephemeris.StateAt(startUT + arcs.T1 + arcs.Tc).Velocity).Length;
+            return TrustedArrivalSpeed(ship, target.Ephemeris.StateAt(startUT + arcs.T1 + arcs.Tc), arcs.Tc, 0.5 * arcs.A2.Length * arcs.T2 * arcs.T2);
+        }
+
+        /// <summary>
+        /// The speed relative to the target where a coast carried along its orbit around the Sun ends (m/s), counted only as
+        /// far as that orbit really ends where braking should start. A plan aims its coast with the gravity worked out on its
+        /// previous pass (none on the first), so while the planner searches, a long coast's orbit can end far from the target,
+        /// and its speed there means nothing: the Bebop V2.4's 51-day coast from Duna to Dres came out at 1.5 to 19.6 km/s for
+        /// a 4.7 km/s braking, and no trip was offered (cycle 15, in-game run 8). So the speed it would take to close the miss
+        /// over the coast comes off. A coast that lands (Kerbin to Jool: 0.1 % of the path) keeps its full speed.
+        /// </summary>
+        /// <param name="coastSeconds">How long the coast was carried along its orbit.</param>
+        /// <param name="brakingDistance">How far from the target braking starts (m).</param>
+        public static double TrustedArrivalSpeed(StateVector ship, StateVector target, double coastSeconds, double brakingDistance)
+        {
+            double speed = (ship.Velocity - target.Velocity).Length;
+            if (!(coastSeconds > 1)) return speed;
+            double miss = Math.Max(0, (ship.Position - target.Position).Length - Math.Max(0, brakingDistance));
+            return Math.Max(0, speed - miss / coastSeconds);
         }
 
         // The braking's delta-v as priced: its planned time at the share the guidance flies, but never under the floor for a

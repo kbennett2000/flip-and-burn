@@ -128,6 +128,13 @@ Now (`CoastPlanner.BrakingFloor`, trips between planets):
   changes the speed-up. The 0.30 is a fit to the survey: flown braking came out at or under the floor on every trip. The
   planner then picks the fastest trip that still fits the budget at that price: a slower one when the fast one can't
   keep the reserve.
+- **Trusting the arrival speed.** While the planner searches, each trip time it tries is aimed with the gravity worked
+  out on the previous pass (none on the first). A long coast's orbit around the Sun then ends far from the target, and
+  its speed there means nothing: for the Bebop V2.4 at Duna (10.3 km/s at 1 g) to Dres, a 51-day coast, it came out at
+  1.5 to 19.6 km/s for a 4.7 km/s braking, and the planner offered no trip (in-game run 8; run 7 had flown it to
+  19.9 x 20.0 km). So the speed it would take to close the miss over the coast comes off the arrival speed
+  (`TrustedArrivalSpeed`); where the coast lands (Kerbin to Jool: within 0.1 % of the path) nothing changes. The trip
+  is offered again: 8,736 m/s planned, 8,768 flown, 14.8 % left (an everyday test).
 - **The flying.** The guidance never plans its braking shorter than the floor takes at the acceleration it flies, so it
   starts braking in time, and its coast aims for that braking. The floor is applied inside the coast solve, so the
   arrival time and the braking agree; applied after it, it upset arrivals at Duna and Dres.
