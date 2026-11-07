@@ -78,7 +78,8 @@ namespace FlipAndBurn.Core
             double floor = Math.Min(start.Position.Length, 1.2 * request.SunSafetyDistance) - 1000;
             if (request.SunSafetyDistance > 0 && closestPlanet < Math.Min(floor, request.SunSafetyDistance)) return false;
 
-            double burns = a1 * arcs.T1 + a2 * arcs.T2;
+            // The braking costs more per m/s on an engine that loses Isp at part throttle, at the share the arrival law flies.
+            double burns = a1 * arcs.T1 + a2 * arcs.T2 * ShipPerformance.ThrottleCost(CoastPlanner.BrakingFlownShare(a2 / a1), request.IspThrottleExponent);
             Vec3 depVelocity = dep == null || dep.IsCentralBody ? Vec3.Zero : dep.Ephemeris.StateAt(tDep + arcs.T1).Velocity;
             StateVector target = request.Target.Ephemeris.StateAt(tDep + arcs.Total);
             plan.GravityIncluded = true;

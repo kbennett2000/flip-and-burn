@@ -90,6 +90,13 @@ namespace FlipAndBurn.Core
 
         /// <summary>Moon trips: the other moons to keep clear of (not the target, not the moon being left).</summary>
         public List<Obstacle> Obstacles { get; set; } = new List<Obstacle>();
+
+        /// <summary>
+        /// How the ship's Isp falls at part throttle (<see cref="ShipPerformance.IspThrottleExponent"/>; 0 for stock engines):
+        /// braking below the chosen acceleration costs more of the ship's delta-v per m/s (<see cref="ShipPerformance.ThrottleCost"/>),
+        /// and the delta-v figures count it.
+        /// </summary>
+        public double IspThrottleExponent { get; set; }
     }
 
     public enum TripProblem
@@ -420,13 +427,20 @@ namespace FlipAndBurn.Core
         private static void ApplyBrakingShare(TripRequest request, TripPlan plan)
         {
             double f = CoastPlanner.BrakingFractionFor(request.Target, request.ParkingAltitude, request.Acceleration);
-            if (!(f < CoastPlanner.BrakingFraction) || !(plan.TripTime > 0)) return;
-            double Time(double share) => Math.Sqrt((1 + 1 / share) / 2);
-            double k = Time(f) / Time(CoastPlanner.BrakingFraction);
-            plan.TripTime *= k;
-            plan.TimeToFlip = plan.TripTime / (1 + 1 / f);
-            plan.ArrivalTime = request.StartTime + plan.TripTime;
-            plan.BurnDeltaV /= k;
+            if (!(plan.TripTime > 0)) return;
+            if (f < CoastPlanner.BrakingFraction)
+            {
+                double Time(double share) => Math.Sqrt((1 + 1 / share) / 2);
+                double k = Time(f) / Time(CoastPlanner.BrakingFraction);
+                plan.TripTime *= k;
+                plan.TimeToFlip = plan.TripTime / (1 + 1 / f);
+                plan.ArrivalTime = request.StartTime + plan.TripTime;
+                plan.BurnDeltaV /= k;
+            }
+
+            // The braking half at its share of the acceleration, on an engine that loses Isp at part throttle: each m/s of it
+            // costs more of the ship's delta-v (ShipPerformance.ThrottleCost).
+            plan.BurnDeltaV *= (1 + ShipPerformance.ThrottleCost(f, request.IspThrottleExponent)) / 2;
             plan.TotalDeltaV = plan.BurnDeltaV + plan.ParkingOrbitDeltaV;
         }
 

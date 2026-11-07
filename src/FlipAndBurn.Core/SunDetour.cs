@@ -31,14 +31,14 @@ namespace FlipAndBurn.Core
                 {
                     ShipPosition = request.ShipPosition, ShipVelocity = request.ShipVelocity, StartTime = request.StartTime,
                     Target = new TargetPlanet("waypoint", new FixedEphemeris(waypoint), 1, 1), Acceleration = request.Acceleration,
-                    SunSafetyDistance = 0, CheckTargetGravity = false,
+                    SunSafetyDistance = 0, CheckTargetGravity = false, IspThrottleExponent = request.IspThrottleExponent,
                 });
                 if (!l1.Feasible) break;
                 TripPlan l2 = TripCalculator.Plan(new TripRequest
                 {
                     ShipPosition = waypoint, ShipVelocity = Vec3.Zero, StartTime = request.StartTime + l1.TripTime, Target = request.Target,
                     Acceleration = request.Acceleration, ParkingAltitude = request.ParkingAltitude, SunSafetyDistance = 0,
-                    SunGravParameter = request.SunGravParameter,
+                    SunGravParameter = request.SunGravParameter, IspThrottleExponent = request.IspThrottleExponent,
                 });
                 if (!l2.Feasible) break;
                 leg1 = l1;

@@ -325,6 +325,47 @@ shows. The
 reserve the trip window shows uses the same figures (the arrival law's own forecast once braking), and still matches the
 arrival to within a point (ReserveShownTests: Jool 0.99, Duna 0.50; while climbing out, 1.28 and 1.13).
 
+**Braking below full thrust costs more fuel on the Kerbstein drive (cycle 15, in-game run 9).** KSP Interstellar's
+fusion drives lose Isp at part throttle (Isp = full Isp × throttle^0.5). Holding a share s of the chosen acceleration
+takes s of the throttle that acceleration takes, at any mass, so each m/s at that share takes s^-0.5 as much
+propellant: braking at 85 % costs 8.5 % more per m/s than the ship's delta-v at the chosen acceleration, which is the
+figure the planner, the guidance and the window count in. Nothing counted it, and the simulator didn't model it. In the
+game the 0.4 g coast to Duna (trip R, fuel counted, braking at 85 %) showed 17.03 % in reserve through the coast and
+arrived with 14.24 %; its braking burned about 9 % more than its delta-v. The 10 % held only because of the 6 % margin.
+
+- `ShipPerformance.ThrottleCost(share, k)` = share^-k (1 for stock engines). The coast plan counts the braking at
+  `CoastPlanner.BrakingCost` (the flown share times what each m/s costs there); a full burn's braking half and a moon
+  full burn's braking the same way; the guidance's burning left and the arrival law's forecast (`ForecastDeltaV`) count
+  each moment at its cost. The engines' exponent travels in `TripRequest` and `GuidanceConfig`.
+- The simulator loses Isp at part throttle as the Kerbstein drive does (k = 0.5, `Flights.ThrottleCost`), so every sweep
+  counts it.
+- Two window fixes found on the way: a moon coast trip waiting for its departure window showed a full burn's delta-v as
+  still to come (−36 % on the Tylo coast until the first burn); and the window took the guidance's figure as soon as the
+  ship stopped climbing prograde, while still deep in Kerbin's pull, where it wasn't settled (at 1 g to Jool, a point
+  high two minutes after Start). It now shows the plan's figure until the ship leaves the departure planet's sphere of
+  influence.
+
+Simulator, the Bebop with the Isp loss (k = 0.5), before and after:
+
+| Coast trip (fuel counted) | Braking at | Before: arrived with | Before: window after the climb-out | After: arrived with | After: window after the climb-out | After: trip time |
+|---|---|---|---|---|---|---|
+| Kerbin to Jool, 1 g | 85 % | 10.9 % | up to 4.2 points high | 12.3 % | within 0.13 | +1.8 % |
+| Kerbin to Duna, 0.4 g (trip R) | 85 % | 14.5 % | up to 4.6 points high | 16.4 % | within 0.40 | +1.9 % |
+| Kerbin to Duna, 1 g | 99 % | 13.7 % | within 0.46 | 13.9 % | within 0.38 | +0.2 % |
+| Jool to Tylo, 1 g | 85 % | 15.8 % | −36 % while waiting | 17.4 % | within 0.39 from the coast on | +0.0 % |
+| Jool to Laythe, 1 g | 85 % | 17.5 % | | 17.8 % | 3.1 points low while speeding up | −0.5 % |
+
+Every sweep passes on this branch with the Isp loss in the simulator: everyday 205/205; moon trips 124/124 (worst orbit
+2.0 %; moon coast trips 4.8 % under to 2.0 % over their plan); planets at 10°/s 8/8; arrival watch 21 parked, no false
+alarms; last burn passes; every physics step passes. One display blip remains: on the Tylo coast, for one guidance step
+as a course correction starts, the burning left reads 9 km/s high (it would show for at most one 30-second window update).
+
+Shallow wells barely move (braking at 99 % costs 0.5 % more). **Still open on this branch:** the figure shown at Start
+(and, on a moon trip, while speeding up) comes from the plan with a fixed allowance for what trips use over their burns
+(`ReserveWatch.TypicalCoastOverhead`, 2.7 %), and this planner's moon coast trips and the 0.4 g Duna coast fly 1.5 to
+3.2 % under their burns, so it reads 3.6 to 5 points low (pessimistic) there. Cycle 15a's climb-out change narrows this
+for trips between planets.
+
 ## Consequences
 
 - Moon trips plan and fly with the same windows, safety net, heat and warp rules, pause and resume as trips between

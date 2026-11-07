@@ -176,6 +176,7 @@ namespace FlipAndBurn.TestHarness
                 Name = "T1", Prefix = "tylo-coast", Target = "Tylo",
                 What = "low Jool orbit to Tylo, coast trip at 1 g; fuel counted (lowered to 30 km/s so the trip coasts), ignore max temperature",
                 AccelG = 1.0, Trip = TripType.CoastInTheMiddle, FlipStyle = 0, IgnoreMaxTemperature = true, MaxPhysicsRate = 10,
+                ReserveCheck = true,
             };
             var ok = new CaptureResult();
             yield return RunTrip(f, spec, ok, null);

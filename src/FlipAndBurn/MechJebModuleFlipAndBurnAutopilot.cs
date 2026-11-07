@@ -25,6 +25,7 @@ namespace FlipAndBurn
         public bool Electric;              // the engines burn only electric charge
         public bool PoweredAllTheWay;      // ... and the ship's own power keeps them going: no delta-v limit
         public double StartDeltaV = double.NaN;   // m/s, the ship's delta-v at Start; NaN when fuel isn't counted
+        public double IspThrottleExponent;        // how the engines' Isp falls at part throttle (ShipPerformance.IspThrottleExponent)
     }
 
     /// <summary>
@@ -434,6 +435,7 @@ namespace FlipAndBurn
                 Flip = start.Flip,
                 ParkingAltitude = start.ParkingAltitude,
                 TurnRate = TurnRate,
+                IspThrottleExponent = start.IspThrottleExponent,
             };
             frame.Configure(config, v, starting: true);
 
@@ -1035,6 +1037,8 @@ namespace FlipAndBurn
             }
 
             TripRequest request = frame.Request(v, ut, record.Acceleration, record.ParkingAltitude, starting: !record.Departed);
+            double ispExponent = ship?.IspThrottleExponent ?? 0;
+            request.IspThrottleExponent = ispExponent;
             double keep = record.Trip == TripType.CoastInTheMiddle ? record.PlannedArrivalUT : double.NaN;
             double startDeltaV = StartDeltaVOf(record);
             ReplanResult check = TripReplanner.Check(request, record.Trip, record.DeltaVLeft, ship, Planner.Reserve, keep, startDeltaV);
@@ -1054,6 +1058,7 @@ namespace FlipAndBurn
                 Target = target, Acceleration = record.ChosenAcceleration, Flip = record.Flip, Trip = record.Trip,
                 ParkingAltitude = record.ParkingAltitude, DeltaVBudget = record.DeltaVBudget,
                 PlannedTripTime = record.StartPlannedTripTime > 0 ? record.StartPlannedTripTime : record.PlannedArrivalUT - record.StartUT,
+                IspThrottleExponent = ispExponent,
             };
             var config = new GuidanceConfig
             {
@@ -1065,6 +1070,7 @@ namespace FlipAndBurn
                 TurnRate = TurnRate,
                 // Fly exactly what the re-plan found: the arrival kept, or the fastest from here.
                 CoastArrivalUT = check.Coast != null ? check.Coast.ArrivalUT : double.NaN,
+                IspThrottleExponent = ispExponent,
             };
             frame.Configure(config, v, starting: !record.Departed);
             tripFrame = frame;
@@ -1425,6 +1431,7 @@ namespace FlipAndBurn
             Vessel v = Vessel;
             TripFrame frame = tripFrame ?? TripFrame.For(v.mainBody, trip.Target);
             TripRequest request = frame.Request(v, ut, now, trip.ParkingAltitude, starting: false);
+            request.IspThrottleExponent = baseConfig?.IspThrottleExponent ?? 0;
             TargetPlanet departure = request.Departure;
             double budget = Math.Max(0, trip.DeltaVBudget - deltaVUsed);
             double startDeltaV = record != null ? StartDeltaVOf(record) : double.NaN;
@@ -1472,6 +1479,7 @@ namespace FlipAndBurn
             ArrivalCutoff = c.ArrivalCutoff, DetourMargin = c.DetourMargin, BrakingFraction = c.BrakingFraction,
             CorrectionThreshold = c.CorrectionThreshold, MinThrustFraction = c.MinThrustFraction, CoastArrivalUT = c.CoastArrivalUT,
             PlanetSystemTrip = c.PlanetSystemTrip, DetourClearance = c.DetourClearance, Obstacles = c.Obstacles,
+            IspThrottleExponent = c.IspThrottleExponent,
             // A re-plan is mid-trip: never waits for a departure window again.
             WaitForDepartureWindow = false,
         };

@@ -244,6 +244,21 @@ namespace FlipAndBurn.Core.Tests
             }
         }
 
+        /// <summary>
+        /// The simulated ship's engine loses Isp at part throttle as the Kerbstein drive does (KSPIE: Isp = full Isp x throttle^k,
+        /// k = 0.5; <see cref="ShipPerformance.IspThrottleExponent"/>). Every trip counts its delta-v as the ship's delta-v at the
+        /// chosen acceleration (<see cref="ShipPerformance.DeltaVAtAcceleration"/>), which is what the window and the planner use.
+        /// </summary>
+        public const double KerbsteinIspThrottleExponent = 0.5;
+
+        /// <summary>
+        /// What one m/s burned at <paramref name="thrust"/> (m/s^2) costs out of the ship's delta-v at the chosen acceleration
+        /// <paramref name="chosen"/>: holding a fraction s of it takes s of the throttle, so Isp is s^k of what it is at the
+        /// chosen acceleration and each m/s takes s^-k as much propellant (the same at any mass).
+        /// </summary>
+        public static double ThrottleCost(double thrust, double chosen, double k) =>
+            thrust > 0 && chosen > 0 && k != 0 ? Math.Pow(thrust / chosen, -k) : 1;
+
         /// <summary>Physics warp in a full burn's cruise (0.02 s x 100 = 2 s steps; KSP physics warp does the same).</summary>
         public const double DefaultCruiseWarp = 100;
 
@@ -274,7 +289,7 @@ namespace FlipAndBurn.Core.Tests
             double stopAfterSeconds = double.MaxValue, double traceFrom = double.MaxValue, double traceTo = double.MaxValue, double traceEvery = 50, Action<GuidanceConfig> configure = null,
             TripType trip = TripType.FullBurn, double deltaVBudget = 0, Action<ShipSimulator> start = null, bool watch = true,
             double wallSeconds = MaxWallSeconds, Action<double, GuidanceCommand, double, FlipAndBurnGuidance> observe = null,
-            SimSystem system = null, bool holdWhenOffPointing = true)
+            SimSystem system = null, bool holdWhenOffPointing = true, double ispThrottleExponent = KerbsteinIspThrottleExponent)
         {
             // The body the ship starts in orbit around: Kerbin for a trip between planets, or as the moon system says.
             PlanetRecord kerbin = system?.Departure ?? KerbolSystem.Kerbin;
@@ -311,6 +326,7 @@ namespace FlipAndBurn.Core.Tests
                 SunGravParameter = centralMu,
                 Trip = trip,
                 DeltaVBudget = deltaVBudget,
+                IspThrottleExponent = ispThrottleExponent,
             };
             if (system != null) system.Configure(config);
             configure?.Invoke(config);
@@ -319,7 +335,7 @@ namespace FlipAndBurn.Core.Tests
             var planRequest = new TripRequest
             {
                 ShipPosition = sim.Position, ShipVelocity = sim.Velocity, StartTime = startUT, Target = targetPlanet, Departure = departure,
-                Acceleration = a, ParkingAltitude = parkingAltitude, SunGravParameter = centralMu,
+                Acceleration = a, ParkingAltitude = parkingAltitude, SunGravParameter = centralMu, IspThrottleExponent = ispThrottleExponent,
             };
             system?.Configure(planRequest);
             TripPlan plan = TripCalculator.Plan(planRequest);
@@ -336,7 +352,7 @@ namespace FlipAndBurn.Core.Tests
                 var coastRequest = new TripRequest
                 {
                     ShipPosition = sim.Position, ShipVelocity = sim.Velocity, StartTime = startUT, Target = targetPlanet, Departure = departure,
-                    Acceleration = a, ParkingAltitude = parkingAltitude, SunGravParameter = centralMu,
+                    Acceleration = a, ParkingAltitude = parkingAltitude, SunGravParameter = centralMu, IspThrottleExponent = ispThrottleExponent,
                 };
                 system?.Configure(coastRequest);
                 CoastPlan coast = CoastPlanner.Plan(coastRequest, deltaVBudget);
@@ -467,14 +483,15 @@ namespace FlipAndBurn.Core.Tests
                     // The live autopilot's rule (EngineCommand): outside the flip, no thrust while pointing more than 5 degrees off.
                     double thrustNow = cmd.Acceleration;
                     if (holdWhenOffPointing && cmd.Phase != GuidancePhase.Flip && Vec3.Angle(sim.Facing, cmd.Direction) * 180 / Math.PI > 5) thrustNow = 0;
-                    result.DeltaVUsed += thrustNow * dt;
+                    result.DeltaVUsed += thrustNow * dt * ThrottleCost(thrustNow, a, ispThrottleExponent);
                     sim.Step(dt, cmd.Direction, thrustNow);
                 }
 
                 observe?.Invoke(sim.UT, cmd, result.DeltaVUsed, guidance);
                 if (sim.UT >= nextReserveSample && cmd.Phase != GuidancePhase.Done)
                 {
-                    nextReserveSample = sim.UT + (cmd.Departing ? 120 : 3600);
+                    // Every game hour, or a hundredth of a shorter trip (moon trips); every 2 minutes while climbing out.
+                    nextReserveSample = sim.UT + (cmd.Departing ? 120 : Math.Min(3600, Math.Max(60, result.PlannedTripTime / 100)));
                     result.ReserveSamples.Add((sim.UT, cmd.Departing, result.DeltaVUsed, guidance.BurnDeltaVLeft, cmd.Phase));
                 }
 

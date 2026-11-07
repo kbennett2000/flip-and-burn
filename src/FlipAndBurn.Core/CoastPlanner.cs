@@ -13,7 +13,11 @@ namespace FlipAndBurn.Core
         public double BurnDownTime { get; internal set; }    // s, braking burn
         public double TripTime { get; internal set; }        // s
         public double ArrivalUT { get; internal set; }
-        /// <summary>Delta-v of the two planned burns, gravity included (m/s), the braking at the share the guidance flies (<see cref="CoastPlanner.BrakingFlownShare"/>).</summary>
+        /// <summary>
+        /// Delta-v of the two planned burns, gravity included (m/s), the braking at the share the guidance flies
+        /// (<see cref="CoastPlanner.BrakingFlownShare"/>); counted in the ship's delta-v at the chosen acceleration, so braking
+        /// below it on an engine that loses Isp at part throttle counts what it really burns (<see cref="CoastPlanner.BrakingCost"/>).
+        /// </summary>
         public double DeltaV { get; internal set; }
         public double Budget { get; internal set; }
         /// <summary>Moon trips leaving the planet: the wait in orbit before the first burn (s), included in <see cref="TripTime"/>.</summary>
@@ -76,6 +80,18 @@ namespace FlipAndBurn.Core
         /// </summary>
         public static double BrakingFlownShare(double plannedShare) =>
             plannedShare < BrakingFraction - 1e-9 ? (plannedShare + 1) / 2 : plannedShare;
+
+        /// <summary>
+        /// What the braking costs per second of it, as a share of the chosen acceleration's delta-v: the share the guidance flies
+        /// (<see cref="BrakingFlownShare"/>) times what each m/s at that share costs on an engine that loses Isp at part throttle
+        /// (<see cref="ShipPerformance.ThrottleCost"/>). Without it the Kerbstein drive's braking at 85 % burned 8.5 % more than
+        /// counted, and the window showed 2.8 points more reserve than the 0.4 g trip to Duna arrived with (in-game run 9).
+        /// </summary>
+        public static double BrakingCost(double plannedShare, double ispThrottleExponent)
+        {
+            double flown = BrakingFlownShare(plannedShare);
+            return flown * ShipPerformance.ThrottleCost(flown, ispThrottleExponent);
+        }
 
         /// <summary>The braking share for a trip to <paramref name="target"/>'s parking orbit at <paramref name="acceleration"/>.</summary>
         public static double BrakingFractionFor(TargetPlanet target, double parkingAltitude, double acceleration)
@@ -159,9 +175,9 @@ namespace FlipAndBurn.Core
             }
 
             var solver = new TwoArcSolver(EndState, a1, a2, request.MaxTripTime);
-            // The braking's delta-v at the share the guidance flies (BrakingFlownShare); its timing at the planned share.
-            double a2Flown = request.Acceleration * BrakingFlownShare(a2 / request.Acceleration);
-            double DeltaVFor(TwoArcSolver.Arcs arcs) => a1 * arcs.T1 + a2Flown * arcs.T2;
+            // The braking's delta-v at the share the guidance flies, at what it costs there (BrakingCost); its timing at the planned share.
+            double a2Cost = request.Acceleration * BrakingCost(a2 / request.Acceleration, request.IspThrottleExponent);
+            double DeltaVFor(TwoArcSolver.Arcs arcs) => a1 * arcs.T1 + a2Cost * arcs.T2;
 
             TwoArcSolver.Arcs best = default;
             for (int pass = 0; pass < 6; pass++)
@@ -231,7 +247,7 @@ namespace FlipAndBurn.Core
             Acceleration = r.Acceleration, ParkingAltitude = r.ParkingAltitude, SunGravParameter = r.SunGravParameter,
             SunSafetyDistance = r.SunSafetyDistance, MaxTripTime = r.MaxTripTime, North = r.North, CheckTargetGravity = r.CheckTargetGravity,
             PlanSunDetour = r.PlanSunDetour, PlanetSystemTrip = r.PlanetSystemTrip, DetourClearance = r.DetourClearance,
-            Obstacles = r.Obstacles, WaitForDepartureWindow = r.WaitForDepartureWindow,
+            Obstacles = r.Obstacles, WaitForDepartureWindow = r.WaitForDepartureWindow, IspThrottleExponent = r.IspThrottleExponent,
         };
 
         /// <summary>
@@ -312,7 +328,7 @@ namespace FlipAndBurn.Core
             result.BurnDownTime = best.T2;
             result.TripTime = best.Total;
             result.ArrivalUT = request.StartTime + best.Total;
-            result.DeltaV = a1 * best.T1 + request.Acceleration * BrakingFlownShare(a2 / request.Acceleration) * best.T2;
+            result.DeltaV = a1 * best.T1 + request.Acceleration * BrakingCost(a2 / request.Acceleration, request.IspThrottleExponent) * best.T2;
             result.WellVelocity = wellV;
             result.WellPosition = wellP;
             result.Feasible = result.DeltaV <= burnBudget && best.Tc >= 0;
