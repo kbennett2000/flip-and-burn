@@ -268,8 +268,9 @@ namespace FlipAndBurn.TestHarness
                     yield break;
                 }
 
-                // As a player would: keep asking for the top rate (100,000x) whenever the fleet isn't holding warp.
-                if (TimeWarp.fetch != null && TimeWarp.CurrentRateIndex < top && !FleetFlights.HoldingWarp) TimeWarp.SetRate(TimeWarp.CurrentRateIndex + 1, false);
+                // As a player would: keep asking for the top rate (100,000x), getting as much as the fleet's hold allows.
+                if (TimeWarp.fetch != null && TimeWarp.CurrentRateIndex < Math.Min(top, FleetFlights.AllowedRateIndex))
+                    TimeWarp.SetRate(TimeWarp.CurrentRateIndex + 1, false);
                 if (TimeWarp.fetch != null) warpAsked = Math.Max(warpAsked, TimeWarp.CurrentRate);
                 if (Time.realtimeSinceStartup >= nextLog)
                 {

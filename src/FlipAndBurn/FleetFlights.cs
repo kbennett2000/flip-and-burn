@@ -135,8 +135,12 @@ namespace FlipAndBurn
         private static readonly FleetWarpHold.Cap cap = new FleetWarpHold.Cap();
         private static float nextHoldMessage;
 
-        /// <summary>True while the fleet holds time warp below the top rate (the test helper doesn't raise it meanwhile).</summary>
+        /// <summary>True while the fleet holds time warp below the top rate.</summary>
         public static bool HoldingWarp => TimeWarp.fetch != null && cap.Holding(TimeWarp.fetch.warpRates.Length - 1);
+
+        /// <summary>The fastest warp rate index the fleet allows now (int.MaxValue before it has looked): the test helper asks for
+        /// warp up to this, as a player pressing the warp key would get.</summary>
+        public static int AllowedRateIndex => cap.Index;
 
         private void HoldWarp(double now)
         {
