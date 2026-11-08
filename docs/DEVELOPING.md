@@ -54,7 +54,11 @@ When KSP reaches the main menu, `KSP.log` should contain `[FlipAndBurn] loaded`.
 2. Resets the test save `saves/FlipAndBurn-Test/persistent.sfs` from that save's `quicksave.sfs`, so every run starts
    from the same state.
 3. Snapshots MechJeb's settings folder (`GameData/MechJeb2/Plugins/PluginData/MechJeb2`), KSP's `settings.cfg` and
-   BetterTimeWarp's settings file.
+   BetterTimeWarp's settings file, into `~/.local/state/flip-and-burn/test-backup` (`FLIPANDBURN_BACKUP_DIR` overrides),
+   outside /tmp so a crash or a restart can't lose it. At the end it puts them back, checks each byte for byte, and
+   deletes the backup only when every check passes. If a run never got that far (KSP or the computer went down), the next
+   `./build.sh test` refuses to start, touching nothing, until `./build.sh restore` (KSP closed) has put the backup back
+   and checked it.
 4. Launches KSP with `-flipandburn-test`. The harness loads the test save, switches to the ship "Bebop Refueller" in
    Kerbin orbit, logs what stock, MechJeb and Flip and Burn each say about the ship's thrust and delta-v, opens the
    Flip and Burn window and flies trips to Duna on the autopilot:
