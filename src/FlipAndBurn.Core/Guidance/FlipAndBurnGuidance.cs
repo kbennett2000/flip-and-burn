@@ -354,14 +354,16 @@ namespace FlipAndBurn.Core.Guidance
                 if (!leg.IsWaypoint) UpdateGravityAllowance(input, arcs);
 
                 BurnTimeLeft = arcs.T1 + arcs.T2;
-                double brakingLeft = config.Acceleration * BrakingFlown * arcs.T2, floor = 0;
+                // The braking's delta-v at the planned share over its planned time (CoastPlanner.BrakingKinematicShare: a moon trip's
+                // arrival law flies it faster, not more), at what it costs at the throttle flown.
+                double brakingLeft = config.Acceleration * brakingFraction * arcs.T2, floor = 0;
                 if (IsCoastTrip && !config.PlanetSystemTrip && !leg.IsWaypoint)
                     floor = CoastPlanner.BrakingFloor(config.Target, config.ParkingAltitude, config.Acceleration,
                         CoastPlanner.ArrivalSpeed(config.Target, config.SunGravParameter, input.UT, input.Position, input.Velocity, arcs));
                 // Braking below the chosen acceleration costs more on an engine that loses Isp at part throttle, at the share
                 // it will really be flown at (CoastPlanner.BrakingThrottleShare).
                 double throttle = CoastPlanner.BrakingThrottleShare(config.Target, config.Acceleration, brakingFraction, arcs.T2,
-                    config.PlanetSystemTrip, floor > brakingLeft);
+                    config.PlanetSystemTrip);
                 BurnDeltaVLeft = config.Acceleration * arcs.T1 +
                                  Math.Max(brakingLeft, floor) * ShipPerformance.ThrottleCost(throttle, config.IspThrottleExponent);
                 if (!IsCoastTrip)
@@ -584,8 +586,7 @@ namespace FlipAndBurn.Core.Guidance
             // trip, or inside the target's sphere), the planned share otherwise (CoastPlanner.BrakingFlownShare); never under
             // the floor; at what it costs on an engine that loses Isp at part throttle (ShipPerformance.ThrottleCost).
             double brakingLeft = config.Acceleration * (flownPath ? CoastPlanner.BrakingFlownShare(brakingFraction) : BrakingFlown) * tb;
-            double throttle = CoastPlanner.BrakingThrottleShare(config.Target, config.Acceleration, brakingFraction, tb, config.PlanetSystemTrip,
-                floorDeltaV > brakingLeft);
+            double throttle = CoastPlanner.BrakingThrottleShare(config.Target, config.Acceleration, brakingFraction, tb, config.PlanetSystemTrip);
             BurnDeltaVLeft = ShipPerformance.ThrottleCost(throttle, config.IspThrottleExponent) * Math.Max(floorDeltaV, brakingLeft);
             double coastLeft = tau - tb;
             // Once braking is near, latch its start: it may come earlier, never later. Close to it the coast plan is

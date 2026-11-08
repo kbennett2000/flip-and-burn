@@ -162,9 +162,20 @@ sphere, the planned share otherwise; the floor costs the same way), and the simu
 - **In the game, 15a (run 14, test copy):** trip R 59.86 x 60.22 km, 17.39 % left, +11 s; the window from the climb-out
   on 17.07 %, **within 0.32 points** (was 2.8 high). The Tylo coast 29.73 x 30.23 km, 16.32 % left, +27 s; from the coast
   on within 1.24 points (the first figure), then within 0.6.
-- **Not met: the figure at Start.** With braking priced at its real cost, these trips fly under their burns (trip R 2.7 %
-  under), so the figure from the plan (1.5 % over the burns) reads low: 3.57 points on trip R, 2.50 on the Tylo coast
-  (3.1 while it speeds up). Reported, not retuned; `ReserveWatch.TypicalCoastOverhead` is the product owner's figure.
+- **The figure at Start read low** (3.57 points on trip R, 2.50 on the Tylo coast, 3.1 while it speeds up): the plan
+  expected to burn more than trips do, so it also picked slower trips than the fuel allowed. **Cause:** the plan counted
+  every deep-well braking's delta-v at the halfway share, a stand-in (from PR 14) for braking that flies longer than
+  planned; before the Isp fix that stand-in's 8.8 % happened to cover the uncounted Isp loss (8.3 %), so with the loss
+  counted it was counted twice. Planned against flown in the simulator (k 0.5): trip R's braking flew 7.1 % under its
+  price (0.852 of the acceleration for the planned time, not halfway, nor longer), the moon coasts' 11 % under (Tylo:
+  0.924 for 1,206 s against 1,353 planned: the moon plan adds gravity along the path, so the arrival law flies the same
+  speed change faster, not more), Jool's 0.8 % over (inside its sphere the deep well really adds the halfway share).
+  **Fix** (`CoastPlanner.BrakingKinematicShare`): the planned share, except braking that starts inside the target's
+  sphere between planets (halfway); the cost per m/s at the throttle flown, the floor included (`BrakingThrottleShare`:
+  counted at halfway when the floor priced trip R, it flew 4.8 % over). Simulator after: trip R flown 0.3 % over its
+  burns, braking 0.4 % over its price, shown at Start 13.82 % against 14.82 % arrived (1.00 point); Tylo 1.1 % over,
+  0.37 point; Jool and Duna unchanged; Laythe 0.9 % under, 2.06 points low (not met, reported). Planned trip times:
+  trip R 422,550 s → 406,491 s (−3.8 %), the Tylo coast 7,700 → 7,580 s (−1.6 %).
 
 ### The Sun in the way
 
