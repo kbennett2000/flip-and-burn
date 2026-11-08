@@ -143,7 +143,10 @@ namespace FlipAndBurn.Core
                 }
                 else if (want > Index)
                 {
-                    risingFor += realSeconds;
+                    // Only once warp really runs at this notch (KSP ramps up to a new rate) do the trips show whether they
+                    // keep up with it; a notch faster after a second of that (in game, run 14: counted from the request,
+                    // warp went from 100x to 10,000x in two seconds for a trip flying 600x, 139 s behind).
+                    if (currentRate >= 0.99 * rates[Math.Min(Index, top)]) risingFor += realSeconds;
                     if (risingFor >= RiseAfterSeconds)
                     {
                         Index++;

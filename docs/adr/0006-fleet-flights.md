@@ -77,7 +77,9 @@ A KSP add-on present in every scene, acting in flight, the Space Center and the 
   Warp drops **straight** to the fastest of KSP's rates under that (from 100,000x to 1,000x in one go), and climbs back a
   notch at a time, each once every trip has kept up for a second. A pace measured in the last 10 real seconds still holds
   warp under it after the trip has caught up, so warp only tries a notch faster once that is past (in-game run 13,
-  without it: climbing a notch a second after each drop reached 10,000x for a trip flying 500x, 258 s behind). A message names the ship holding warp: "Flip and
+  without it: climbing a notch a second after each drop reached 10,000x for a trip flying 500x, 258 s behind). And a
+  notch counts as kept up only once warp really runs at it (KSP ramps to a new rate): run 14, counting from the request,
+  went from 100x to 10,000x in two seconds for a trip flying 600x, 139 s behind. A message names the ship holding warp: "Flip and
   Burn: time warp held at 1,000x: Bebop V2.4 is flying to Dres on its own and needs it to keep up." (or "… arrives at
   Dres soon"), at most every 5 seconds. The hold counters, logged for every trip: how far behind the clock it ever got,
   and how long after the clock passed its end it ended.

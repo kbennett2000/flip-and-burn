@@ -46,6 +46,20 @@ namespace FlipAndBurn.Core.Tests
         }
 
         [Fact]
+        public void Cap_ClimbsOnlyOnceWarpRunsAtTheNotch()
+        {
+            var cap = new FleetWarpHold.Cap();
+            var slow = new FleetWarpHold.Trip { Name = "V2.4", Lag = 5, Pace = 600, ClockToArrival = double.NaN };
+            Assert.Equal(4, cap.Update(Rates, 100000, new[] { slow }, 0.02));   // 100x
+            var keeping = new FleetWarpHold.Trip { Name = "V2.4", Lag = 0, Pace = double.NaN, ClockToArrival = double.NaN };
+            Assert.Equal(5, cap.Update(Rates, 100, new[] { keeping }, 1.0));    // a notch: 1,000x allowed
+            // KSP is still ramping up to 1,000x: no further climb however long that takes.
+            for (int i = 0; i < 5; i++) Assert.Equal(5, cap.Update(Rates, 400, new[] { keeping }, 1.0));
+            Assert.Equal(5, cap.Update(Rates, 1000, new[] { keeping }, 0.5));
+            Assert.Equal(6, cap.Update(Rates, 1000, new[] { keeping }, 0.5));   // a second at 1,000x, keeping up
+        }
+
+        [Fact]
         public void KeepingUp_NoHold()
         {
             var t = new FleetWarpHold.Trip { Name = "Bebop", Lag = 0, Pace = double.NaN, ClockToArrival = 1e9 };
