@@ -97,7 +97,9 @@ often runs below full throttle, and the planner counts that too.
 On top of that, the plan sets aside extra for steering and course corrections. Most trips don't need all of it, so
 they usually arrive with a bit more than 10%. The trip window shows what the ship will most likely have left at
 arrival: at Start from the plan, then from the burning still to do. In testing it matched the arrival to within a point
-all the way: within 0.9 points on a coast trip to Duna, and 0.7 on a coast from Jool to Tylo.
+all the way: within 0.9 points on a coast trip to Duna, and 0.7 on a coast from Jool to Tylo. On some coast trips into
+strong gravity it can be up to about 2 points off until the braking starts: low at Start (the safe side), but on a
+moon coast to Laythe up to 1.6 points high while speeding up; once the braking begins it settles to within a point.
 
 If that figure heads below 10% for any reason, the window says so in plain words, with the reason.
 
