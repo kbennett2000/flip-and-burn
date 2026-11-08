@@ -153,6 +153,19 @@ window shows while climbing out allows 1.5 % over the plan's burns (`ReserveWatc
 product owner). The in-game check of that figure is trip R, a 0.4 g coast to Duna flown on this planner, at the same
 1-point limit; trip B (cycle 11, the old planner) is kept as history only.
 
+**Braking at part throttle (cycle 15, from PR 14; ADR 0005).** Trip R in the game (run 9) passed that check (13.82 %
+shown, 14.24 % arrived), but after the climb-out the window showed 17.03 %, 2.8 points high: braking at 85 % of the
+acceleration runs the Kerbstein drive at part throttle, where its Isp is lower, and nothing counted it. Now the plan,
+the guidance and the window count each m/s of braking at the throttle it is really flown at (`ShipPerformance.ThrottleCost`,
+`CoastPlanner.BrakingThrottleShare`: halfway to full thrust for braking held to the floor or starting inside the target's
+sphere, the planned share otherwise; the floor costs the same way), and the simulator loses Isp at part throttle.
+- **In the game, 15a (run 14, test copy):** trip R 59.86 x 60.22 km, 17.39 % left, +11 s; the window from the climb-out
+  on 17.07 %, **within 0.32 points** (was 2.8 high). The Tylo coast 29.73 x 30.23 km, 16.32 % left, +27 s; from the coast
+  on within 1.24 points (the first figure), then within 0.6.
+- **Not met: the figure at Start.** With braking priced at its real cost, these trips fly under their burns (trip R 2.7 %
+  under), so the figure from the plan (1.5 % over the burns) reads low: 3.57 points on trip R, 2.50 on the Tylo coast
+  (3.1 while it speeds up). Reported, not retuned; `ReserveWatch.TypicalCoastOverhead` is the product owner's figure.
+
 ### The Sun in the way
 
 When the planner flags the straight path as passing within the Sun safety distance (ADR 0002), the guidance flies two
