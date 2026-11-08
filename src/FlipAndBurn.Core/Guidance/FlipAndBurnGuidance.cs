@@ -622,6 +622,9 @@ namespace FlipAndBurn.Core.Guidance
             correctionBurning = false;
             if (correcting)
             {
+                // The correction still to burn is burning left too (at the start of a moon coast, about 350 m/s over a
+                // minute: left out, the reserve shown read 1.3 points high, and 1.8 in the game, run 17).
+                BurnDeltaVLeft += Math.Max(0, left);
                 double off = Vec3.Angle(input.Facing, correctionDirection) * 180 / Math.PI;
                 correctionBurning = off <= config.RelightToleranceDeg;
                 cmd.Correcting = true;
