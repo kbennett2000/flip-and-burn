@@ -17,10 +17,14 @@ namespace FlipAndBurn.Core
     /// </remarks>
     public sealed class TripRecord
     {
-        /// <summary>The format written now. A record with a higher version came from a newer Flip and Burn and isn't read.</summary>
-        public const int CurrentVersion = 1;
+        /// <summary>
+        /// The newest format read and written. Format 2 (ADR 0005) adds the trip's centre for moon trips; a trip between
+        /// planets is still written as format 1, so earlier versions read it as before and refuse a moon trip cleanly.
+        /// </summary>
+        public const int CurrentVersion = 2;
 
-        public int Version { get; set; } = CurrentVersion;
+        /// <summary>The format this record is written in: 2 for a moon trip (it has a centre), 1 for a trip between planets.</summary>
+        public int Version => string.IsNullOrEmpty(Centre) ? 1 : 2;
         /// <summary>The target's internal name (KSP's bodyName).</summary>
         public string Target { get; set; } = "";
         public TripType Trip { get; set; }
@@ -47,8 +51,36 @@ namespace FlipAndBurn.Core
         /// ship (m/s); not part of <see cref="DeltaVBudget"/>. Optional: 0 if not saved.
         /// </summary>
         public double LossAllowance { get; set; }
+        /// <summary>
+        /// Moon trips (ADR 0005): the planet the trip is flown around (KSP's bodyName). Empty for a trip between planets,
+        /// flown around the Sun.
+        /// </summary>
+        public string Centre { get; set; } = "";
+
+        /// <summary>Moon trips leaving the planet: whether the burn has started (false while waiting for the departure window).</summary>
+        public bool Departed { get; set; } = true;
+
         /// <summary>Engines Flip and Burn shut down (a cut, the coast), by part persistentId, to relight when it resumes.</summary>
         public List<uint> CutEngines { get; set; } = new List<uint>();
+
+        /// <summary>The player pressed Pause: the trip waits (it doesn't fly on while they are away). Optional: false if not saved.</summary>
+        public bool PausedByPlayer { get; set; }
+
+        /// <summary>
+        /// What the ship needs to fly on while the player is away (ADR 0006), captured from the live ship while it was
+        /// flown. Optional: null if not saved (a trip saved before fleet flights carries on when the player comes back).
+        /// </summary>
+        public AwayShip Away { get; set; }
+
+        /// <summary>
+        /// Where the ship was (relative to the trip's centre) when the trip last changed hands, between the player's ship
+        /// and the background: to measure the jump at the next handover. Optional: NaN if not saved.
+        /// </summary>
+        public double HandoverUT { get; set; } = double.NaN;
+        /// <summary>When the fleet started flying the trip without the player (UT); NaN while the player flies it.</summary>
+        public double FleetSinceUT { get; set; } = double.NaN;
+        public Vec3 HandoverPosition { get; set; }
+        public Vec3 HandoverVelocity { get; set; }
 
         /// <summary>The coast budget not yet used (m/s), never below zero.</summary>
         public double DeltaVLeft => Math.Max(0, DeltaVBudget - DeltaVUsed);
@@ -59,6 +91,7 @@ namespace FlipAndBurn.Core
         {
             var v = new List<KeyValuePair<string, string>>();
             void Add(string name, string value) => v.Add(new KeyValuePair<string, string>(name, value));
+            bool moonTrip = !string.IsNullOrEmpty(Centre);
             Add("version", Version.ToString(Inv));
             Add("target", Target ?? "");
             Add("trip", Trip.ToString());
@@ -75,6 +108,23 @@ namespace FlipAndBurn.Core
             if (!double.IsNaN(StartPlannedTripTime)) Add("startPlannedTripTime", StartPlannedTripTime.ToString("R", Inv));
             if (LossAllowance > 0) Add("lossAllowance", LossAllowance.ToString("R", Inv));
             Add("cutEngines", string.Join(",", CutEngines.Select(id => id.ToString(Inv))));
+            if (moonTrip)
+            {
+                Add("centre", Centre);
+                Add("departed", Departed ? "True" : "False");
+            }
+
+            // Optional, added with fleet flights (ADR 0006): earlier versions ignore them.
+            if (PausedByPlayer) Add("pausedByPlayer", "True");
+            if (Away != null) v.AddRange(Away.ToValues());
+            if (!double.IsNaN(FleetSinceUT)) Add("fleetSinceUT", FleetSinceUT.ToString("R", Inv));
+            if (!double.IsNaN(HandoverUT))
+            {
+                Add("handoverUT", HandoverUT.ToString("R", Inv));
+                Add("handoverPosition", VecText(HandoverPosition));
+                Add("handoverVelocity", VecText(HandoverVelocity));
+            }
+
             return v;
         }
 
@@ -109,7 +159,7 @@ namespace FlipAndBurn.Core
                 return null;
             }
 
-            var r = new TripRecord { Version = version, Target = Get("target") ?? "" };
+            var r = new TripRecord { Target = Get("target") ?? "" };
             bool ok = Enum.TryParse(Get("trip") ?? "", out TripType trip) & Enum.TryParse(Get("flip") ?? "", out FlipManeuver flip);
             r.Trip = trip;
             r.Flip = flip;
@@ -132,6 +182,13 @@ namespace FlipAndBurn.Core
                 else ok = false;
             }
 
+            if (version >= 2)
+            {
+                r.Centre = Get("centre") ?? "";
+                ok &= bool.TryParse(Get("departed") ?? "", out bool departed);
+                r.Departed = departed;
+            }
+
             string cut = Get("cutEngines");
             if (cut != null)
             {
@@ -140,6 +197,33 @@ namespace FlipAndBurn.Core
                     if (uint.TryParse(part.Trim(), NumberStyles.Integer, Inv, out uint id)) r.CutEngines.Add(id);
                     else ok = false;
                 }
+            }
+
+            if (map.TryGetValue("pausedByPlayer", out string paused))
+            {
+                ok &= bool.TryParse(paused, out bool p);
+                r.PausedByPlayer = p;
+            }
+
+            if (map.ContainsKey(AwayShip.Key))
+            {
+                r.Away = AwayShip.FromValues(map);
+                ok &= r.Away != null;
+            }
+
+            if (map.TryGetValue("fleetSinceUT", out string fleet))
+            {
+                ok &= double.TryParse(fleet, NumberStyles.Float, Inv, out double f);
+                r.FleetSinceUT = f;
+            }
+
+            if (map.TryGetValue("handoverUT", out string hut))
+            {
+                ok &= double.TryParse(hut, NumberStyles.Float, Inv, out double h) & TryVec(map, "handoverPosition", out Vec3 hp) &
+                      TryVec(map, "handoverVelocity", out Vec3 hv);
+                r.HandoverUT = h;
+                r.HandoverPosition = hp;
+                r.HandoverVelocity = hv;
             }
 
             if (missing != null)
@@ -163,6 +247,20 @@ namespace FlipAndBurn.Core
                 set(x);
                 return true;
             }
+        }
+            internal static string VecText(Vec3 v) => $"{v.X.ToString("R", Inv)},{v.Y.ToString("R", Inv)},{v.Z.ToString("R", Inv)}";
+
+        internal static bool TryVec(Dictionary<string, string> map, string name, out Vec3 v)
+        {
+            v = Vec3.Zero;
+            if (!map.TryGetValue(name, out string s)) return false;
+            string[] p = s.Split(',');
+            if (p.Length != 3) return false;
+            var x = new double[3];
+            for (int i = 0; i < 3; i++)
+                if (!double.TryParse(p[i].Trim(), NumberStyles.Float, Inv, out x[i]) || double.IsNaN(x[i]) || double.IsInfinity(x[i])) return false;
+            v = new Vec3(x[0], x[1], x[2]);
+            return true;
         }
     }
 }

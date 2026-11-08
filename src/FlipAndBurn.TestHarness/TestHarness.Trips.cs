@@ -25,6 +25,8 @@ namespace FlipAndBurn.TestHarness
             public bool InfinitePropellant, IgnoreMaxTemperature;
             public double MaxPhysicsRate;
             public bool ResumeLeg;       // pause, quicksave and quickload once on the way
+            public string Target = PlannerTarget;   // KSP's bodyName
+            public bool ReserveCheck;    // gate the reserve the window shows against what the ship arrives with
         }
 
         private static readonly TripSpec[] Trips =
@@ -44,7 +46,27 @@ namespace FlipAndBurn.TestHarness
                 Name = "C", Prefix = "trip-c", What = "full burn to Duna at 1 g with a skew flip; infinite propellant and ignore max temperature",
                 AccelG = 1.0, Trip = TripType.FullBurn, FlipStyle = 1, InfinitePropellant = true, IgnoreMaxTemperature = true, MaxPhysicsRate = 25,
             },
+            // Cycle 15 (PR 14): a deep-well arrival, braking planned with headroom for Jool's pull (CoastPlanner.BrakingFractionFor).
+            new TripSpec
+            {
+                Name = "J", Prefix = "trip-j", Target = "Jool",
+                What = "full burn to Jool at 1 g, cut, flip, relight; infinite propellant and ignore max temperature",
+                AccelG = 1.0, Trip = TripType.FullBurn, FlipStyle = 0, InfinitePropellant = true, IgnoreMaxTemperature = true, MaxPhysicsRate = 25,
+            },
+            // Cycle 15: the reserve the window shows, flown on this planner with fuel counted. Trip B (cycle 11) was flown on a
+            // planner that no longer exists, so it is kept only as history. Braking into Duna's pull at 0.4 g runs at 85 % of the
+            // acceleration, where the Kerbstein drive's Isp is lower (ShipPerformance.ThrottleCost).
+            new TripSpec
+            {
+                Name = "R", Prefix = "trip-r",
+                What = "coast trip to Duna at 0.4 g, no cheats, fuel counted, nothing touched on the way: the reserve the window shows against what the ship arrives with",
+                AccelG = 0.4, Trip = TripType.CoastInTheMiddle, FlipStyle = 0, MaxPhysicsRate = 10, ReserveCheck = true,
+            },
         };
+
+        /// <summary>The reserve check (trip R, the Tylo coast): every figure the window shows, from Start to the arrival, within
+        /// this many points of what the ship arrives with.</summary>
+        private const double ReserveShownLimit = 1.0;
 
         /// <summary>The arrival tolerance, set before flying: periapsis and apoapsis both within this share of the parking altitude.</summary>
         private const double OrbitTolerance = 0.05;
@@ -146,7 +168,15 @@ namespace FlipAndBurn.TestHarness
             var f = new Flown();
             yield return PlanOnShip(ResumeShip, null, null, f, SaveFile);
             if (!f.Ok) yield break;
+            yield return RunTrip(f, spec, outcome, null);
+        }
+
+        // One whole trip from wherever the ship is now, to spec.Target. Hands back the flight it ended on (a resume leg
+        // reloads the ship).
+        private IEnumerator RunTrip(Flown f, TripSpec spec, CaptureResult outcome, Action<Flown> ended)
+        {
             MechJebModuleFlipAndBurn module = f.Module;
+            if (!module.SelectTarget(spec.Target)) { Fail("trip " + spec.Name, "could not select " + spec.Target); failed = true; yield break; }
             statusEvery = 10f;
             ResetStepWatch();
             CheatOptions.InfinitePropellant = spec.InfinitePropellant;
@@ -161,6 +191,10 @@ namespace FlipAndBurn.TestHarness
                 $"physics warp up to x{spec.MaxPhysicsRate}; arrival tolerance: periapsis and apoapsis within {OrbitTolerance * 100:0}% of the parking altitude, " +
                 $"both above the atmosphere; planner can start {module.Planner.CanStart}");
             if (!module.Planner.CanStart) { Fail("trip " + spec.Name, "the planner won't start: " + string.Join(" ", module.Planner.Notes)); failed = true; yield break; }
+            // Trips back to back: the last trip's pictures tucked MechJeb's menu away; show it again, as the player had it,
+            // before the snapshot the arrival is compared with.
+            ShowMechJebMenu(f);
+            yield return new WaitForSecondsRealtime(1f);
             string settingsBefore = MechJebSettingsFingerprint(f);
             beforeSettingsText = lastSettingsText;
             LogBeforeStart(f);
@@ -177,13 +211,15 @@ namespace FlipAndBurn.TestHarness
             Flown cur = f;
             stepWatch = p => WatchStep(p, cur.Ship, skew);
 
-            bool midShot = false, flipShot = false, slowShot = false, coastShot = false, arriveShot = false, resumed = !spec.ResumeLeg;
+            bool midShot = false, flipShot = false, slowShot = false, coastShot = false, arriveShot = false, resumed = !spec.ResumeLeg, waitShot = false;
             double flipEndUT = double.NaN;
             // Without the propellant cheat: the tanks, power and the delta-v reader logged through the trip (every half
             // hour while burning, every 6 h while coasting), as the reserve is checked against them.
             bool tanks = !spec.InfinitePropellant;
             double nextTanks = startUT;
             GuidancePhase tanksPhase = GuidancePhase.Accelerate;
+            // The reserve the window shows, every frame (the autopilot updates it every 30 real seconds).
+            var shown = new List<(double ut, bool climbing, double share, double start)>();
             float t0 = Time.realtimeSinceStartup;
             while (Time.realtimeSinceStartup - t0 < 4.5f * 3600)
             {
@@ -196,6 +232,14 @@ namespace FlipAndBurn.TestHarness
                     tanksPhase = c.Phase;
                     nextTanks = ut + (c.Phase == GuidancePhase.Coast ? 6 * 3600 : 1800);
                     LogTankState(cur.Ship, pilot, $"trip {spec.Name} tanks", $"{(ut - startUT) / 3600:F2} h, {c.Phase}", spec.AccelG * 9.80665);
+                }
+
+                if (spec.ReserveCheck && c != null && pilot.ReserveShare > 0 && pilot.ReserveAtArrival > 0)
+                {
+                    // From the plan until the ship has climbed out (or, on a moon trip, while it waits for its window).
+                    bool climbing = c.Departing || c.Phase == GuidancePhase.Waiting || cur.Ship.mainBody.bodyName == "Kerbin";
+                    if (shown.Count == 0 || shown[shown.Count - 1].share != pilot.ReserveShare || shown[shown.Count - 1].climbing != climbing)
+                        shown.Add((ut, climbing, pilot.ReserveShare, pilot.ReserveAtArrival / pilot.ReserveShare));
                 }
 
                 if (c != null)
@@ -225,6 +269,16 @@ namespace FlipAndBurn.TestHarness
                         continue;
                     }
 
+                    if (!waitShot && c.Phase == GuidancePhase.Waiting && pilot.PointingError < 2 && c.TimeToBurn > 120)
+                    {
+                        // Moon trips: waiting in orbit for the departure window, engine off.
+                        waitShot = true;
+                        Log($"trip {spec.Name}: waiting in orbit for the departure window, burn in {c.TimeToBurn:F0} s; planner said {pilot.Trip.PlannedTripTime:F0} s for the whole trip");
+                        Frame(cur.Ship, 0.2f, 3.0f, 1.6f);
+                        yield return Shot($"{spec.Prefix}-2-waiting.png", cur);
+                        continue;
+                    }
+
                     if (!coastShot && c.Phase == GuidancePhase.Coast && TimeWarp.CurrentRate > 1.01f && pilot.PointingError < 2)
                     {
                         coastShot = true;
@@ -238,14 +292,22 @@ namespace FlipAndBurn.TestHarness
                     {
                         slowShot = true;
                         Frame(cur.Ship, 0.25f, 4.0f, 1.3f);
+                        Log($"trip {spec.Name} acceleration row: {Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (aiming for " +
+                            $"{Planner.FormatG(pilot.AimingFor / Planner.OneG)}); line below: " +
+                            (pilot.AimingWhy != null ? $"Aiming below {Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)}: {pilot.AimingWhy}. The engines aren't overheating." : "(none)") +
+                            $"; step-downs {pilot.Replans}");
                         yield return Shot($"{spec.Prefix}-4-slow-down.png", cur);
                         continue;
                     }
 
-                    if (!arriveShot && cur.Ship.mainBody.bodyName == PlannerTarget && cur.Ship.altitude < 1_500_000)
+                    if (!arriveShot && cur.Ship.mainBody.bodyName == spec.Target && cur.Ship.altitude < 1_500_000 &&
+                        (c.Phase == GuidancePhase.Decelerate || c.Phase == GuidancePhase.FinalApproach))
                     {
                         arriveShot = true;
                         Frame(cur.Ship, 0.15f, 2.8f, 2.2f);
+                        Log($"trip {spec.Name} acceleration row (arriving): {Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (aiming for " +
+                            $"{Planner.FormatG(pilot.AimingFor / Planner.OneG)}); line below: " +
+                            (pilot.AimingWhy != null ? $"Aiming below {Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)}: {pilot.AimingWhy}. The engines aren't overheating." : "(none)"));
                         yield return Shot($"{spec.Prefix}-5-arriving.png", cur);
                         continue;
                     }
@@ -259,12 +321,14 @@ namespace FlipAndBurn.TestHarness
             yield return new WaitForSecondsRealtime(3f);
             if (tanks) LogTankState(cur.Ship, cur.Module.Autopilot, $"trip {spec.Name} tanks", "arrived", spec.AccelG * 9.80665);
             yield return CheckArrival(spec, cur, settingsBefore, startUT);
+            if (spec.ReserveCheck) CheckReserveShown(spec, cur.Module.Autopilot, shown);
             CheatOptions.InfinitePropellant = false;
             CheatOptions.IgnoreMaxTemperature = false;
             MechJebModuleFlipAndBurnAutopilot.TestMaxPhysicsRate = 10;
             Log($"trip {spec.Name}: infinite propellant cheat back off: {!CheatOptions.InfinitePropellant}; ignore max temperature cheat back off: {!CheatOptions.IgnoreMaxTemperature}");
             statusEvery = 2f;
             outcome.Ok = !failed;
+            ended?.Invoke(cur);
         }
 
         // Pause, quicksave, quickload, carry on: the resume in the middle of a real trip.
@@ -293,7 +357,7 @@ namespace FlipAndBurn.TestHarness
             Orbit o = v.orbit;
             CelestialBody duna = v.mainBody;
             double parking = pilot.Trip.ParkingAltitude, atmosphere = duna.atmosphere ? duna.atmosphereDepth : 0;
-            bool around = duna.bodyName == PlannerTarget;
+            bool around = duna.bodyName == spec.Target;
             bool peOk = Math.Abs(o.PeA - parking) <= OrbitTolerance * parking, apOk = Math.Abs(o.ApA - parking) <= OrbitTolerance * parking;
             bool aboveAir = o.PeA > atmosphere && o.ApA > atmosphere;
             Log($"trip {spec.Name} arrival: arrived {pilot.Arrived}; around {duna.bodyName}; periapsis {o.PeA / 1000:F2} km, apoapsis {o.ApA / 1000:F2} km, " +
@@ -326,6 +390,35 @@ namespace FlipAndBurn.TestHarness
             Log($"trip {spec.Name}: {(ok ? "ARRIVED CLEANLY" : "NOT A CLEAN ARRIVAL")} (engine off {engineOff})");
             step++;
             if (!ok) { Fail("trip " + spec.Name, "the arrival didn't meet the standard (see above)"); failed = true; }
+        }
+
+        // The reserve the window showed, against what the ship arrived with: at Start and while climbing out (from the plan,
+        // ReserveWatch.TypicalCoastOverhead), and after that (from the burning the guidance has left, braking at what it costs
+        // on the Kerbstein drive). Every figure within ReserveShownLimit points.
+        private void CheckReserveShown(TripSpec spec, MechJebModuleFlipAndBurnAutopilot pilot, List<(double ut, bool climbing, double share, double start)> shown)
+        {
+            if (shown.Count == 0 || !(pilot.ArrivedDeltaVLeft > 0))
+            {
+                Fail("trip " + spec.Name, $"no reserve to check: {shown.Count} figures shown, delta-v left at arrival {pilot.ArrivedDeltaVLeft:F0} m/s");
+                failed = true;
+                return;
+            }
+
+            double start = shown[0].start, arrived = pilot.ArrivedDeltaVLeft / start * 100;
+            double atStart = shown[0].share * 100;
+            double worstClimb = shown.Where(x => x.climbing).Select(x => Math.Abs(x.share * 100 - arrived)).DefaultIfEmpty(0).Max();
+            double worstAfter = shown.Where(x => !x.climbing).Select(x => Math.Abs(x.share * 100 - arrived)).DefaultIfEmpty(0).Max();
+            int after = shown.Count(x => !x.climbing);
+            bool ok = Math.Abs(atStart - arrived) <= ReserveShownLimit && worstClimb <= ReserveShownLimit && worstAfter <= ReserveShownLimit;
+            Log($"trip {spec.Name} reserve shown: started with {start:F0} m/s; arrived with {pilot.ArrivedDeltaVLeft:F0} m/s ({arrived:F2} %); " +
+                $"the window showed {atStart:F2} % at Start (gap {atStart - arrived:+0.00;-0.00} points), largest gap while climbing out " +
+                $"{worstClimb:F2} points; after that {after} figures, largest gap {worstAfter:F2} points; limit {ReserveShownLimit:F1} point: " +
+                $"{(ok ? "WITHIN" : "OUTSIDE")}; overhead allowed {ReserveWatch.TypicalCoastOverhead * 100:F1} %");
+            foreach (var x in shown.Where((x, i) => i == 0 || x.climbing != shown[i - 1].climbing || i == shown.Count - 1 ||
+                                                     Math.Abs(x.share - shown[i - 1].share) > 0.002))
+                Log($"trip {spec.Name} reserve shown at UT {x.ut:F0}: {x.share * 100:F2} % ({(x.climbing ? "climbing out" : "on the way")})");
+            // The trip itself flew; the run fails at the end, so the next trip asked for still flies.
+            if (!ok) reserveMisses.Add($"trip {spec.Name}: the reserve the window showed was more than a point from the arrival");
         }
 
         // ------------------------------------------------------------------ pictures

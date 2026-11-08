@@ -12,7 +12,7 @@ everything else too.
 | **Kerbal Space Program** | 1.12.x (tested on 1.12.5) | Steam, or wherever you bought KSP |
 | **MechJeb2** | 2.15 or later (tested on 2.15.3.1) | [MechJeb2 releases on GitHub](https://github.com/MuMech/MechJeb2/releases) |
 | **Module Manager** | any recent version (4.2.3 is current) | [Module Manager releases on GitHub](https://github.com/sarbian/ModuleManager/releases) |
-| **Flip and Burn** | 1.1.0 | [Flip and Burn releases](https://github.com/kbennett2000/flip-and-burn/releases) |
+| **Flip and Burn** | 1.2.0 | [Flip and Burn releases](https://github.com/kbennett2000/flip-and-burn/releases) |
 
 Module Manager isn't used by Flip and Burn itself. MechJeb needs it, so it's on the list.
 
@@ -26,7 +26,7 @@ and Burn itself isn't on CKAN, so install it by hand as below.
 2. **Install MechJeb2 and Module Manager** if you don't have them, following their own instructions. MechJeb's zip holds
    a `MechJeb2` folder that goes into `GameData`. Module Manager is a single file, `ModuleManager.4.2.3.dll`, that goes
    straight into `GameData`.
-3. **Download Flip and Burn:** `FlipAndBurn-1.1.0.zip` from the
+3. **Download Flip and Burn:** `FlipAndBurn-1.2.0.zip` from the
    [releases page](https://github.com/kbennett2000/flip-and-burn/releases).
 4. **Unzip it.** Inside is a `GameData` folder with a `FlipAndBurn` folder in it. Copy the **`FlipAndBurn`** folder
    into your own `GameData` folder.

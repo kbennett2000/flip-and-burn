@@ -24,6 +24,7 @@ namespace FlipAndBurn.TestHarness
 
         private const string SaveFolder = "FlipAndBurn-Test";
         private const string SaveFile = "persistent";
+        private const string StartSave = "quicksave";   // the state every proof starts from (build.sh copies it to persistent)
         private const string ScreenshotFolder = "FlipAndBurnTest";
         private const string PlannerTarget = "Duna";
 
@@ -192,6 +193,47 @@ namespace FlipAndBurn.TestHarness
                 if (failed) yield break;
             }
 
+            // Cycle 15, stage 1: fleet flights (only when asked: "fleetmun", "fleetduna").
+            if ((wanted ?? "").Split(',').Contains("fleetmun"))
+            {
+                yield return ProofFleetMun();
+                if (failed) yield break;
+            }
+
+            if ((wanted ?? "").Split(',').Contains("fleetduna"))
+            {
+                yield return ProofFleetDuna();
+                if (failed) yield break;
+            }
+
+            // Cycle 15: the trip window braking into Jool's pull, on a short trip from Laythe (only when asked: "joolrow").
+            if ((wanted ?? "").Split(',').Contains("joolrow"))
+            {
+                yield return ProofJoolRow();
+                if (failed) yield break;
+            }
+
+            // Cycle 15: a watched coast trip from Jool orbit to Tylo (only when asked: "tylocoast").
+            if ((wanted ?? "").Split(',').Contains("tylocoast"))
+            {
+                yield return ProofTyloCoast();
+                if (failed) yield break;
+            }
+
+            // Cycle 14 review: the Bebop to the Mun with real heat (only when asked: "moonheat").
+            if ((wanted ?? "").Split(',').Contains("moonheat"))
+            {
+                yield return ProofMoonHeat();
+                if (failed) yield break;
+            }
+
+            // Cycle 14: trips among Kerbin's moons, back to back (only when asked: "moontrips").
+            if ((wanted ?? "").Split(',').Contains("moontrips"))
+            {
+                yield return ProofMoonTrips();
+                if (failed) yield break;
+            }
+
             if ((wanted ?? "").Split(',').Contains("docstart"))
             {
                 yield return ProofDocStart();
@@ -244,9 +286,20 @@ namespace FlipAndBurn.TestHarness
                 if (!ok.Ok || failed) yield break;
             }
 
+            // A gate missed (the reserve shown, the hold counters): the run fails, but only now, so the other trips still flew.
+            if (reserveMisses.Count > 0)
+            {
+                Fail("gates", string.Join("; ", reserveMisses));
+                yield break;
+            }
+
             Log("step " + step + ": done, quitting KSP");
             Application.Quit();
         }
+
+        /// <summary>Gates missed that let the run go on (the reserve shown, the fleet's hold counters): the run fails at the end,
+        /// after every trip asked for has flown.</summary>
+        private readonly List<string> reserveMisses = new List<string>();
 
         /// <summary>Fly <paramref name="shipName"/> from the test save, log its delta-v sources, plan a trip to Duna, screenshot it.</summary>
         private IEnumerator PlanOnShip(string shipName, string file, string alsoIgnite, CaptureResult outcome, string saveName = SaveFile)
@@ -256,11 +309,15 @@ namespace FlipAndBurn.TestHarness
             {
                 // Same order as KSP's own MainMenu.OnLoadDialogPipelineFinished: the flight scene's Game.Load() reads
                 // HighLogic.CurrentGame, so it must be set before switching scenes.
+                // Every proof starts from the test save as build.sh set it up: its quicksave, never written by a run. (The
+                // persistent save is, by KSP's autosave too: after a proof that moved the Bebop to Jool, the next one found it
+                // there.)
+                if (saveName == SaveFile) saveName = StartSave;
                 ConfigNode node = GamePersistence.LoadSFSFile(saveName, SaveFolder);
                 Game game = node == null ? null : GamePersistence.LoadGameCfg(node, SaveFolder, true, false);
                 if (game == null || game.flightState == null)
                 {
-                    Fail("step " + step, "could not load saves/" + SaveFolder + "/" + SaveFile + ".sfs");
+                    Fail("step " + step, "could not load saves/" + SaveFolder + "/" + saveName + ".sfs");
                     yield break;
                 }
 

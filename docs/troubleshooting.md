@@ -33,9 +33,30 @@ below this one". Stage down to it, or activate it, and the planner reads it.
 
 ### I can't save, switch ships or go to the Space Center during a burn
 
-That's KSP: it doesn't allow any of those while a ship accelerates at more than 0.1 g. Press **Pause** in the trip
-window, do what you need to do, and the trip carries on when you come back. See
-[Saving, pausing and switching ships](saving-and-pausing.md).
+That's KSP: it doesn't allow any of those while a ship accelerates at more than 0.1 g. Press **Leave it flying** in the
+trip window: the engine goes off for a minute, you can leave, and the trip flies on without you. (Or press **Pause**: the
+trip then waits until you come back.) See [Saving, pausing and switching ships](saving-and-pausing.md).
+
+### My ship's fuel went down while I was away
+
+That's the trip flying on without you: the burns use fuel and electric charge as they would with you watching. See
+[Fleet flights](saving-and-pausing.md#fleet-flights-trips-that-fly-without-you).
+
+### Time warp drops by itself while a ship I left is on a trip
+
+That's on purpose, and a message says which ship is holding it ("time warp held at 1,000x: Bebop V2.4 is flying to
+Dres on its own and needs it to keep up"). Either warp is faster than Flip and Burn can fly that ship, or the ship is
+about to start a burn or arrive. Warp drops straight to a rate the ship can keep up with, so it stays where it should
+be and its arrival (and the message) comes on time. It climbs back by itself, a step at a time, once the ship keeps up.
+
+### Time warp stopped by itself while I was flying another ship
+
+A ship you left on a trip has arrived (or had to stop). The message on screen names the ship, where it is and its orbit.
+
+### A ship I left next to mine didn't fly on
+
+A ship inside KSP's physics range of the one you're flying (a few hundred metres) is moved by KSP, not by Flip and Burn.
+Move away from it, or switch to it, and its trip carries on.
 
 ### Time warp stopped by itself
 
@@ -92,8 +113,27 @@ It aims for a circular orbit at the parking altitude and usually lands within a 
 
 ### Can I go to a moon?
 
-Not directly. Flip and Burn flies between planets, the bodies that orbit the Sun. Fly to the planet, then use MechJeb's
-own tools for the hop to its moon. From a moon, get into orbit around its planet first.
+Yes, inside one planet's system:
+- from a planet's orbit to one of its moons (Kerbin to the Mun or Minmus, Jool to Laythe);
+- from a moon back to its planet;
+- from one moon to another of the same planet (the Mun to Minmus).
+
+The **Fly to** list shows them under their planet. A moon of *another* planet isn't offered yet: fly to that planet first,
+then on to its moon. From a moon to another planet, get into orbit around this moon's planet first. See
+[moon trips](ways-to-fly.md#moon-trips).
+
+### Why does my moon trip wait before it burns?
+
+The planet (or the moon you're leaving) is between your ship and the target. Burning now would aim through it, so the
+ship waits in its orbit, engine off and pointing the right way, until it has come round to the target's side. Time warp
+runs while it waits. It's never more than one orbit (about half an hour in a low Kerbin orbit), costs no fuel, and the
+planner's trip time includes it.
+
+### A coast trip to a moon needs much more delta-v than I expected
+
+Inside a planet's strong pull, Flip and Burn can't yet find the very slow, cheap transfers that MechJeb's own transfer
+tools fly. A coast trip there needs roughly half a full burn's delta-v or more. If none fits, the planner says so; a full
+burn, or MechJeb's transfer tools, will do.
 
 ### Does it work with Outer Planets Mod and other planet packs?
 

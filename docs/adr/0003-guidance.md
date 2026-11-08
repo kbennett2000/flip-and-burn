@@ -79,6 +79,111 @@ low acceleration. Near the departure planet the ship first burns prograde until 
 line to the target, then steers normally; once out, it doesn't switch back. At 1 g from a 100 km Kerbin orbit this
 takes about 95 seconds.
 
+**Addendum (cycle 15): climbing out without wasting the burn.** Found by a slow coast from Duna to Dres that flew 35.0 km/s
+against 29.5 planned. With Dres almost straight through Duna, the ship burned prograde for 400 s (3.9 km/s) about 140°
+away from where it had to go, and taking that off again raised the speed-up from 15.6 to 24.2 km/s. A survey of coast
+trips leaving Kerbin and Duna (0.25 g and 1 g, budgets of 2, 10 and 40 % of a full burn) found two more trips arriving
+under the 10 % reserve (Kerbin to Duna at 0.25 g on 10 %: 0.5 % left; Kerbin to Dres at 1 g on 2 %: 9.4 %), and a worse
+one: at 0.25 g from Kerbin to Duna the ship turned for Duna as soon as it was escaping, against its own motion, and
+Kerbin's pull (stronger than the engine there) dragged it back through the planet. The simulator has no ground, so the
+trip still "arrived".
+
+The rule now (`ClimbOut`, trips between planets; moon trips unchanged):
+
+1. Not yet escaping: burn prograde, as before.
+2. Escaping: steer normally once the path toward the target, flown with thrust and the planet's pull, stays above the
+   safe height until it is 20 safe radii out. A straight line isn't enough when the thrust is weak.
+3. Otherwise burn along the clear line nearest the target line (grazing 1.1 times the safe height) if that is within 45°
+   of it and its path clears too.
+4. Otherwise, with thrust at least twice the planet's pull there, coast with the engine off, facing the target line,
+   until the way clears; with weaker thrust, keep climbing prograde.
+
+The coast planner's departure model (`DepartureGravity`) flies the same rule, so the plan counts what the climb-out
+costs. Survey after the change: every trip's speed-up within 2.2 % of the plan (it was up to 40 % over), every ship at
+100 km or more above the surface while leaving, every reserve 10.4 % or more except Kerbin to Jool at 1 g on 2 %
+(4.6 %, an overspend in the braking into Jool, not the departure; fixed by the next addendum). This changes watched trips
+too.
+The trip window names the engine-off part ("leaving orbit, engine off: waiting for the planet to be out of the way").
+
+Feeding the same model to the guidance while it climbs out (the follow-up below) was tried and dropped: near a close
+pass of the planet the fixed-arrival solve then found no solution, and two 1 g trips failed.
+
+**Addendum (cycle 15): pricing the braking into a strong pull.** The coast planner's path follows the ship's orbit
+around the Sun and leaves the target's pull out until braking, which it draws as a smooth curve to the parking orbit. A
+fast coast into a deep well gains a lot of speed falling in, so the plan could price the braking below what physics
+allows: Kerbin to Jool at 1 g on 2 % of a full burn's delta-v (that is, a ship with 2 % of the fuel a full burn there would
+use) arrived at 11.9 km/s and was priced 7.1 km/s of braking, while even braking all at once at the parking height takes
+8.5 km/s. Braking started 3,000 km above the orbit at full thrust, fell behind, and the last burn took 2.35 km/s more:
+11.05 km/s in all, 4.6 % of the delta-v left. A survey of arrivals (Jool, Kerbin, Duna, Dres at 1 g, arriving at 9.6 to
+51 km/s) found the same wherever the plan's braking was under that one-shot figure, including Kerbin to Duna on 5 %, where
+the arrival watch had to make the orbit safe.
+
+Now (`CoastPlanner.BrakingFloor`, trips between planets):
+
+- **The price.** A plan's braking is priced at no less than the one-shot figure, sqrt(v_inf^2 + v_esc^2) - v_circular for
+  the speed it arrives with, plus 0.30 times the escape speed at the parking orbit times the pull there over the
+  acceleration (what finite thrust loses deep in a strong pull: 2.1 km/s into Jool's 220 km orbit at 1 g, under
+  0.1 km/s for Duna and Dres). The arrival speed comes from the plan's coast around the Sun, with what the departure
+  planet's pull does to the speed-up (`DepartureGravity`) included; leaving it out mis-priced trips whose departure
+  changes the speed-up. The 0.30 is a fit to the survey: flown braking came out at or under the floor on every trip. The
+  planner then picks the fastest trip that still fits the budget at that price: a slower one when the fast one can't
+  keep the reserve.
+- **Trusting the arrival speed.** While the planner searches, each trip time it tries is aimed with the gravity worked
+  out on the previous pass (none on the first). A long coast's orbit around the Sun then ends far from the target, and
+  its speed there means nothing: for the Bebop V2.4 at Duna (10.3 km/s at 1 g) to Dres, a 51-day coast, it came out at
+  1.5 to 19.6 km/s for a 4.7 km/s braking, and the planner offered no trip (in-game run 8; run 7 had flown it to
+  19.9 x 20.0 km). So the speed it would take to close the miss over the coast comes off the arrival speed
+  (`TrustedArrivalSpeed`); where the coast lands (Kerbin to Jool: within 0.1 % of the path) nothing changes. The trip
+  is offered again: 8,736 m/s planned, 8,768 flown, 14.8 % left (an everyday test).
+- **The flying.** The guidance never plans its braking shorter than the floor takes at the acceleration it flies, so it
+  starts braking in time, and its coast aims for that braking. The floor is applied inside the coast solve, so the
+  arrival time and the braking agree; applied after it, it upset arrivals at Duna and Dres.
+- **The reserve shown.** The window prices the braking still to do the same way. While coasting outside the target's
+  sphere, the arrival speed comes from the coast orbit carried forward to where braking starts; the speed relative to
+  the target now would over-price it (the gap to the arrival after climbing out went from 2.6 to 0.4 points).
+
+Survey after: every arrival clean (no arrival watch), reserves 14.7 to 18.9 %. The row that started this, Kerbin to
+Jool at 1 g on 2 %: flown 30.45 km/s against 30.94 planned (was 34.75, +12 %), braking 8.91 km/s against 9.15 priced
+(was 11.05 against 7.06), 16.5 % left (was 4.6 %), 217.8 x 222.3 km. On 3 % 15.8 % (10.0 % before); Kerbin to Duna on 5 %
+59.8 x 60.2 km and 18.1 % (a safe orbit before). This changes watched trips too. Revisit the 0.30 if a coast trip
+between planets arrives with under 10 % left while its braking was priced by the floor.
+
+Coasts now fly closer to their plans (the Bebop to Duna in the simulator 0.2 % under its burns), so the figure the
+window shows while climbing out allows 1.5 % over the plan's burns (`ReserveWatch.TypicalCoastOverhead`, was 1.9 %;
+product owner). The in-game check of that figure is trip R, a 0.4 g coast to Duna flown on this planner, at the same
+1-point limit; trip B (cycle 11, the old planner) is kept as history only.
+
+**Braking at part throttle (cycle 15, from PR 14; ADR 0005).** Trip R in the game (run 9) passed that check (13.82 %
+shown, 14.24 % arrived), but after the climb-out the window showed 17.03 %, 2.8 points high: braking at 85 % of the
+acceleration runs the Kerbstein drive at part throttle, where its Isp is lower, and nothing counted it. Now the plan,
+the guidance and the window count each m/s of braking at the throttle it is really flown at (`ShipPerformance.ThrottleCost`,
+`CoastPlanner.BrakingThrottleShare`: halfway to full thrust for braking held to the floor or starting inside the target's
+sphere, the planned share otherwise; the floor costs the same way), and the simulator loses Isp at part throttle.
+- **In the game, 15a (run 14, test copy):** trip R 59.86 x 60.22 km, 17.39 % left, +11 s; the window from the climb-out
+  on 17.07 %, **within 0.32 points** (was 2.8 high). The Tylo coast 29.73 x 30.23 km, 16.32 % left, +27 s; from the coast
+  on within 1.24 points (the first figure), then within 0.6.
+- **The figure at Start read low** (3.57 points on trip R, 2.50 on the Tylo coast, 3.1 while it speeds up): the plan
+  expected to burn more than trips do, so it also picked slower trips than the fuel allowed. **Cause:** the plan counted
+  every deep-well braking's delta-v at the halfway share, a stand-in (from PR 14) for braking that flies longer than
+  planned; before the Isp fix that stand-in's 8.8 % happened to cover the uncounted Isp loss (8.3 %), so with the loss
+  counted it was counted twice. Planned against flown in the simulator (k 0.5): trip R's braking flew 7.1 % under its
+  price (0.852 of the acceleration for the planned time, not halfway, nor longer), the moon coasts' 11 % under (Tylo:
+  0.924 for 1,206 s against 1,353 planned: the moon plan adds gravity along the path, so the arrival law flies the same
+  speed change faster, not more), Jool's 0.8 % over (inside its sphere the deep well really adds the halfway share).
+  **Fix** (`CoastPlanner.BrakingKinematicShare`): the planned share, except braking that starts inside the target's
+  sphere between planets (halfway); the cost per m/s at the throttle flown, the floor included (`BrakingThrottleShare`:
+  counted at halfway when the floor priced trip R, it flew 4.8 % over). Simulator after: trip R flown 0.3 % over its
+  burns, braking 0.4 % over its price, shown at Start 13.82 % against 14.82 % arrived (1.00 point); Tylo 1.1 % over,
+  0.37 point; Jool and Duna unchanged; Laythe 0.9 % under, 2.06 points low (not met, reported). Planned trip times:
+  trip R 422,550 s → 406,491 s (−3.8 %), the Tylo coast 7,700 → 7,580 s (−1.6 %).
+- **The course correction still to burn** is counted in the burning left: at the start of a moon coast the guidance
+  corrects about 350 m/s over a minute, and the reserve shown read 1.3 points high there (1.8 in the game, run 17).
+- **In the game, the 1.2.0 candidate (run 18, test copy, fuel counted), every figure gated within a point: PASSED.**
+  Trip R 59.86 x 60.24 km, 14.69 % left, +22 s; shown 13.82 % at Start (0.87 low), every figure within 0.87; planned
+  460,460 s (476,829 s with the Isp loss counted twice, 457,859 s before it was counted). The Tylo coast 29.70 x
+  30.32 km, 13.30 % left, +40 s; shown 13.82 % at Start (0.52 high), every figure within 0.70; planned 8,296 s (8,428 s
+  before). Gated in `ReserveShownTests.ShownReserve_InTheGame`.
+
 ### The Sun in the way
 
 When the planner flags the straight path as passing within the Sun safety distance (ADR 0002), the guidance flies two
