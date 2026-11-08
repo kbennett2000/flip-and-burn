@@ -114,7 +114,9 @@ namespace FlipAndBurn
             }
 
             HoldWarp(now);
-            if (HoldingWarp && Trips.TryGetValue(heldFor, out AwayTrip held)) held.WarpHoldSeconds += Time.unscaledDeltaTime;
+            foreach (AwayTrip t in Trips.Values) t.MaxLag = Math.Max(t.MaxLag, now - t.Flight.UT);
+            if (HoldingWarp && cap.HeldBy != null)
+                foreach (AwayTrip t in Trips.Values.Where(t => t.ShipName == cap.HeldBy)) t.WarpHoldSeconds += Time.unscaledDeltaTime;
 
             if (Time.realtimeSinceStartup >= nextReport)
             {
@@ -122,45 +124,56 @@ namespace FlipAndBurn
                 foreach (AwayTrip t in Trips.Values)
                     Debug.Log($"[FlipAndBurn] fleet: {t.ShipName} to {t.TargetName}: {t.Flight.Last?.Phase}, {Math.Max(0, now - t.Flight.UT):F1} s behind the game clock, " +
                               $"{t.Flight.Steps} steps; delta-v used {t.Record.DeltaVUsed:F0} m/s; arrival planned at UT {t.Record.PlannedArrivalUT:F0}; " +
+                              $"furthest behind {t.MaxLag:F1} s; pace {t.Pace:F0} game s per real s; " +
                               $"warp held {t.WarpHolds} times ({t.WarpHoldSeconds:F0} s real); orbit write check {t.MaxWriteError:F3} m");
             }
         }
 
-        /// <summary>A trip may fall this far behind the game clock (game s) before time warp is held down for it.</summary>
-        public const double LagLimit = 60;
+        // Kris's decision (ADR 0006): hold time warp for a ship flying on its own, and say which ship. FleetWarpHold picks the rate:
+        // straight down to the fastest every trip can keep up with, slower ahead of each arrival so it lands on the clock, and
+        // back up a notch a second once they all keep up.
+        private static readonly FleetWarpHold.Cap cap = new FleetWarpHold.Cap();
+        private static float nextHoldMessage;
 
-        private float nextWarpHold;
-        private static float lastWarpHold = -100;
-        private static Guid heldFor;   // the trip the last hold was for: credited with the real time the hold lasts
+        /// <summary>True while the fleet holds time warp below the top rate (the test helper doesn't raise it meanwhile).</summary>
+        public static bool HoldingWarp => TimeWarp.fetch != null && cap.Holding(TimeWarp.fetch.warpRates.Length - 1);
 
-        /// <summary>True for two real seconds after the fleet held time warp down (the test helper doesn't raise it meanwhile).</summary>
-        public static bool HoldingWarp => Time.realtimeSinceStartup - lastWarpHold < 2;
-        private static readonly HashSet<Guid> HeldFor = new HashSet<Guid>();
-
-        // Time warp faster than the fleet can fly: step it down, a notch at a time, when a trip falls more than a minute behind
-        // the game clock or its arrival is a few real seconds away at this warp. So a ship's map position stays right and its
-        // arrival (warp to normal, the message) comes when it really arrives.
         private void HoldWarp(double now)
         {
-            if (TimeWarp.fetch == null || TimeWarp.CurrentRateIndex <= 0 || Time.realtimeSinceStartup < nextWarpHold) return;
-            AwayTrip behind = null;
+            if (TimeWarp.fetch == null || TimeWarp.WarpMode != TimeWarp.Modes.HIGH) return;
+            float[] rates = TimeWarp.fetch.warpRates;
+            var trips = new List<FleetWarpHold.Trip>();
             foreach (AwayTrip t in Trips.Values)
             {
                 if (t.Flight.Finished) continue;
-                double lag = now - t.Flight.UT, toArrival = t.Flight.Last?.TimeToArrival ?? double.PositiveInfinity;
-                if (lag > LagLimit || (toArrival > 0 && toArrival < 5 * TimeWarp.CurrentRate)) { behind = t; break; }
+                double toArrival = t.Flight.Last?.TimeToArrival ?? double.NaN;
+                trips.Add(new FleetWarpHold.Trip
+                {
+                    Name = t.ShipName,
+                    Lag = now - t.Flight.UT,
+                    Pace = t.CutShort ? t.Pace : double.NaN,
+                    ClockToArrival = toArrival > 0 ? t.Flight.UT + toArrival - now : double.NaN,
+                });
             }
 
-            if (behind == null) return;
-            behind.WarpHolds++;
-            heldFor = behind.Id;
+            int allowed = cap.Update(rates, TimeWarp.CurrentRate, trips, Time.unscaledDeltaTime);
             int from = TimeWarp.CurrentRateIndex;
-            TimeWarp.SetRate(from - 1, false);
-            nextWarpHold = Time.realtimeSinceStartup + 0.5f;
-            lastWarpHold = Time.realtimeSinceStartup;
-            if (HeldFor.Add(behind.Id))
-                Debug.Log($"[FlipAndBurn] fleet: time warp held down (from x{TimeWarp.fetch.warpRates[from]:0}) to fly {behind.ShipName}'s trip: " +
-                          $"{now - behind.Flight.UT:F0} s behind the game clock, arrival in {behind.Flight.Last?.TimeToArrival:F0} s");
+            if (from <= allowed) return;
+            TimeWarp.SetRate(allowed, true);
+            AwayTrip by = Trips.Values.FirstOrDefault(t => t.ShipName == cap.HeldBy);
+            if (by != null) by.WarpHolds++;
+            string ship = cap.HeldBy ?? "a ship";
+            string target = by?.TargetName ?? "its target";
+            Debug.Log($"[FlipAndBurn] fleet: time warp held down from x{rates[from]:0} to x{rates[allowed]:0} for {ship}'s trip to {target} ({cap.Why}): " +
+                      $"{(by == null ? 0 : now - by.Flight.UT):F0} s behind the game clock, pace {by?.Pace:F0} game s per real s, " +
+                      $"arrival in {by?.Flight.Last?.TimeToArrival:F0} s");
+            if (Time.realtimeSinceStartup >= nextHoldMessage)
+            {
+                nextHoldMessage = Time.realtimeSinceStartup + 5f;
+                string why = cap.Why == FleetWarpHold.Reason.Arriving ? $"{ship} arrives at {target} soon"
+                    : $"{ship} is flying to {target} on its own and needs it to keep up";
+                ScreenMessages.PostScreenMessage($"Flip and Burn: time warp held at {rates[allowed]:N0}x: {why}.", 5f, ScreenMessageStyle.UPPER_CENTER);
+            }
         }
 
         // ------------------------------------------------------------------ finding the trips
@@ -330,8 +343,22 @@ namespace FlipAndBurn
             if (v.loaded && !v.packed) return;   // in the physics range of the ship being flown: KSP moves it
             try
             {
+                double from = t.Flight.UT;
+                bool ran = false;
                 while (!t.Flight.Finished && t.Flight.UT < now - 1e-9 && clock.Elapsed.TotalMilliseconds < FrameBudgetMs)
+                {
                     t.Flight.AdvanceTo(now, 200);
+                    ran = true;
+                }
+
+                // Its pace (game s flown per real s) when it used up its share of the frame without catching up: what time warp
+                // has to stay under for it to keep up (FleetWarpHold).
+                t.CutShort = !t.Flight.Finished && t.Flight.UT < now - 1e-9;
+                if (t.CutShort && ran && Time.unscaledDeltaTime > 0)
+                {
+                    double pace = (t.Flight.UT - from) / Time.unscaledDeltaTime;
+                    t.Pace = double.IsNaN(t.Pace) ? pace : 0.7 * t.Pace + 0.3 * pace;
+                }
                 Write(t);
                 if (t.Flight.Finished) Finish(t);
             }
@@ -423,10 +450,11 @@ namespace FlipAndBurn
 
             t.Report = report;
             t.EndedUT = f.UT;
+            t.ArrivalLate = Planetarium.GetUniversalTime() - f.UT;
             Debug.Log($"[FlipAndBurn] fleet: trip over for {t.ShipName}: {f.End}; around {v.mainBody.bodyName}, periapsis {o.PeA:F0} m, apoapsis {o.ApA:F0} m, " +
                       $"eccentricity {o.eccentricity:F5}; flown {f.UT - t.StartUT:F0} s without the player, {f.Steps} steps; delta-v {f.DeltaVUsed:F0} m/s, " +
                       $"propellant {f.PropellantUsed:F1} kg (mass {t.StartMass:F0} -> {f.Mass:F0} kg), charge {f.ChargeUsed:F1}; " +
-                      $"{Math.Max(0, Planetarium.GetUniversalTime() - f.UT):F1} s behind the game clock; warp held {t.WarpHolds} times ({t.WarpHoldSeconds:F0} s real); " +
+                      $"ended {t.ArrivalLate:F1} s after the game clock passed it; furthest behind {t.MaxLag:F1} s; warp held {t.WarpHolds} times ({t.WarpHoldSeconds:F0} s real); " +
                       $"orbit write check {t.MaxWriteError:F3} m");
             EndTrip(v, t.Record, t.ShipName, t.TargetName, report, arrived);
             Ended.Add(t);
@@ -566,6 +594,13 @@ namespace FlipAndBurn
         /// <summary>Times the fleet held time warp down for this trip, and the real seconds it held it.</summary>
         public int WarpHolds;
         public double WarpHoldSeconds;
+        /// <summary>The hold counters: how far behind the game clock the trip ever got (game s), and how long after the clock
+        /// passed the trip's end it ended (game s; NaN until it ends).</summary>
+        public double MaxLag, ArrivalLate = double.NaN;
+        /// <summary>Game seconds the trip flies per real second when it uses all the time it gets (NaN until measured), and
+        /// whether it ran out of time last frame.</summary>
+        public double Pace = double.NaN;
+        public bool CutShort;
         public string Report;
         public double EndedUT = double.NaN;
 

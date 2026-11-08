@@ -58,9 +58,11 @@ A trip you leave is flown by Flip and Burn in the background, the same way it wo
   is the figure the trip has proven it can hold.)
 - **Fuel and electric charge are used** as the burns use them. Check the tanks when you come back: they will have gone
   down.
-- **Any time warp works,** in flight on another ship, at the Space Center and in the Tracking Station. When a ship
-  you left is about to arrive, or warp is faster than Flip and Burn can fly it, time warp steps down by itself, so the
-  ship stays where it should be and its arrival comes on time.
+- **Any time warp works,** in flight on another ship, at the Space Center and in the Tracking Station. When warp is
+  faster than Flip and Burn can fly a ship you left, or that ship is about to arrive, time warp drops by itself, straight
+  to a rate the ship can keep up with, and a message says which ship is holding it ("time warp held at 1,000x: Bebop V2.4
+  is flying to Dres on its own and needs it to keep up"). So the ship stays where it should be and arrives on time. Warp
+  climbs back on its own as soon as the ship keeps up again.
 
 **When it arrives,** time warp drops to normal and a message names the ship, where it arrived and its orbit. It is
 the same parking orbit a watched trip ends in (within 5% of the height you chose).

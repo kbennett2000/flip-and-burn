@@ -63,6 +63,8 @@ care:
   in the safest orbit the ship can reach, as below.
 - **No stepping back up.** It flies at the acceleration it held when you left, lower if the engines had overheated.
   Heat isn't checked for a ship you aren't flying, so this is the figure the trip has proven it can hold.
+- **Time warp waits for it.** When warp is faster than Flip and Burn can fly the ship, or its arrival is near, warp
+  drops to a rate it can keep up with, and a message names the ship holding it.
 - **Warp stops** when it arrives or has to stop, and a message names the ship, where it is and its orbit.
 
 ## The arrival safety net

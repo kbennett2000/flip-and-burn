@@ -236,11 +236,17 @@ namespace FlipAndBurn.TestHarness
             step++;
         }
 
+        /// <summary>The warp hold's standard in the game: a trip ends within this many game seconds of the clock passing it, and is
+        /// never further behind than <see cref="HoldLagLimit"/>.</summary>
+        private const double HoldArrivalLimit = FleetWarpHold.LagLimit;
+        private const double HoldLagLimit = 2 * FleetWarpHold.LagLimit;
+
         /// <summary>Warp as high as the scene allows until the fleet ends <paramref name="ship"/>'s trip; screenshot the message.</summary>
         private IEnumerator WarpUntilEnded(string ship, string shot, float timeoutReal)
         {
             int ended = FleetFlights.Ended.Count;
             float t0 = Time.realtimeSinceStartup, nextLog = 0;
+            double warpAsked = 1;
             int top = TimeWarp.fetch != null ? TimeWarp.fetch.warpRates.Length - 1 : 0;
             Log($"fleet: warping (rails, up to x{(TimeWarp.fetch != null ? TimeWarp.fetch.warpRates[top] : 1):0}) until {ship} arrives");
             while (Time.realtimeSinceStartup - t0 < timeoutReal)
@@ -250,12 +256,21 @@ namespace FlipAndBurn.TestHarness
                 {
                     yield return null;
                     Log($"fleet: {ship}'s trip ended at UT {end.EndedUT:F0}; time warp now x{TimeWarp.CurrentRate:0.#} (index {TimeWarp.CurrentRateIndex}); message: {end.Report}");
+                    // The warp hold (Kris's decision, ADR 0006): every trip keeps up with time warp, and arrives on the clock.
+                    bool onTime = end.ArrivalLate <= HoldArrivalLimit && end.MaxLag <= HoldLagLimit;
+                    Log($"fleet hold counters: {ship} was at most {end.MaxLag:F1} s of game time behind the clock (limit {HoldLagLimit:F0}); " +
+                        $"its trip ended {end.ArrivalLate:F1} s after the clock passed it (limit {HoldArrivalLimit:F0}); warp held {end.WarpHolds} times " +
+                        $"({end.WarpHoldSeconds:F0} s real), highest warp asked x{warpAsked:0}: {(onTime ? "ON TIME" : "LATE")}");
                     yield return Shot(shot, null);
                     if (TimeWarp.CurrentRateIndex != 0) Fail("fleet", "time warp didn't drop to normal at the arrival");
+                    // The trip itself flew; the run fails at the end, so the other proofs asked for still fly.
+                    if (!onTime) reserveMisses.Add($"fleet: {ship} didn't keep up with time warp (see the hold counters)");
                     yield break;
                 }
 
+                // As a player would: keep asking for the top rate (100,000x) whenever the fleet isn't holding warp.
                 if (TimeWarp.fetch != null && TimeWarp.CurrentRateIndex < top && !FleetFlights.HoldingWarp) TimeWarp.SetRate(TimeWarp.CurrentRateIndex + 1, false);
+                if (TimeWarp.fetch != null) warpAsked = Math.Max(warpAsked, TimeWarp.CurrentRate);
                 if (Time.realtimeSinceStartup >= nextLog)
                 {
                     nextLog = Time.realtimeSinceStartup + 20;
@@ -295,7 +310,9 @@ namespace FlipAndBurn.TestHarness
                 $"; {t.ShipName} to {t.TargetName}: {t.Flight.Last?.Phase}, at {t.Record.Acceleration / 9.81:F2} g, {Math.Max(0, now - t.Flight.UT):F1} s behind, " +
                 $"delta-v used {t.Record.DeltaVUsed:F0} m/s, propellant {t.Flight.PropellantUsed:F1} kg, arrival in {t.Record.PlannedArrivalUT - now:F0} s, " +
                 $"handover jump {t.HandoverJump:F2} m / {t.HandoverJumpSpeed:F4} m/s, orbit around {t.Vessel?.mainBody?.bodyName}, " +
-                $"warp held {t.WarpHolds} times ({t.WarpHoldSeconds:F0} s real), orbit write check {t.MaxWriteError:F3} m")));
+                $"furthest behind {t.MaxLag:F1} s, pace {t.Pace:F0} game s per real s, " +
+                $"warp held {t.WarpHolds} times ({t.WarpHoldSeconds:F0} s real), orbit write check {t.MaxWriteError:F3} m")) +
+                (FleetFlights.HoldingWarp ? $"; time warp held (x{TimeWarp.CurrentRate:0})" : ""));
         }
 
         private static void LogOrbit(string what, Vessel v, string expectBody, double parking)

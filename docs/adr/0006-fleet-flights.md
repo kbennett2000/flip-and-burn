@@ -17,6 +17,9 @@ ships sent on trips from the Tracking Station.
    watched part stay, and it never steps back up.
 3. When a ship the player isn't flying arrives, time warp drops to normal and a message names the ship, where it arrived
    and the orbit.
+5. (2026-11-08, the warp hold) When a ship flying on its own can't keep up, time warp drops until it catches up, and an
+   on-screen message names the ship holding warp ("option A plus the message"). Tightened so ships stay on time: warp
+   drops straight to a rate the ship can keep up with, early enough that arrivals land on the clock.
 4. (Stage 2) Dispatch from the Tracking Station. Heat for a dispatched trip: if that ship's last trip stepped down for
    heat, use that lower figure; if it has never flown a trip, use the player's choice with a yellow note saying heat isn't
    checked for ships you aren't flying.
@@ -61,10 +64,25 @@ A KSP add-on present in every scene, acting in flight, the Space Center and the 
     parts of a loaded ship, the saved part resources of an unloaded one);
   - the saved trip: delta-v used, last flown, the arrival, departed, facing and the handover state.
 - **Keeping up with time warp:** in the cruise, far from any body and an hour or more from the next event, the flight
-  steps up to a minute at a time (2 s otherwise, 0.1 s near a body, 0.02 s for the arrival). If a trip still falls more
-  than a minute behind the game clock, or its arrival is a few real seconds away at the warp in use, time warp is
-  stepped down a notch at a time until it keeps up. The first in-game run, without this, flew a Mun arrival 17 days of
-  game time late at 100,000x: the warp drop and the message came long after the ship had arrived.
+  steps up to a minute at a time (2 s otherwise, 0.1 s near a body, 0.02 s for the arrival). The first in-game run,
+  without a hold, flew a Mun arrival 17 days of game time late at 100,000x: the warp drop and the message came long
+  after the ship had arrived.
+- **The warp hold** (decision 5, `FleetWarpHold`). Each frame every trip gets its share of 4 ms to fly. Its **pace** is
+  measured whenever it uses that share up without reaching the game clock: game seconds flown per real second, smoothed.
+  Each frame the fleet works out the fastest rate every trip allows:
+  - falling behind (it ran out of time and flies slower than the warp): 90 % of its pace;
+  - more than a minute behind: half its pace, so it catches up;
+  - ahead of its arrival: no faster than puts the arrival 10 real seconds away (an hour out, 360x at most).
+
+  Warp drops **straight** to the fastest of KSP's rates under that (from 100,000x to 1,000x in one go), and climbs back a
+  notch at a time, each once every trip has kept up for a second. A message names the ship holding warp: "Flip and
+  Burn: time warp held at 1,000x: Bebop V2.4 is flying to Dres on its own and needs it to keep up." (or "… arrives at
+  Dres soon"), at most every 5 seconds. The hold counters, logged for every trip: how far behind the clock it ever got,
+  and how long after the clock passed its end it ended.
+  - Before (a notch every half second, decided by the minute-behind rule and a few real seconds to the arrival): the
+    Dres trips in runs 7 and 9 finished 12,384 s and 12,616 s behind the clock at 100,000x. In the simulator's model of a
+    Dres-type arrival with the player holding 100,000x (`FleetWarpHoldTests`), the old rule fell 45,467 s behind; this
+    one never falls behind and lands on the clock, taking 415 real seconds against 89 (the cost of staying on time).
 - **Scene changes:** the flights are kept across them, and dropped when a save is loaded (the save's trips are flown
   from what it says).
 

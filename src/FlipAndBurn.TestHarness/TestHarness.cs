@@ -286,10 +286,10 @@ namespace FlipAndBurn.TestHarness
                 if (!ok.Ok || failed) yield break;
             }
 
-            // A reserve gate missed: the run fails, but only now, so the other trips still flew (CheckReserveShown).
+            // A gate missed (the reserve shown, the hold counters): the run fails, but only now, so the other trips still flew.
             if (reserveMisses.Count > 0)
             {
-                Fail("reserve shown", string.Join("; ", reserveMisses));
+                Fail("gates", string.Join("; ", reserveMisses));
                 yield break;
             }
 
@@ -297,7 +297,8 @@ namespace FlipAndBurn.TestHarness
             Application.Quit();
         }
 
-        /// <summary>Reserve gates missed (CheckReserveShown): the run fails at the end, after every trip asked for has flown.</summary>
+        /// <summary>Gates missed that let the run go on (the reserve shown, the fleet's hold counters): the run fails at the end,
+        /// after every trip asked for has flown.</summary>
         private readonly List<string> reserveMisses = new List<string>();
 
         /// <summary>Fly <paramref name="shipName"/> from the test save, log its delta-v sources, plan a trip to Duna, screenshot it.</summary>
