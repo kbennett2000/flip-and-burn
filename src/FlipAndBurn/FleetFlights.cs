@@ -151,6 +151,11 @@ namespace FlipAndBurn
             {
                 if (t.Flight.Finished) continue;
                 double toArrival = t.Flight.Last?.TimeToArrival ?? double.NaN;
+                // The next burn (a coast or a wait ending) or flip: where the trip's pace drops (FleetWarpHold.ArrivalLeadSeconds).
+                GuidanceCommand last = t.Flight.Last;
+                double toBurn = last == null ? double.NaN
+                    : last.Acceleration == 0 && last.TimeToBurn > 1 ? last.TimeToBurn
+                    : last.Phase == GuidancePhase.Accelerate && last.TimeToFlip > 1 ? last.TimeToFlip : double.NaN;
                 trips.Add(new FleetWarpHold.Trip
                 {
                     Name = t.ShipName,
@@ -158,6 +163,7 @@ namespace FlipAndBurn
                     Pace = t.CutShort ? t.Pace : double.NaN,
                     RecentPace = Time.realtimeSinceStartup - t.PacedAt < FleetWarpHold.PaceMemorySeconds ? t.Pace : double.NaN,
                     ClockToArrival = toArrival > 0 ? t.Flight.UT + toArrival - now : double.NaN,
+                    ClockToNextBurn = toBurn > 0 ? t.Flight.UT + toBurn - now : double.NaN,
                 });
             }
 
@@ -176,6 +182,7 @@ namespace FlipAndBurn
             {
                 nextHoldMessage = Time.realtimeSinceStartup + 5f;
                 string why = cap.Why == FleetWarpHold.Reason.Arriving ? $"{ship} arrives at {target} soon"
+                    : cap.Why == FleetWarpHold.Reason.NextBurn ? $"{ship} starts its next burn on the way to {target} soon"
                     : $"{ship} is flying to {target} on its own and needs it to keep up";
                 ScreenMessages.PostScreenMessage($"Flip and Burn: time warp held at {rates[allowed]:N0}x: {why}.", 5f, ScreenMessageStyle.UPPER_CENTER);
             }

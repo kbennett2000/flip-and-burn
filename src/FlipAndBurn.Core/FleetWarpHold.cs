@@ -32,7 +32,9 @@ namespace FlipAndBurn.Core
         /// </summary>
         public const double PaceMemorySeconds = 10;
 
-        /// <summary>Ahead of an arrival, warp is held so the arrival is at least this many real seconds away.</summary>
+        /// <summary>Ahead of an arrival, or of the trip's next burn or flip (where its pace can drop a hundredfold: from coasting
+        /// in big steps to burning in small ones), warp is held so it is at least this many real seconds away. In game, run 15:
+        /// one frame at 10,000x as a coast gave way to a burn put a trip 153 s behind.</summary>
         public const double ArrivalLeadSeconds = 10;
 
         /// <summary>One trip as the fleet sees it this frame.</summary>
@@ -55,6 +57,9 @@ namespace FlipAndBurn.Core
 
             /// <summary>Game seconds until the game clock reaches the trip's expected arrival (NaN when not known).</summary>
             public double ClockToArrival;
+
+            /// <summary>Game seconds until the game clock reaches the trip's next burn or flip (NaN or 0 when none is due).</summary>
+            public double ClockToNextBurn;
         }
 
         /// <summary>Why warp is held: falling behind, catching up, or slowing for an arrival.</summary>
@@ -64,6 +69,7 @@ namespace FlipAndBurn.Core
             KeepingUp,
             CatchingUp,
             Arriving,
+            NextBurn,
         }
 
         /// <summary>The fastest warp (game s per real s) one trip allows now, and why.</summary>
@@ -88,6 +94,16 @@ namespace FlipAndBurn.Core
             {
                 allowed = KeepUpShare * t.RecentPace;
                 reason = Reason.KeepingUp;
+            }
+
+            if (t.ClockToNextBurn > 0)
+            {
+                double forBurn = t.ClockToNextBurn / ArrivalLeadSeconds;
+                if (forBurn < allowed)
+                {
+                    allowed = forBurn;
+                    reason = Reason.NextBurn;
+                }
             }
 
             if (!double.IsNaN(t.ClockToArrival))

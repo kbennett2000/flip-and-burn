@@ -72,7 +72,10 @@ A KSP add-on present in every scene, acting in flight, the Space Center and the 
   Each frame the fleet works out the fastest rate every trip allows:
   - falling behind (it ran out of time and flies slower than the warp): 90 % of its pace;
   - more than a minute behind: half its pace, so it catches up;
-  - ahead of its arrival: no faster than puts the arrival 10 real seconds away (an hour out, 360x at most).
+  - ahead of its arrival: no faster than puts the arrival 10 real seconds away (an hour out, 360x at most);
+  - ahead of its next burn or flip, the same (its pace can drop a hundredfold there, from coasting in big steps to
+    burning in small ones: run 15, one frame at 10,000x as the V2.4's climb-out coast gave way to its burn put it 153 s
+    behind).
 
   Warp drops **straight** to the fastest of KSP's rates under that (from 100,000x to 1,000x in one go), and climbs back a
   notch at a time, each once every trip has kept up for a second. A pace measured in the last 10 real seconds still holds
@@ -81,7 +84,7 @@ A KSP add-on present in every scene, acting in flight, the Space Center and the 
   notch counts as kept up only once warp really runs at it (KSP ramps to a new rate): run 14, counting from the request,
   went from 100x to 10,000x in two seconds for a trip flying 600x, 139 s behind. A message names the ship holding warp: "Flip and
   Burn: time warp held at 1,000x: Bebop V2.4 is flying to Dres on its own and needs it to keep up." (or "… arrives at
-  Dres soon"), at most every 5 seconds. The hold counters, logged for every trip: how far behind the clock it ever got,
+  Dres soon", "… starts its next burn on the way to Dres soon"), at most every 5 seconds. The hold counters, logged for every trip: how far behind the clock it ever got,
   and how long after the clock passed its end it ended.
   - Before (a notch every half second, decided by the minute-behind rule and a few real seconds to the arrival): the
     Dres trips in runs 7 and 9 finished 12,384 s and 12,616 s behind the clock at 100,000x. In the simulator's model of a

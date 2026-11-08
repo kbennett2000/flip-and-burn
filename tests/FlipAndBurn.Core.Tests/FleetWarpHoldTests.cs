@@ -60,6 +60,16 @@ namespace FlipAndBurn.Core.Tests
         }
 
         [Fact]
+        public void NextBurn_SlowsAhead()
+        {
+            // Coasting, keeping up easily; a burn in 20,000 game s: no faster than 2,000x, so 1,000x.
+            var t = new FleetWarpHold.Trip { Name = "V2.4", Lag = 0, Pace = double.NaN, ClockToArrival = 4e6, ClockToNextBurn = 20000 };
+            double allowed = FleetWarpHold.AllowedRate(t, 100000, out FleetWarpHold.Reason why);
+            Assert.Equal(FleetWarpHold.Reason.NextBurn, why);
+            Assert.Equal(5, FleetWarpHold.RateIndex(Rates, allowed));
+        }
+
+        [Fact]
         public void KeepingUp_NoHold()
         {
             var t = new FleetWarpHold.Trip { Name = "Bebop", Lag = 0, Pace = double.NaN, ClockToArrival = 1e9 };
