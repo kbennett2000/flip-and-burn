@@ -25,6 +25,13 @@ namespace FlipAndBurn.Core
         /// up this many real seconds (so it doesn't bounce between a rate a trip can't fly and one it can).</summary>
         public const double RiseAfterSeconds = 1.0;
 
+        /// <summary>
+        /// A pace measured this recently (real s) still holds warp under it once the trip has caught up: warp tries a notch
+        /// faster only after that, so it doesn't climb straight back past what the trip can fly (in game, run 13: climbing a
+        /// notch a second after each drop reached 10,000x for a trip flying 500x and put it 258 s behind).
+        /// </summary>
+        public const double PaceMemorySeconds = 10;
+
         /// <summary>Ahead of an arrival, warp is held so the arrival is at least this many real seconds away.</summary>
         public const double ArrivalLeadSeconds = 10;
 
@@ -42,6 +49,9 @@ namespace FlipAndBurn.Core
             /// this frame, so its pace isn't the limit).
             /// </summary>
             public double Pace;
+
+            /// <summary>The pace measured within the last <see cref="PaceMemorySeconds"/> (NaN or 0 when none): keeps warp under it.</summary>
+            public double RecentPace;
 
             /// <summary>Game seconds until the game clock reaches the trip's expected arrival (NaN when not known).</summary>
             public double ClockToArrival;
@@ -61,7 +71,7 @@ namespace FlipAndBurn.Core
         {
             double allowed = double.PositiveInfinity;
             reason = Reason.None;
-            if (t.Pace >= 0)
+            if (t.Pace > 0)
             {
                 if (t.Lag > LagLimit)
                 {
@@ -73,6 +83,11 @@ namespace FlipAndBurn.Core
                     allowed = KeepUpShare * t.Pace;
                     reason = Reason.KeepingUp;
                 }
+            }
+            else if (t.RecentPace > 0)
+            {
+                allowed = KeepUpShare * t.RecentPace;
+                reason = Reason.KeepingUp;
             }
 
             if (!double.IsNaN(t.ClockToArrival))

@@ -156,6 +156,7 @@ namespace FlipAndBurn
                     Name = t.ShipName,
                     Lag = now - t.Flight.UT,
                     Pace = t.CutShort ? t.Pace : double.NaN,
+                    RecentPace = Time.realtimeSinceStartup - t.PacedAt < FleetWarpHold.PaceMemorySeconds ? t.Pace : double.NaN,
                     ClockToArrival = toArrival > 0 ? t.Flight.UT + toArrival - now : double.NaN,
                 });
             }
@@ -361,7 +362,10 @@ namespace FlipAndBurn
                 if (t.CutShort && ran && Time.unscaledDeltaTime > 0)
                 {
                     double pace = (t.Flight.UT - from) / Time.unscaledDeltaTime;
-                    t.Pace = double.IsNaN(t.Pace) ? pace : 0.7 * t.Pace + 0.3 * pace;
+                    // A fresh measure after a while without one starts over (the trip may be in another phase now).
+                    bool fresh = Time.realtimeSinceStartup - t.PacedAt < FleetWarpHold.PaceMemorySeconds;
+                    t.Pace = double.IsNaN(t.Pace) || !fresh ? pace : 0.7 * t.Pace + 0.3 * pace;
+                    t.PacedAt = Time.realtimeSinceStartup;
                 }
                 Write(t);
                 if (t.Flight.Finished) Finish(t);
@@ -605,6 +609,8 @@ namespace FlipAndBurn
         /// whether it ran out of time last frame.</summary>
         public double Pace = double.NaN;
         public bool CutShort;
+        /// <summary>When (real time) the pace was last measured.</summary>
+        public float PacedAt = -1000;
         public string Report;
         public double EndedUT = double.NaN;
 
