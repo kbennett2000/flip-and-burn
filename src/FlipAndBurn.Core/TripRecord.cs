@@ -17,10 +17,14 @@ namespace FlipAndBurn.Core
     /// </remarks>
     public sealed class TripRecord
     {
-        /// <summary>The format written now. A record with a higher version came from a newer Flip and Burn and isn't read.</summary>
-        public const int CurrentVersion = 1;
+        /// <summary>
+        /// The newest format read and written. Format 2 (ADR 0005) adds the trip's centre for moon trips; a trip between
+        /// planets is still written as format 1, so earlier versions read it as before and refuse a moon trip cleanly.
+        /// </summary>
+        public const int CurrentVersion = 2;
 
-        public int Version { get; set; } = CurrentVersion;
+        /// <summary>The format this record is written in: 2 for a moon trip (it has a centre), 1 for a trip between planets.</summary>
+        public int Version => string.IsNullOrEmpty(Centre) ? 1 : 2;
         /// <summary>The target's internal name (KSP's bodyName).</summary>
         public string Target { get; set; } = "";
         public TripType Trip { get; set; }
@@ -47,6 +51,15 @@ namespace FlipAndBurn.Core
         /// ship (m/s); not part of <see cref="DeltaVBudget"/>. Optional: 0 if not saved.
         /// </summary>
         public double LossAllowance { get; set; }
+        /// <summary>
+        /// Moon trips (ADR 0005): the planet the trip is flown around (KSP's bodyName). Empty for a trip between planets,
+        /// flown around the Sun.
+        /// </summary>
+        public string Centre { get; set; } = "";
+
+        /// <summary>Moon trips leaving the planet: whether the burn has started (false while waiting for the departure window).</summary>
+        public bool Departed { get; set; } = true;
+
         /// <summary>Engines Flip and Burn shut down (a cut, the coast), by part persistentId, to relight when it resumes.</summary>
         public List<uint> CutEngines { get; set; } = new List<uint>();
 
@@ -59,6 +72,7 @@ namespace FlipAndBurn.Core
         {
             var v = new List<KeyValuePair<string, string>>();
             void Add(string name, string value) => v.Add(new KeyValuePair<string, string>(name, value));
+            bool moonTrip = !string.IsNullOrEmpty(Centre);
             Add("version", Version.ToString(Inv));
             Add("target", Target ?? "");
             Add("trip", Trip.ToString());
@@ -75,6 +89,12 @@ namespace FlipAndBurn.Core
             if (!double.IsNaN(StartPlannedTripTime)) Add("startPlannedTripTime", StartPlannedTripTime.ToString("R", Inv));
             if (LossAllowance > 0) Add("lossAllowance", LossAllowance.ToString("R", Inv));
             Add("cutEngines", string.Join(",", CutEngines.Select(id => id.ToString(Inv))));
+            if (moonTrip)
+            {
+                Add("centre", Centre);
+                Add("departed", Departed ? "True" : "False");
+            }
+
             return v;
         }
 
@@ -109,7 +129,7 @@ namespace FlipAndBurn.Core
                 return null;
             }
 
-            var r = new TripRecord { Version = version, Target = Get("target") ?? "" };
+            var r = new TripRecord { Target = Get("target") ?? "" };
             bool ok = Enum.TryParse(Get("trip") ?? "", out TripType trip) & Enum.TryParse(Get("flip") ?? "", out FlipManeuver flip);
             r.Trip = trip;
             r.Flip = flip;
@@ -130,6 +150,13 @@ namespace FlipAndBurn.Core
             {
                 if (double.TryParse(allowance, NumberStyles.Float, Inv, out double a) && a >= 0 && !double.IsInfinity(a)) r.LossAllowance = a;
                 else ok = false;
+            }
+
+            if (version >= 2)
+            {
+                r.Centre = Get("centre") ?? "";
+                ok &= bool.TryParse(Get("departed") ?? "", out bool departed);
+                r.Departed = departed;
             }
 
             string cut = Get("cutEngines");

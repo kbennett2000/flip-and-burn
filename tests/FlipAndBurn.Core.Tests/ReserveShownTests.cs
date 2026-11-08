@@ -18,7 +18,9 @@ namespace FlipAndBurn.Core.Tests
 
 
         // The shown figure along the trip, worked out the way the window does it: from the plan while the ship climbs out of
-        // Kerbin's pull, then from the burning the guidance has left. Sampled every game hour (every 2 minutes while
+        // Kerbin's pull (until it leaves Kerbin's sphere of influence: the guidance's burning left isn't settled before), then
+        // from the burning the guidance has left, braking at what it costs on the Bebop's drive (the simulator loses Isp at
+        // part throttle as the Kerbstein drive does). Sampled every game hour (every 2 minutes while
         // climbing out) in the simulator's own trips, and compared with what the ship arrives with.
         [Theory]
         [InlineData("Duna coast Bebop", true)]
@@ -36,11 +38,12 @@ namespace FlipAndBurn.Core.Tests
             int after = 0;
             foreach ((double ut, bool climbing, double used, double burnLeft, GuidancePhase phase) in r.ReserveSamples)
             {
-                double shown = climbing || double.IsNaN(burnLeft)
+                bool fromPlan = climbing || double.IsNaN(burnLeft);
+                double shown = fromPlan
                     ? ReserveWatch.ExpectedAtArrival(start - used, ReserveWatch.ExpectedUse(planned, coast), used)
-                    : start - used - ReserveWatch.RemainingUse(a, burnLeft, coast);
+                    : start - used - ReserveWatch.RemainingUse(burnLeft, coast);
                 double gap = Math.Abs(shown - arrived) / start * 100;
-                if (climbing) worstClimb = Math.Max(worstClimb, gap);
+                if (fromPlan) worstClimb = Math.Max(worstClimb, gap);
                 else { worst = Math.Max(worst, gap); after++; }
             }
 

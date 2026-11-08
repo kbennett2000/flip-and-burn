@@ -62,6 +62,8 @@ namespace FlipAndBurn.Core.Guidance
             {
                 case GuidancePhase.Coast:
                     return Capped(WarpMode.Rails, cmd.TimeToBurn, RailsLeadSeconds, "coasting, engine off", "braking burn");
+                case GuidancePhase.Waiting:   // moon trips: waiting in orbit for the departure window (ADR 0005)
+                    return Capped(WarpMode.Rails, cmd.TimeToBurn, RailsLeadSeconds, "waiting in orbit, engine off", "burn");
                 case GuidancePhase.Accelerate:
                     return Capped(WarpMode.Physics, cmd.TimeToFlip, PhysicsLeadSeconds, "speeding up", coastTrip ? "coast" : "flip");
                 default: // Decelerate, FinalApproach

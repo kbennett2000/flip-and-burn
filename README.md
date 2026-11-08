@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="docs/images/banner.jpg" alt="Flip and Burn: Expanse-style travel between planets for Kerbal Space Program" width="100%">
+  <img src="docs/images/banner.jpg" alt="Flip and Burn: Expanse-style travel between planets and moons for Kerbal Space Program" width="100%">
 </p>
 
 <p align="center">
-  <b>Expanse-style constant-thrust travel between planets, for Kerbal Space Program.</b><br>
+  <b>Expanse-style constant-thrust travel between planets and moons, for Kerbal Space Program.</b><br>
   KSP 1.12 · MechJeb 2.15+ · Public domain
 </p>
 
@@ -11,8 +11,9 @@
 
 In *The Expanse*, ships don't wait for transfer windows. They point at where they're going and burn the whole way:
 speed up for half the trip, **flip** end over end at the midpoint, and **burn** the other half to slow down, arriving
-gently. Flip and Burn lets your Kerbals travel like that. Pick a planet and an acceleration, and press Start. It works out
-the trip, flies it, flips at the right moment, handles time warp, and parks you in a neat circular orbit at the other end.
+gently. Flip and Burn lets your Kerbals travel like that. Pick a planet or a moon and an acceleration, and press Start.
+It works out the trip, flies it, flips at the right moment, handles time warp, and parks you in a neat circular orbit at
+the other end.
 
 <p align="center">
   <img src="docs/images/hero.jpg" alt="The Bebop Refueller turning end over end under thrust, the Sun behind it, with the Flip and Burn window showing" width="80%">
@@ -24,6 +25,8 @@ the trip, flies it, flips at the right moment, handles time warp, and parks you 
   your ship has enough fuel.
 - **Flies the whole thing for you:** steering, throttle and time warp, from your parking orbit at home to a circular
   orbit at the destination.
+- **Between planets, and to their moons:** from a planet's orbit to another planet or to one of its own moons, from a
+  moon back to its planet, or from one moon to another (the Mun to Minmus). See [moon trips](docs/ways-to-fly.md#moon-trips).
 - **Two ways to fly:** burn the whole way (fastest), or burn, coast, then burn (much cheaper on fuel). If your ship
   can't afford the fast way, it suggests the cheaper one.
 - **Two flip styles:** cut the engine, turn, relight; or keep the engine firing and swing around under thrust.
@@ -47,7 +50,7 @@ what make trips like these practical. Stock engines work too, mostly on coast tr
 1. Download `FlipAndBurn-1.1.0.zip` from the [releases page](https://github.com/kbennett2000/flip-and-burn/releases), and
    copy the `FlipAndBurn` folder from inside it into your KSP `GameData` folder ([step by step](docs/installing.md)).
 2. In orbit around a planet, open MechJeb's menu and click **Flip and Burn**.
-3. Pick a planet, check the plan, and press **Start**.
+3. Pick a planet or a moon, check the plan, and press **Start**.
 
 The [first trip walkthrough](docs/first-trip.md) goes through it step by step, from Kerbin orbit to parked at Duna.
 

@@ -27,6 +27,18 @@ namespace FlipAndBurn.Core.Guidance
         private readonly IEphemeris frame;
         private readonly double frameMu, sunMu;
         private readonly bool frameFeelsSun;
+        // Moon trips: other bodies that pull on the ship (the moon it is leaving), on their own orbits around the centre.
+        private readonly System.Collections.Generic.List<(IEphemeris Ephemeris, double Mu)> extra =
+            new System.Collections.Generic.List<(IEphemeris, double)>();
+
+        /// <summary>
+        /// Moon trips (ADR 0005): another body that pulls on the ship, such as the moon it is leaving. Its pull on the frame
+        /// isn't counted: in KSP moons move on fixed orbits around their planet.
+        /// </summary>
+        public void AddBody(IEphemeris ephemeris, double gravParameter)
+        {
+            if (ephemeris != null && gravParameter > 0) extra.Add((ephemeris, gravParameter));
+        }
 
         public PathGravity(IEphemeris frame, double frameGravParameter, double sunGravParameter, bool frameFeelsSun)
         {
@@ -85,13 +97,81 @@ namespace FlipAndBurn.Core.Guidance
         public Vec3 Acceleration(double ut, Vec3 rel)
         {
             Vec3 g = Pull(rel, frameMu);
-            if (sunMu > 0)
+            if (sunMu > 0 || extra.Count > 0)
             {
                 Vec3 framePos = frame.StateAt(ut).Position;
-                g += Pull(framePos + rel, sunMu) - (frameFeelsSun ? Pull(framePos, sunMu) : Vec3.Zero);
+                if (sunMu > 0) g += Pull(framePos + rel, sunMu) - (frameFeelsSun ? Pull(framePos, sunMu) : Vec3.Zero);
+                foreach ((IEphemeris e, double mu) in extra)
+                    g += Pull(framePos + rel - e.StateAt(ut).Position, mu);
             }
 
             return g;
+        }
+
+        /// <summary>
+        /// Moon trips (ADR 0005): what gravity adds over a planned burn, along the path the ship will really fly. Thrust
+        /// <paramref name="a1"/> for <paramref name="t1"/> s, a coast of <paramref name="tc"/> s, then <paramref name="a2"/>
+        /// for <paramref name="t2"/> s, from (r, v) relative to the frame now, gravity included. Near a planet its pull is
+        /// a large share of the thrust (leaving a low Kerbin orbit, three quarters of 1 g), and a smooth curve from here to
+        /// the arrival is far from where the ship will be, so the path is flown instead: RK4 with the steps crowded toward
+        /// the start and end of each part, where gravity changes fastest. Returns g1 = ∫ g ds and g2 = ∫ (t - s) g ds.
+        /// </summary>
+        /// <param name="visit">If given, called after every step with the time since <paramref name="ut"/> and the ship's
+        /// position and velocity relative to the frame.</param>
+        public void IntegratePlanned(double ut, Vec3 r, Vec3 v, Vec3 a1, double t1, double tc, Vec3 a2, double t2,
+            out Vec3 g1, out Vec3 g2, int stepsPerPart = 40, Action<double, Vec3, Vec3> visit = null)
+        {
+            var s = new Flown { R = r, V = v };
+            double clock = 0;
+            Part(ref s, ref clock, a1, t1, stepsPerPart);
+            Part(ref s, ref clock, Vec3.Zero, tc, stepsPerPart);
+            Part(ref s, ref clock, a2, t2, stepsPerPart);
+            g1 = s.G1;
+            g2 = s.G2;
+
+            void Part(ref Flown state, ref double start, Vec3 thrust, double length, int n)
+            {
+                if (!(length > 0)) return;
+                double from = 0;
+                for (int i = 1; i <= n; i++)
+                {
+                    // Crowded at both ends of the part: s = L (1 - cos(pi x)) / 2.
+                    double to = length * (1 - Math.Cos(Math.PI * i / n)) / 2;
+                    state = Rk4(ut + start, state, thrust, from, to - from);
+                    from = to;
+                    visit?.Invoke(start + to, state.R, state.V);
+                }
+
+                start += length;
+            }
+        }
+
+        // The ship relative to the frame, with the running gravity sums: G1' = g, G2' = G1 (so G2 = ∫ (t - s) g ds at the end).
+        private struct Flown
+        {
+            public Vec3 R, V, G1, G2;
+        }
+
+        private Flown Rk4(double partStartUT, Flown s, Vec3 thrust, double t, double h)
+        {
+            Vec3 ga = Acceleration(partStartUT + t, s.R);
+            Vec3 k1r = s.V, k1v = ga + thrust, k1g = ga, k1h = s.G1;
+            Vec3 r2 = s.R + k1r * (h / 2), v2 = s.V + k1v * (h / 2);
+            Vec3 gb = Acceleration(partStartUT + t + h / 2, r2);
+            Vec3 k2r = v2, k2v = gb + thrust, k2g = gb, k2h = s.G1 + k1g * (h / 2);
+            Vec3 r3 = s.R + k2r * (h / 2), v3 = s.V + k2v * (h / 2);
+            Vec3 gc = Acceleration(partStartUT + t + h / 2, r3);
+            Vec3 k3r = v3, k3v = gc + thrust, k3g = gc, k3h = s.G1 + k2g * (h / 2);
+            Vec3 r4 = s.R + k3r * h, v4 = s.V + k3v * h;
+            Vec3 gd = Acceleration(partStartUT + t + h, r4);
+            Vec3 k4r = v4, k4v = gd + thrust, k4g = gd, k4h = s.G1 + k3g * h;
+            return new Flown
+            {
+                R = s.R + (k1r + k2r * 2 + k3r * 2 + k4r) * (h / 6),
+                V = s.V + (k1v + k2v * 2 + k3v * 2 + k4v) * (h / 6),
+                G1 = s.G1 + (k1g + k2g * 2 + k3g * 2 + k4g) * (h / 6),
+                G2 = s.G2 + (k1h + k2h * 2 + k3h * 2 + k4h) * (h / 6),
+            };
         }
 
         /// <summary>

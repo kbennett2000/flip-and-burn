@@ -241,10 +241,18 @@ namespace FlipAndBurn
                     GuiUtils.SimpleLabel(t.Trip == TripType.CoastInTheMiddle ? "Coast starts in" : "Flip in", Planner.FormatTime(c.TimeToFlip));
                 if (c.Phase == GuidancePhase.Coast)
                     GuiUtils.SimpleLabel("Braking starts in", Planner.FormatTime(c.TimeToBurn));
+                if (c.Phase == GuidancePhase.Waiting)
+                    GuiUtils.SimpleLabel("Burn starts in", Planner.FormatTime(c.TimeToBurn));
                 GuiUtils.SimpleLabel("Arrival in", Planner.FormatTime(c.TimeToArrival));
-                GuiUtils.SimpleLabel("Acceleration", c.Phase == GuidancePhase.Coast && !c.Correcting
+                GuiUtils.SimpleLabel("Acceleration", c.Phase == GuidancePhase.Waiting
+                    ? "engine off (waiting in orbit)"
+                    : c.Phase == GuidancePhase.Coast && !c.Correcting
                     ? "engine off (coasting)"
-                    : $"{Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (aiming for {Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)})");
+                    : $"{Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (aiming for {Planner.FormatG(pilot.AimingFor / Planner.OneG)})");
+                // Braking into strong gravity aims below the chosen acceleration: say why, on its own line, so it isn't taken
+                // for the engines overheating.
+                if (pilot.AimingWhy != null && c.Phase != GuidancePhase.Waiting && !(c.Phase == GuidancePhase.Coast && !c.Correcting))
+                    GUILayout.Label($"Aiming below {Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)}: {pilot.AimingWhy}. The engines aren't overheating.", wrapStyle);
                 GuiUtils.SimpleLabel("Pointing off by", $"{pilot.PointingError:0.0}°");
             }
 
@@ -322,6 +330,7 @@ namespace FlipAndBurn
                 case GuidancePhase.Accelerate: return c.Departing ? "speeding up (climbing out of orbit)" : "speeding up";
                 case GuidancePhase.Flip: return "flip";
                 case GuidancePhase.Coast: return c.Correcting ? "coasting (course correction)" : "coasting, engine off";
+                case GuidancePhase.Waiting: return "waiting in orbit, engine off: coming round to the target's side";
                 case GuidancePhase.Decelerate: return "slowing down";
                 case GuidancePhase.FinalApproach: return c.Circularizing ? "final approach (settling into orbit)" : "final approach";
                 default: return "arrived";
@@ -337,11 +346,19 @@ namespace FlipAndBurn
                 return;
             }
 
+            // Grouped (ADR 0005): the moons Flip and Burn can reach from here under their planet, and the planets.
             GUILayout.Label("Fly to");
-            string[] names = targets.Select(Planner.BodyName).ToArray();
-            int selected = targets.FindIndex(b => b.bodyName == Planner.TargetName);
-            int picked = GUILayout.SelectionGrid(selected, names, 4);
-            if (picked != selected && picked >= 0) Planner.SelectTarget(targets[picked].bodyName);
+            foreach (TargetGroup group in Planner.TargetGroups)
+            {
+                if (group.Bodies.Count == 0) continue;
+                GUILayout.Label(group.Heading, wrapStyle);
+                string[] names = group.Bodies.Select(Planner.BodyName).ToArray();
+                int selected = group.Bodies.FindIndex(b => b.bodyName == Planner.TargetName);
+                int picked = GUILayout.SelectionGrid(selected, names, 4);
+                if (picked != selected && picked >= 0) Planner.SelectTarget(group.Bodies[picked].bodyName);
+            }
+
+            if (Planner.TargetListNote != null) GUILayout.Label(Planner.TargetListNote, wrapStyle);
 
             GUILayout.Space(4);
             GuiUtils.SimpleTextBox("Acceleration", AccelerationG, "g", 60);

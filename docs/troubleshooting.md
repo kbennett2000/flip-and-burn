@@ -92,8 +92,27 @@ It aims for a circular orbit at the parking altitude and usually lands within a 
 
 ### Can I go to a moon?
 
-Not directly. Flip and Burn flies between planets, the bodies that orbit the Sun. Fly to the planet, then use MechJeb's
-own tools for the hop to its moon. From a moon, get into orbit around its planet first.
+Yes, inside one planet's system:
+- from a planet's orbit to one of its moons (Kerbin to the Mun or Minmus, Jool to Laythe);
+- from a moon back to its planet;
+- from one moon to another of the same planet (the Mun to Minmus).
+
+The **Fly to** list shows them under their planet. A moon of *another* planet isn't offered yet: fly to that planet first,
+then on to its moon. From a moon to another planet, get into orbit around this moon's planet first. See
+[moon trips](ways-to-fly.md#moon-trips).
+
+### Why does my moon trip wait before it burns?
+
+The planet (or the moon you're leaving) is between your ship and the target. Burning now would aim through it, so the
+ship waits in its orbit, engine off and pointing the right way, until it has come round to the target's side. Time warp
+runs while it waits. It's never more than one orbit (about half an hour in a low Kerbin orbit), costs no fuel, and the
+planner's trip time includes it.
+
+### A coast trip to a moon needs much more delta-v than I expected
+
+Inside a planet's strong pull, Flip and Burn can't yet find the very slow, cheap transfers that MechJeb's own transfer
+tools fly. A coast trip there needs roughly half a full burn's delta-v or more. If none fits, the planner says so; a full
+burn, or MechJeb's transfer tools, will do.
 
 ### Does it work with Outer Planets Mod and other planet packs?
 
