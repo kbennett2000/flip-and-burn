@@ -42,10 +42,12 @@ trip then waits until you come back.) See [Saving, pausing and switching ships](
 That's the trip flying on without you: the burns use fuel and electric charge as they would with you watching. See
 [Fleet flights](saving-and-pausing.md#fleet-flights-trips-that-fly-without-you).
 
-### Time warp keeps stepping down while a ship I left is on a trip
+### Time warp drops by itself while a ship I left is on a trip
 
-That's on purpose: a ship you left is close to arriving, or warp is faster than Flip and Burn can fly it. Warp steps
-down until the ship is flown in time, so its arrival (and the message) comes when it really arrives.
+That's on purpose, and a message says which ship is holding it ("time warp held at 1,000x: Bebop V2.4 is flying to
+Dres on its own and needs it to keep up"). Either warp is faster than Flip and Burn can fly that ship, or the ship is
+about to start a burn or arrive. Warp drops straight to a rate the ship can keep up with, so it stays where it should
+be and its arrival (and the message) comes on time. It climbs back by itself, a step at a time, once the ship keeps up.
 
 ### Time warp stopped by itself while I was flying another ship
 
