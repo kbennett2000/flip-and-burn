@@ -96,12 +96,8 @@ often runs below full throttle, and the planner counts that too.
 
 On top of that, the plan sets aside extra for steering and course corrections. Most trips don't need all of it, so
 they usually arrive with a bit more than 10%. The trip window shows what the ship will most likely have left at
-arrival:
-- **Once the ship is on its way** (out of the pull of the planet it left, or on a moon trip, coasting), the figure is
-  worked out from the burning still to do. In testing it matched the arrival to within about a point: 0.3 points on a
-  coast trip to Duna, at most 1.2 on a coast from Jool to Tylo.
-- **Before that** (at Start, while leaving the planet, and on a moon trip until it coasts), it's cautious: it can read a
-  few points low (2.5 to 3.6 points in those two tests), because trips usually use less than the plan allows.
+arrival: at Start from the plan, then from the burning still to do. In testing it matched the arrival to within a point
+all the way: within 0.9 points on a coast trip to Duna, and 0.7 on a coast from Jool to Tylo.
 
 If that figure heads below 10% for any reason, the window says so in plain words, with the reason.
 

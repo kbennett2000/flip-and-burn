@@ -176,6 +176,13 @@ sphere, the planned share otherwise; the floor costs the same way), and the simu
   burns, braking 0.4 % over its price, shown at Start 13.82 % against 14.82 % arrived (1.00 point); Tylo 1.1 % over,
   0.37 point; Jool and Duna unchanged; Laythe 0.9 % under, 2.06 points low (not met, reported). Planned trip times:
   trip R 422,550 s → 406,491 s (−3.8 %), the Tylo coast 7,700 → 7,580 s (−1.6 %).
+- **The course correction still to burn** is counted in the burning left: at the start of a moon coast the guidance
+  corrects about 350 m/s over a minute, and the reserve shown read 1.3 points high there (1.8 in the game, run 17).
+- **In the game, the 1.2.0 candidate (run 18, test copy, fuel counted), every figure gated within a point: PASSED.**
+  Trip R 59.86 x 60.24 km, 14.69 % left, +22 s; shown 13.82 % at Start (0.87 low), every figure within 0.87; planned
+  460,460 s (476,829 s with the Isp loss counted twice, 457,859 s before it was counted). The Tylo coast 29.70 x
+  30.32 km, 13.30 % left, +40 s; shown 13.82 % at Start (0.52 high), every figure within 0.70; planned 8,296 s (8,428 s
+  before). Gated in `ReserveShownTests.ShownReserve_InTheGame`.
 
 ### The Sun in the way
 

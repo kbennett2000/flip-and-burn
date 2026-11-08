@@ -65,22 +65,28 @@ namespace FlipAndBurn.Core.Tests
             double shownGuide = ReserveWatch.ExpectedAtArrival(116_051, ReserveWatch.ExpectedUse(104_446, true), 0);
             output.WriteLine($"the guide's trip: shown {shownGuide / 116_051 * 100:F2} %, arrived 13.10 %");
             Assert.InRange(shownGuide / 116_051 * 100 - 13.10, -1.0, 1.0);
-            // Trip R (0.4 g coast to Duna, cycle 15, in-game run 9, on this planner; also gated in the harness, CheckReserveShown):
-            // 73,397 m/s at Start, 66,058 planned with the margin, arrived with 10,451 m/s (14.24 %).
+            // Trip R (0.4 g coast to Duna, fuel counted; in-game run 18, the 1.2.0 candidate, braking priced at the throttle
+            // flown; also gated in the harness, CheckReserveShown): 73,397 m/s at Start, 66,058 planned with the margin,
+            // arrived with 10,782 m/s (14.69 %).
             double shownR = ReserveWatch.ExpectedAtArrival(73_397, ReserveWatch.ExpectedUse(66_058, true), 0);
-            output.WriteLine($"trip R: shown {shownR / 73_397 * 100:F2} %, arrived 14.24 %");
-            Assert.InRange(shownR / 73_397 * 100 - 14.24, -1.0, 1.0);
+            output.WriteLine($"trip R: shown {shownR / 73_397 * 100:F2} %, arrived 14.69 %");
+            Assert.InRange(shownR / 73_397 * 100 - 14.69, -1.0, 1.0);
+            // The Tylo coast (1 g from a low Jool orbit, fuel counted, run 18): 30,805 m/s at Start, 27,724 planned with the
+            // margin, arrived with 4,097 m/s (13.30 %).
+            double shownT = ReserveWatch.ExpectedAtArrival(30_805, ReserveWatch.ExpectedUse(27_724, true), 0);
+            output.WriteLine($"the Tylo coast: shown {shownT / 30_805 * 100:F2} %, arrived 13.30 %");
+            Assert.InRange(shownT / 30_805 * 100 - 13.30, -1.0, 1.0);
         }
 
-        // History, not a gate: trip B (0.4 g, cycle 11) was flown on a planner that no longer exists (before the climb-out and
-        // the braking floor), so it can't judge this one. 73,397 m/s at Start, 66,058 planned with the margin, arrived with
-        // 9,201 m/s (12.54 %).
+        // History, not a gate: in-game trips flown on planners that no longer exist. Trip B (cycle 11, before the climb-out
+        // and the braking floor): shown 13.82 %, arrived 12.54 %. Trip R on run 9 (before the Isp loss was counted): 14.24 %;
+        // on run 14 (the Isp loss counted twice): 17.39 %; the Tylo coast on run 14: 16.32 % (shown 13.82 % each time).
         [Fact]
-        public void ShownReserve_TripB_History()
+        public void ShownReserve_History()
         {
-            double shownB = ReserveWatch.ExpectedAtArrival(73_397, ReserveWatch.ExpectedUse(66_058, true), 0);
-            output.WriteLine($"trip B (old planner, history only): shown {shownB / 73_397 * 100:F2} %, arrived 12.54 % " +
-                             $"(gap {shownB / 73_397 * 100 - 12.54:+0.00;-0.00} points)");
+            double shown = ReserveWatch.ExpectedAtArrival(73_397, ReserveWatch.ExpectedUse(66_058, true), 0) / 73_397 * 100;
+            foreach ((string trip, double arrived) in new[] { ("trip B", 12.54), ("trip R, run 9", 14.24), ("trip R, run 14", 17.39) })
+                output.WriteLine($"{trip} (history only): shown {shown:F2} %, arrived {arrived:F2} % (gap {shown - arrived:+0.00;-0.00} points)");
         }
     }
 }
