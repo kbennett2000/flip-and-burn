@@ -187,6 +187,13 @@ namespace FlipAndBurn.TestHarness
                 if (failed) yield break;
             }
 
+            // Kris's Jibar Tightbeam Antenna (his part): only when asked, "jibartightbeam".
+            if ((wanted ?? "").Split(',').Contains("jibartightbeam"))
+            {
+                yield return ProofJibarTightbeam();
+                if (failed) yield break;
+            }
+
             if ((wanted ?? "").Split(',').Contains("jibarrcs"))
             {
                 yield return ProofJibarRcs();
