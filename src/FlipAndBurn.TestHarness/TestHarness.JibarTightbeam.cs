@@ -177,14 +177,16 @@ namespace FlipAndBurn.TestHarness
             yield return CommMapShot(vB.mapObject, (float)(DistanceFromKerbin(vB, kerbin) * 0.75 / 6000), "Path", "jibar-tightbeam-6-relayed-path-map.png");
 
             // ---- 6. the edge of the system, and Tightbeam to Tightbeam across it. The Eeloo-distance Tightbeam is taken away
-            // first: CommNet takes the strongest route, and two strong hops through it beat one weak direct hop, so with it
-            // there the direct links aren't tested (run 1).
+            // first (while it is loaded beside the active probe; Die on a ship that isn't loaded throws, run 2): CommNet takes
+            // the strongest route, and two strong hops through it beat one weak direct hop, so with it there the direct links
+            // aren't tested (run 1). The small-antenna probe stays: its antenna can't relay.
+            Log($"jibar tightbeam: before taking the Eeloo-distance Tightbeam away: {vC.vesselName} path: {PathText(vC.Connection?.ControlPath)}");
+            Log($"jibar tightbeam: taking away {vA.vesselName} (loaded {vA.loaded}, active {vA == FlightGlobals.ActiveVessel})");
+            vA.Die();
+            yield return new WaitForSecondsRealtime(2f);
             yield return SwitchTo(pC, "jibartightbeam");
             if (failed) yield break;
             vC = pC.vesselRef;
-            Log($"jibar tightbeam: before taking the Eeloo-distance pair away: {vC.vesselName} path: {PathText(vC.Connection?.ControlPath)}");
-            vB.Die();
-            vA.Die();
             yield return new WaitForSecondsRealtime(10f);
             Describe(vC, kerbin);
             Describe(vD, kerbin);
