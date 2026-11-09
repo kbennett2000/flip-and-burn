@@ -176,29 +176,29 @@ namespace FlipAndBurn.TestHarness
             yield return Shot("jibar-tightbeam-5-small-antenna-probe.png", null);
             yield return CommMapShot(vB.mapObject, (float)(DistanceFromKerbin(vB, kerbin) * 0.75 / 6000), "Path", "jibar-tightbeam-6-relayed-path-map.png");
 
-            // ---- 6. the edge of the system, and Tightbeam to Tightbeam across it. The Eeloo-distance Tightbeam is taken away
-            // first (while it is loaded beside the active probe; Die on a ship that isn't loaded throws, run 2): CommNet takes
-            // the strongest route, and two strong hops through it beat one weak direct hop, so with it there the direct links
-            // aren't tested (run 1). The small-antenna probe stays: its antenna can't relay.
-            Log($"jibar tightbeam: before taking the Eeloo-distance Tightbeam away: {vC.vesselName} path: {PathText(vC.Connection?.ControlPath)}");
-            Log($"jibar tightbeam: taking away {vA.vesselName} (loaded {vA.loaded}, active {vA == FlightGlobals.ActiveVessel})");
-            vA.Die();
-            yield return new WaitForSecondsRealtime(2f);
-            yield return SwitchTo(pC, "jibartightbeam");
-            if (failed) yield break;
-            vC = pC.vesselRef;
-            yield return new WaitForSecondsRealtime(10f);
+            // ---- 6. the edge of the system, and Tightbeam to Tightbeam across it. CommNet sends a signal by the strongest
+            // route, and the test copy has other relays (Kris's ships, and the Eeloo-distance Tightbeam), so the route a far
+            // probe takes needn't be its direct link (runs 1 and 3). What is checked here is the links CommNet built: a direct
+            // link from each far Tightbeam to a ground station on Kerbin, and one between the two of them.
             Describe(vC, kerbin);
             Describe(vD, kerbin);
-            CommNetVessel cC = vC.Connection, cD = vD.Connection;
-            BeamCheck("connects to Kerbin from Plock's farthest distance", cC != null && cC.IsConnected && cC.ControlPath.Count == 1 && Ends(cC.ControlPath, cC.Comm, true),
-                $"{DistanceFromKerbin(vC, kerbin) / 1e9:F1} Gm from Kerbin, connected {cC?.IsConnected}, signal {cC?.SignalStrength:P1}");
-            var across = new CommPath();
-            bool found = cC != null && cD != null && CommNetNetwork.Instance.CommNet.FindPath(cC.Comm, across, cD.Comm);
+            CommNode nC = vC.Connection?.Comm, nD = vD.Connection?.Comm;
+            foreach ((string what, CommNode n, Vessel v) in new[] { ("Plock's farthest distance", nC, vC), ("across from it", nD, vD) })
+            {
+                var home = n == null ? new System.Collections.Generic.List<CommNode>() : n.Keys.Where(k => k.isHome).ToList();
+                CommNode best = home.OrderByDescending(k => n[k].signalStrength).FirstOrDefault();
+                Log($"jibar tightbeam: {v.vesselName}: direct links {n?.Count}: " + (n == null ? "none" : string.Join(" ; ", n.Keys.Select(k =>
+                    $"{k.displayName}{(k.isHome ? " (ground station)" : "")} {Vector3d.Distance(k.position, n.position) / 1e9:F1} Gm, strength {n[k].signalStrength:P1}"))));
+                BeamCheck($"a direct link to Kerbin from {what}", best != null,
+                    best == null ? $"{DistanceFromKerbin(v, kerbin) / 1e9:F1} Gm from Kerbin, no direct link to a ground station"
+                        : $"{DistanceFromKerbin(v, kerbin) / 1e9:F1} Gm from Kerbin, linked straight to {best.displayName} ({Vector3d.Distance(best.position, n.position) / 1e9:F1} Gm, " +
+                          $"strength {n[best].signalStrength:P1}); {home.Count} ground stations in reach; connected {v.Connection.IsConnected}");
+            }
+
             double apart = Vector3d.Distance(Where(vC), Where(vD));
-            Log($"jibar tightbeam: Tightbeam to Tightbeam: {apart / 1e9:F1} Gm apart; path found {found}: {PathText(across)}");
-            BeamCheck("two Tightbeams link across the system", found && across.Count == 1 && apart > 1.3e12,
-                $"{apart / 1e9:F1} Gm apart, hops {across.Count}");
+            bool linked = nC != null && nD != null && nC.ContainsKey(nD);
+            BeamCheck("two Tightbeams link across the system", linked && apart > 1.3e12,
+                $"{apart / 1e9:F1} Gm apart, direct link {linked}{(linked ? $", strength {nC[nD].signalStrength:P1}" : "")}");
             yield return CommMapShot(FlightGlobals.Bodies.First(b => b.referenceBody == b || b.orbit == null).MapObject, 2.2e8f, "Network", "jibar-tightbeam-7-system-map.png");
 
             Log($"jibar tightbeam: {(beamOk ? "ALL AS SET" : "SOME NOT AS SET (see above)")}");
