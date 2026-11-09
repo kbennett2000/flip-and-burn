@@ -55,6 +55,14 @@ namespace FlipAndBurn.Core
             /// <summary>The pace measured within the last <see cref="PaceMemorySeconds"/> (NaN or 0 when none): keeps warp under it.</summary>
             public double RecentPace;
 
+            /// <summary>
+            /// The pace the trip could fly with its share of the frame, worked out every frame from the computing time it used
+            /// for the game seconds it flew (NaN or 0 when not known). Known even while the trip keeps up, so warp never climbs
+            /// past it to find out: in game (runs 16 and 19), trying a notch faster reached 10,000x for a ship flying about
+            /// 1,000x as it left Duna, and one frame there put it 93 to 136 s behind.
+            /// </summary>
+            public double ComputePace;
+
             /// <summary>Game seconds until the game clock reaches the trip's expected arrival (NaN when not known).</summary>
             public double ClockToArrival;
 
@@ -93,6 +101,12 @@ namespace FlipAndBurn.Core
             else if (t.RecentPace > 0)
             {
                 allowed = KeepUpShare * t.RecentPace;
+                reason = Reason.KeepingUp;
+            }
+
+            if (t.ComputePace > 0 && KeepUpShare * t.ComputePace < allowed)
+            {
+                allowed = KeepUpShare * t.ComputePace;
                 reason = Reason.KeepingUp;
             }
 

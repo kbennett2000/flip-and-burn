@@ -124,7 +124,7 @@ namespace FlipAndBurn
                 foreach (AwayTrip t in Trips.Values)
                     Debug.Log($"[FlipAndBurn] fleet: {t.ShipName} to {t.TargetName}: {t.Flight.Last?.Phase}, {Math.Max(0, now - t.Flight.UT):F1} s behind the game clock, " +
                               $"{t.Flight.Steps} steps; delta-v used {t.Record.DeltaVUsed:F0} m/s; arrival planned at UT {t.Record.PlannedArrivalUT:F0}; " +
-                              $"furthest behind {t.MaxLag:F1} s; pace {t.Pace:F0} game s per real s; " +
+                              $"furthest behind {t.MaxLag:F1} s; pace {t.Pace:F0} game s per real s (could fly {t.ComputePace:F0}); " +
                               $"warp held {t.WarpHolds} times ({t.WarpHoldSeconds:F0} s real); orbit write check {t.MaxWriteError:F3} m");
             }
         }
@@ -162,6 +162,7 @@ namespace FlipAndBurn
                     Lag = now - t.Flight.UT,
                     Pace = t.CutShort ? t.Pace : double.NaN,
                     RecentPace = Time.realtimeSinceStartup - t.PacedAt < FleetWarpHold.PaceMemorySeconds ? t.Pace : double.NaN,
+                    ComputePace = t.ComputePace,
                     ClockToArrival = toArrival > 0 ? t.Flight.UT + toArrival - now : double.NaN,
                     ClockToNextBurn = toBurn > 0 ? t.Flight.UT + toBurn - now : double.NaN,
                 });
@@ -355,7 +356,7 @@ namespace FlipAndBurn
             if (v.loaded && !v.packed) return;   // in the physics range of the ship being flown: KSP moves it
             try
             {
-                double from = t.Flight.UT;
+                double from = t.Flight.UT, msFrom = clock.Elapsed.TotalMilliseconds;
                 bool ran = false;
                 while (!t.Flight.Finished && t.Flight.UT < now - 1e-9 && clock.Elapsed.TotalMilliseconds < FrameBudgetMs)
                 {
@@ -375,6 +376,16 @@ namespace FlipAndBurn
                     t.PacedAt = Time.realtimeSinceStartup;
                 }
                 Write(t);
+                // What it could fly with its share of the frame, from the computing time it used (writing the orbit included):
+                // known even while it keeps up, so time warp never climbs past it (FleetWarpHold.Trip.ComputePace).
+                double spentMs = clock.Elapsed.TotalMilliseconds - msFrom, flown = t.Flight.UT - from;
+                if (ran && flown > 0 && spentMs > 0.005 && Time.unscaledDeltaTime > 0)
+                {
+                    double share = FrameBudgetMs / Math.Max(1, Trips.Count);
+                    double could = flown / spentMs * share / Time.unscaledDeltaTime;
+                    t.ComputePace = double.IsNaN(t.ComputePace) ? could : 0.7 * t.ComputePace + 0.3 * could;
+                }
+
                 if (t.Flight.Finished) Finish(t);
             }
             catch (Exception e)
@@ -618,6 +629,8 @@ namespace FlipAndBurn
         public bool CutShort;
         /// <summary>When (real time) the pace was last measured.</summary>
         public float PacedAt = -1000;
+        /// <summary>The pace it could fly with its share of the frame, from the computing time it uses (NaN until measured).</summary>
+        public double ComputePace = double.NaN;
         public string Report;
         public double EndedUT = double.NaN;
 

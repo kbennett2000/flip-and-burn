@@ -82,7 +82,13 @@ A KSP add-on present in every scene, acting in flight, the Space Center and the 
   warp under it after the trip has caught up, so warp only tries a notch faster once that is past (in-game run 13,
   without it: climbing a notch a second after each drop reached 10,000x for a trip flying 500x, 258 s behind). And a
   notch counts as kept up only once warp really runs at it (KSP ramps to a new rate): run 14, counting from the request,
-  went from 100x to 10,000x in two seconds for a trip flying 600x, 139 s behind. A message names the ship holding warp: "Flip and
+  went from 100x to 10,000x in two seconds for a trip flying 600x, 139 s behind.
+  - **No blind climbs (cycle 15b, first commit).** Even so, ten seconds after a drop warp still tried a notch faster to
+    find out whether a trip could keep up: leaving Duna, with the V2.4's pace near 550-1,000, it reached 10,000x and one
+    frame there put it 92.8 s behind in run 16 and 136.2 s in run 19 (the 1.2.0 candidate; arrivals on the clock both
+    times). Now each trip's pace is also worked out every frame from the computing time it used for the game seconds it
+    flew, with its share of the frame (`FleetWarpHold.Trip.ComputePace`), known even while it keeps up; warp stays under
+    90 % of it. Simulator (`LeavingAPlanet_NoBlindClimbs`): 1,650 s behind without it, never behind with it. A message names the ship holding warp: "Flip and
   Burn: time warp held at 1,000x: Bebop V2.4 is flying to Dres on its own and needs it to keep up." (or "… arrives at
   Dres soon", "… starts its next burn on the way to Dres soon"), at most every 5 seconds. The hold counters, logged for every trip: how far behind the clock it ever got,
   and how long after the clock passed its end it ended.

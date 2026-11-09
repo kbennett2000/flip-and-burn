@@ -70,6 +70,63 @@ namespace FlipAndBurn.Core.Tests
         }
 
         [Fact]
+        public void ComputePace_WarpNeverClimbsPastIt()
+        {
+            // Keeping up at 100x, but its computing time says it could fly only about 1,000x: warp may go to 100x, not 1,000x
+            // (90 % of 1,000), and never tries 10,000x to find out.
+            var cap = new FleetWarpHold.Cap();
+            var t = new FleetWarpHold.Trip { Name = "V2.4", Lag = 0, Pace = double.NaN, ComputePace = 1000, ClockToArrival = double.NaN };
+            Assert.Equal(4, cap.Update(Rates, 100000, new[] { t }, 0.02));
+            for (int i = 0; i < 30; i++) Assert.Equal(4, cap.Update(Rates, 100, new[] { t }, 0.5));
+            // In the cruise it could fly 700,000x: warp climbs back a notch a second to the top.
+            t.ComputePace = 700_000;
+            for (int i = 0; i < 6; i++) cap.Update(Rates, Rates[Math.Min(7, cap.Index)], new[] { t }, 1.0);
+            Assert.Equal(7, cap.Index);
+        }
+
+        /// <summary>
+        /// Leaving a planet, the ship's pace wanders between 550 and 1,500 game s per real s while the player asks for
+        /// 100,000x. Without the computing-time estimate, warp tries a notch faster ten seconds after each drop and a frame at
+        /// 10,000x puts the ship over a minute behind (in game: 93 and 136 s); with it, warp stays under what the ship can fly.
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void LeavingAPlanet_NoBlindClimbs(bool computePace)
+        {
+            const double frame = 1.0 / 60;
+            double Pace(double ut) => ut < 2e5 ? 1000 + 450 * Math.Sin(ut / 3000) : 700_000;
+            double clock = 0, flight = 0, maxLag = 0, real = 0, pacedAt = -100, lastPace = double.NaN;
+            int index = 0;   // warp starts at normal speed; the player asks for the top rate and gets the cap
+            var cap = new FleetWarpHold.Cap();
+            var rng = new Random(7);
+            while (flight < 3e5 && real < 3600)
+            {
+                double rate = Rates[index];
+                clock += rate * frame;
+                real += frame;
+                double can = Pace(flight) * frame;
+                bool cutShort = clock - flight > can;
+                flight = Math.Min(clock, flight + can);
+                double lag = clock - flight;
+                maxLag = Math.Max(maxLag, lag);
+                if (cutShort) { lastPace = Pace(flight); pacedAt = real; }
+                var t = new FleetWarpHold.Trip
+                {
+                    Name = "V2.4", Lag = lag, Pace = cutShort ? Pace(flight) : double.NaN,
+                    RecentPace = real - pacedAt < FleetWarpHold.PaceMemorySeconds ? lastPace : double.NaN,
+                    ComputePace = computePace ? Pace(flight) * (0.9 + 0.2 * rng.NextDouble()) : double.NaN,   // within 10 %
+                    ClockToArrival = 4.5e6 - clock,
+                };
+                index = Math.Min(Rates.Length - 1, cap.Update(Rates, rate, new[] { t }, frame));
+            }
+
+            output.WriteLine($"{(computePace ? "with" : "without")} the computing-time estimate: furthest behind {maxLag:F0} s of game time");
+            if (computePace) Assert.InRange(maxLag, 0, 10);
+            else Assert.True(maxLag > 60, "without it, the blind climbs should show");
+        }
+
+        [Fact]
         public void KeepingUp_NoHold()
         {
             var t = new FleetWarpHold.Trip { Name = "Bebop", Lag = 0, Pace = double.NaN, ClockToArrival = 1e9 };
