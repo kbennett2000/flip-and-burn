@@ -204,7 +204,15 @@ if [[ ! -f "$test_save/quicksave.sfs" ]]; then
     exit 1
 fi
 
-install_plugin
+# FLIPANDBURN_KEEP_PLUGIN=1: leave the Flip and Burn build installed in GameData as it is (a release candidate being
+# tested) and install only the test helper, built against the same source; its files are fingerprinted before and after.
+if [[ "${FLIPANDBURN_KEEP_PLUGIN:-}" == 1 ]]; then
+    echo "Keeping the installed Flip and Burn build: $(cd "$plugin_dest" && sha256sum FlipAndBurn.dll FlipAndBurn.Core.dll | tr '\n' ' ')"
+    plugin_sums_before="$(cd "$plugin_dest" && sha256sum FlipAndBurn.dll FlipAndBurn.Core.dll)"
+    dotnet build "$plugin_project" -c "$config" -nologo
+else
+    install_plugin
+fi
 dotnet build "$harness_project" -c "$config" -nologo
 dotnet build "$savecheck_project" -c "$config" -nologo
 
@@ -240,6 +248,13 @@ cleanup() {
     fi
     remove_harness
     restore_backups || true
+    if [[ -n "${plugin_sums_before:-}" ]]; then
+        if [[ "$(cd "$plugin_dest" && sha256sum FlipAndBurn.dll FlipAndBurn.Core.dll)" == "$plugin_sums_before" ]]; then
+            echo "Checked: the installed Flip and Burn build is unchanged (same checksums as before the run)"
+        else
+            echo "The installed Flip and Burn build CHANGED during the run" >&2
+        fi
+    fi
 }
 trap cleanup EXIT
 

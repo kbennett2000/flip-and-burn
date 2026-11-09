@@ -180,6 +180,13 @@ namespace FlipAndBurn.TestHarness
             }
 
             // Kris's Jibar Electric RCS Block (his part, not Flip and Burn's): loads, listed, fires (only when asked: "jibarrcs").
+            // Kris's Jibar fusion reactors, pellet maker and pellet tank (his parts): only when asked, "jibarpower".
+            if ((wanted ?? "").Split(',').Contains("jibarpower"))
+            {
+                yield return ProofJibarPower();
+                if (failed) yield break;
+            }
+
             if ((wanted ?? "").Split(',').Contains("jibarrcs"))
             {
                 yield return ProofJibarRcs();
