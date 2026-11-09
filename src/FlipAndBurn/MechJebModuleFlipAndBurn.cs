@@ -163,6 +163,9 @@ namespace FlipAndBurn
         /// </summary>
         public void PressPause() => Autopilot?.Pause("you pressed Pause", byPlayer: true);
 
+        /// <summary>The "Leave it flying" button (and the test helper): engine off for a minute so the player can leave (ADR 0006).</summary>
+        public void PressLeaveFlying() => Autopilot?.PrepareToLeave();
+
         /// <summary>The Resume button (and the test helper). Returns a problem, or null.</summary>
         public string PressResume()
         {
@@ -241,10 +244,18 @@ namespace FlipAndBurn
                     GuiUtils.SimpleLabel(t.Trip == TripType.CoastInTheMiddle ? "Coast starts in" : "Flip in", Planner.FormatTime(c.TimeToFlip));
                 if (c.Phase == GuidancePhase.Coast)
                     GuiUtils.SimpleLabel("Braking starts in", Planner.FormatTime(c.TimeToBurn));
+                if (c.Phase == GuidancePhase.Waiting)
+                    GuiUtils.SimpleLabel("Burn starts in", Planner.FormatTime(c.TimeToBurn));
                 GuiUtils.SimpleLabel("Arrival in", Planner.FormatTime(c.TimeToArrival));
-                GuiUtils.SimpleLabel("Acceleration", c.Phase == GuidancePhase.Coast && !c.Correcting
+                GuiUtils.SimpleLabel("Acceleration", c.Phase == GuidancePhase.Waiting
+                    ? "engine off (waiting in orbit)"
+                    : c.Phase == GuidancePhase.Coast && !c.Correcting
                     ? "engine off (coasting)"
-                    : $"{Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (aiming for {Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)})");
+                    : $"{Planner.FormatG(pilot.MeasuredAcceleration / Planner.OneG)} (aiming for {Planner.FormatG(pilot.AimingFor / Planner.OneG)})");
+                // Braking into strong gravity aims below the chosen acceleration: say why, on its own line, so it isn't taken
+                // for the engines overheating.
+                if (pilot.AimingWhy != null && c.Phase != GuidancePhase.Waiting && !(c.Phase == GuidancePhase.Coast && !c.Correcting))
+                    GUILayout.Label($"Aiming below {Planner.FormatG(pilot.CurrentAcceleration / Planner.OneG)}: {pilot.AimingWhy}. The engines aren't overheating.", wrapStyle);
                 GuiUtils.SimpleLabel("Pointing off by", $"{pilot.PointingError:0.0}°");
             }
 
@@ -263,6 +274,7 @@ namespace FlipAndBurn
             }
 
             GUILayout.Space(6);
+            if (GUILayout.Button("Leave it flying")) PressLeaveFlying();
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Pause")) PressPause();
             if (GUILayout.Button("Abort")) PressAbort();
@@ -275,7 +287,9 @@ namespace FlipAndBurn
             CelestialBody target = FlightGlobals.Bodies.FirstOrDefault(b => b.bodyName == r.Target);
             string name = target != null ? Planner.BodyName(target) : r.Target;
             GuiUtils.SimpleLabel("Trip to", $"{name}, {(r.Trip == TripType.CoastInTheMiddle ? "coast in the middle" : "full burn")}");
-            GuiUtils.SimpleLabel("Phase", "paused, engine off");
+            GuiUtils.SimpleLabel("Phase", pilot.ReadyToLeave
+                ? $"engine off so you can leave (carries on here in {pilot.LeavingUntil - Time.realtimeSinceStartup:0} s)"
+                : "paused, engine off");
             GuiUtils.SimpleLabel("Acceleration", Planner.FormatG(r.Acceleration / Planner.OneG));
             double toArrival = r.PlannedArrivalUT - Planetarium.GetUniversalTime();
             if (toArrival > 0) GuiUtils.SimpleLabel("Arrival was planned in", Planner.FormatTime(toArrival));
@@ -288,7 +302,7 @@ namespace FlipAndBurn
 
             GUILayout.Space(6);
             GUILayout.BeginHorizontal();
-            if (pilot.PausedByPlayer && GUILayout.Button("Resume"))
+            if ((pilot.PausedByPlayer || pilot.ReadyToLeave) && GUILayout.Button(pilot.ReadyToLeave ? "Stay and fly" : "Resume"))
             {
                 string problem = PressResume();
                 if (problem != null) ScreenMessages.PostScreenMessage("Flip and Burn: " + problem, 8f);
@@ -319,9 +333,12 @@ namespace FlipAndBurn
         {
             switch (c.Phase)
             {
-                case GuidancePhase.Accelerate: return c.Departing ? "speeding up (climbing out of orbit)" : "speeding up";
+                case GuidancePhase.Accelerate:
+                    if (!c.Departing) return "speeding up";
+                    return c.Acceleration > 0 ? "speeding up (climbing out of orbit)" : "leaving orbit, engine off: waiting for the planet to be out of the way";
                 case GuidancePhase.Flip: return "flip";
                 case GuidancePhase.Coast: return c.Correcting ? "coasting (course correction)" : "coasting, engine off";
+                case GuidancePhase.Waiting: return "waiting in orbit, engine off: coming round to the target's side";
                 case GuidancePhase.Decelerate: return "slowing down";
                 case GuidancePhase.FinalApproach: return c.Circularizing ? "final approach (settling into orbit)" : "final approach";
                 default: return "arrived";
@@ -337,11 +354,19 @@ namespace FlipAndBurn
                 return;
             }
 
+            // Grouped (ADR 0005): the moons Flip and Burn can reach from here under their planet, and the planets.
             GUILayout.Label("Fly to");
-            string[] names = targets.Select(Planner.BodyName).ToArray();
-            int selected = targets.FindIndex(b => b.bodyName == Planner.TargetName);
-            int picked = GUILayout.SelectionGrid(selected, names, 4);
-            if (picked != selected && picked >= 0) Planner.SelectTarget(targets[picked].bodyName);
+            foreach (TargetGroup group in Planner.TargetGroups)
+            {
+                if (group.Bodies.Count == 0) continue;
+                GUILayout.Label(group.Heading, wrapStyle);
+                string[] names = group.Bodies.Select(Planner.BodyName).ToArray();
+                int selected = group.Bodies.FindIndex(b => b.bodyName == Planner.TargetName);
+                int picked = GUILayout.SelectionGrid(selected, names, 4);
+                if (picked != selected && picked >= 0) Planner.SelectTarget(group.Bodies[picked].bodyName);
+            }
+
+            if (Planner.TargetListNote != null) GUILayout.Label(Planner.TargetListNote, wrapStyle);
 
             GUILayout.Space(4);
             GuiUtils.SimpleTextBox("Acceleration", AccelerationG, "g", 60);

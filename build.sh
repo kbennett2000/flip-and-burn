@@ -8,6 +8,9 @@
 #                       FLIPANDBURN_PROOFS picks proofs (rates,resume,overheat,flip,coast,cuttest; default all but
 #                       cuttest). With "resume", KSP is launched twice more: once to load the save made mid-trip, and
 #                       once with Flip and Burn removed from GameData to load it again (put back afterwards).
+#   ./build.sh restore  Put back the settings an interrupted test run backed up (MechJeb's, BetterTimeWarp's, KSP's
+#                       settings.cfg), check them, and delete the backup once every check passes. KSP must be closed.
+#                       A test run refuses to start while such a backup exists.
 #   ./build.sh release  Build and write release/FlipAndBurn-<version>.zip with exactly what goes in GameData
 #                       (GameData/FlipAndBurn/Plugins/*.dll, the licence and a readme). Installs nothing.
 #
@@ -81,10 +84,10 @@ TXT
         remove_harness
         exit 0
         ;;
-    test)
+    test|restore)
         ;;
     *)
-        echo "Unknown mode '$mode'. Use: ./build.sh, ./build.sh test or ./build.sh release" >&2
+        echo "Unknown mode '$mode'. Use: ./build.sh, ./build.sh test, ./build.sh restore or ./build.sh release" >&2
         exit 2
         ;;
 esac
@@ -107,49 +110,15 @@ proofs="${FLIPANDBURN_PROOFS:-}"
 want_resume=0
 if [[ -z "$proofs" || ",$proofs," == *",resume,"* ]]; then want_resume=1; fi
 
-if pgrep -x KSP.x86_64 >/dev/null; then
-    echo "KSP is already running. Close it first." >&2
-    exit 1
-fi
-if [[ ! -f "$test_save/quicksave.sfs" ]]; then
-    echo "Test save missing: $test_save/quicksave.sfs" >&2
-    exit 1
-fi
-
-install_plugin
-dotnet build "$harness_project" -c "$config" -nologo
-dotnet build "$savecheck_project" -c "$config" -nologo
-
-# Start every run from the same game state: the test save's quicksave.
-cp -p "$test_save/quicksave.sfs" "$test_save/persistent.sfs"
-cp -p "$test_save/quicksave.loadmeta" "$test_save/persistent.loadmeta"
-# The resume proof's own saves (all in the test copy); a stale one must not stand in for this run's.
-rm -f "${test_save:?}"/fab-*.sfs "${test_save:?}"/fab-*.loadmeta
-
-# MechJeb rewrites its settings files when a flight runs. Snapshot them so the test leaves Kris's settings as they were.
-# KSP also rewrites settings.cfg, and the harness may change graphics settings while it runs.
-backup_dir="$(mktemp -d)"
-cp -a "$mj_settings" "$backup_dir/MechJeb2"
-cp -p "$ksp_dir/settings.cfg" "$backup_dir/settings.cfg"
-# BetterTimeWarp rewrites its own settings file whenever KSP runs.
 btw_settings="$ksp_dir/GameData/BetterTimeWarp/PluginData/BetterTimeWarp.cfg"
-[[ -f "$btw_settings" ]] && cp -p "$btw_settings" "$backup_dir/BetterTimeWarp.cfg"
+# The backup of Kris's settings lives outside /tmp, so a crash or a restart can't lose it (a restart cleared /tmp in the
+# middle of a run on 2026-11-07), and stays until the restore check passes.
+backup_dir="${FLIPANDBURN_BACKUP_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/flip-and-burn/test-backup}"
 
-# The harness turns KSP's infinite propellant cheat on for one screenshot. Fingerprint Kris's settings and every save
-# except the test copy now, to show afterwards that the cheat left no trace.
-fingerprint_saves() {
-    (cd "$ksp_dir/saves" && find . -path ./FlipAndBurn-Test -prune -o -type f -print0 | sort -z | xargs -0 sha256sum)
-}
-fingerprint_saves > "$backup_dir/saves-before.sha256"
-
-cleanup() {
-    if pgrep -x KSP.x86_64 >/dev/null; then
-        pkill -x KSP.x86_64 2>/dev/null || true
-        # A frozen KSP ignores the polite signal.
-        for _ in $(seq 1 15); do pgrep -x KSP.x86_64 >/dev/null || break; sleep 1; done
-        pkill -9 -x KSP.x86_64 2>/dev/null || true
-    fi
-    remove_harness
+# Put the backed-up settings back and check each against its backup byte for byte. Returns 0 only when every check
+# passes; the backup is deleted only then, and kept (for ./build.sh restore) otherwise.
+restore_backups() {
+    local ok=1
     # The run with Flip and Burn removed: put it back, whatever happened.
     if [[ -d "$backup_dir/plugin" ]]; then
         mkdir -p "$plugin_dest"
@@ -183,15 +152,94 @@ cleanup() {
         else
             echo "MechJeb settings DIFFER from before the run:" >&2
             diff -rq "$backup_dir/MechJeb2" "$mj_settings" | head -20 >&2 || true
+            ok=0
         fi
     fi
+    local pair saved live
     for pair in "BetterTimeWarp.cfg:$btw_settings" "settings.cfg:$ksp_dir/settings.cfg"; do
         saved="$backup_dir/${pair%%:*}" live="${pair#*:}"
         [[ -f "$saved" ]] || continue
         if cmp -s "$saved" "$live"; then echo "Checked: $live identical to before the run"
-        else echo "$live DIFFERS from before the run" >&2; fi
+        else echo "$live DIFFERS from before the run" >&2; ok=0; fi
     done
-    rm -rf "$backup_dir"
+    if (( ok )); then
+        rm -rf "${backup_dir:?}"
+        echo "Every check passed; the backup is deleted."
+        return 0
+    fi
+    echo "A check failed: the backup is kept in $backup_dir. Fix what differs, then run ./build.sh restore." >&2
+    return 1
+}
+
+if pgrep -x KSP.x86_64 >/dev/null; then
+    echo "KSP is already running. Close it first." >&2
+    exit 1
+fi
+
+if [[ "$mode" == restore ]]; then
+    if [[ ! -d "$backup_dir" ]]; then
+        echo "No test-run backup to restore ($backup_dir doesn't exist): nothing to do."
+        exit 0
+    fi
+    [[ -f "$backup_dir/started" ]] && echo "Backup from: $(cat "$backup_dir/started")"
+    if [[ ! -f "$backup_dir/complete" ]]; then
+        echo "That backup is incomplete (the run stopped while making it), so it isn't restored automatically." >&2
+        echo "Compare it with the live files by hand: $backup_dir" >&2
+        exit 1
+    fi
+    remove_harness
+    restore_backups
+    exit $?
+fi
+
+# An earlier run's backup still here means its settings were never put back: refuse to start, touching nothing.
+if [[ -e "$backup_dir" ]]; then
+    echo "An earlier test run's backup of your settings was never restored: $backup_dir" >&2
+    [[ -f "$backup_dir/started" ]] && echo "  from: $(cat "$backup_dir/started")" >&2
+    echo "Nothing was started. With KSP closed, run ./build.sh restore to put it back and check it." >&2
+    exit 1
+fi
+if [[ ! -f "$test_save/quicksave.sfs" ]]; then
+    echo "Test save missing: $test_save/quicksave.sfs" >&2
+    exit 1
+fi
+
+install_plugin
+dotnet build "$harness_project" -c "$config" -nologo
+dotnet build "$savecheck_project" -c "$config" -nologo
+
+# Start every run from the same game state: the test save's quicksave.
+cp -p "$test_save/quicksave.sfs" "$test_save/persistent.sfs"
+cp -p "$test_save/quicksave.loadmeta" "$test_save/persistent.loadmeta"
+# The resume proof's own saves (all in the test copy); a stale one must not stand in for this run's.
+rm -f "${test_save:?}"/fab-*.sfs "${test_save:?}"/fab-*.loadmeta
+
+# MechJeb rewrites its settings files when a flight runs. Snapshot them so the test leaves Kris's settings as they were.
+# KSP also rewrites settings.cfg, and the harness may change graphics settings while it runs.
+mkdir -p "$backup_dir"
+echo "$(date '+%Y-%m-%d %H:%M:%S %z'), ./build.sh test at $(git rev-parse --short HEAD 2>/dev/null || echo '?'), proofs '${proofs:-all}'" > "$backup_dir/started"
+cp -a "$mj_settings" "$backup_dir/MechJeb2"
+cp -p "$ksp_dir/settings.cfg" "$backup_dir/settings.cfg"
+# BetterTimeWarp rewrites its own settings file whenever KSP runs.
+[[ -f "$btw_settings" ]] && cp -p "$btw_settings" "$backup_dir/BetterTimeWarp.cfg"
+touch "$backup_dir/complete"
+
+# The harness turns KSP's infinite propellant cheat on for one screenshot. Fingerprint Kris's settings and every save
+# except the test copy now, to show afterwards that the cheat left no trace.
+fingerprint_saves() {
+    (cd "$ksp_dir/saves" && find . -path ./FlipAndBurn-Test -prune -o -type f -print0 | sort -z | xargs -0 sha256sum)
+}
+fingerprint_saves > "$backup_dir/saves-before.sha256"
+
+cleanup() {
+    if pgrep -x KSP.x86_64 >/dev/null; then
+        pkill -x KSP.x86_64 2>/dev/null || true
+        # A frozen KSP ignores the polite signal.
+        for _ in $(seq 1 15); do pgrep -x KSP.x86_64 >/dev/null || break; sleep 1; done
+        pkill -9 -x KSP.x86_64 2>/dev/null || true
+    fi
+    remove_harness
+    restore_backups || true
 }
 trap cleanup EXIT
 

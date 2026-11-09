@@ -21,12 +21,15 @@ namespace FlipAndBurn.Core.Guidance
 
         /// <summary>
         /// What flying a coast plan typically costs over its two planned burns: course corrections, steering and the final
-        /// settling into orbit. The plan allows 6 % (<see cref="CoastPlanner.GuidanceMargin"/>) to be safe; measured in the
-        /// game, the trips used 2.7 % over their burns (trip B, 0.4 g: 64,044 of 66,058 m/s planned with the margin; the
-        /// 1 g trip in the guide: 101 of 104 km/s). The player is shown the realistic figure; the autopilot's own
-        /// decisions (re-plan, refuse) keep the whole margin.
+        /// settling into orbit. The plan allows 6 % (<see cref="CoastPlanner.GuidanceMargin"/>) to be safe. On the cycle 11-12
+        /// planner the in-game trips used 2.7 % over their burns (trip B, 0.4 g: 64,044 of 66,058 m/s planned with the margin;
+        /// the 1 g trip in the guide: 101 of 104 km/s). Since cycle 15 the plan counts the climb-out from the departure planet
+        /// and prices braking into a strong pull (ADR 0003 addenda), and the simulator's coasts fly close to it (the Bebop to
+        /// Duna 0.2 % under its burns, Jool +1.0 %), so 1.5 % (product owner, cycle 15). Trip B was flown on the old planner
+        /// and is kept only as history; the in-game check is trip R, flown on this planner (ReserveShownTests). The player is
+        /// shown the realistic figure; the autopilot's own decisions (re-plan, refuse) keep the whole margin.
         /// </summary>
-        public const double TypicalCoastOverhead = 0.027;
+        public const double TypicalCoastOverhead = 0.015;
 
         /// <summary>
         /// The delta-v a plan will realistically use (m/s), from the figure the planner gives (<paramref name="plannedNeeded"/>):
@@ -38,11 +41,11 @@ namespace FlipAndBurn.Core.Guidance
 
         /// <summary>
         /// The delta-v the rest of the trip will realistically use (m/s), from the burning the guidance has left
-        /// (<see cref="FlipAndBurnGuidance.BurnTimeLeft"/>) at the acceleration being flown, plus the small cost of steering
-        /// and the last settling into orbit (<see cref="FlyingOverhead"/>).
+        /// (<see cref="FlipAndBurnGuidance.BurnDeltaVLeft"/>: the speed-up at the acceleration being flown, the braking at its
+        /// own share and at what it costs there on an engine that loses Isp at part throttle), plus the small cost of steering and the last settling into orbit (<see cref="FlyingOverhead"/>).
         /// </summary>
-        public static double RemainingUse(double acceleration, double burnTimeLeft, bool coastTrip) =>
-            acceleration * Math.Max(0, burnTimeLeft) * (1 + (coastTrip ? FlyingOverhead : 0));
+        public static double RemainingUse(double burnDeltaVLeft, bool coastTrip) =>
+            Math.Max(0, burnDeltaVLeft) * (1 + (coastTrip ? FlyingOverhead : 0));
 
         /// <summary>
         /// What course corrections and the final settling into orbit add to a coast trip's remaining burns, measured in the

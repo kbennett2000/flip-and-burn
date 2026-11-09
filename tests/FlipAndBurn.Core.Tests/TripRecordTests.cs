@@ -141,5 +141,103 @@ namespace FlipAndBurn.Core.Tests
             r.DeltaVUsed = r.DeltaVBudget + 10;
             Assert.Equal(0, r.DeltaVLeft);
         }
+            // ------------------------------------------------------------------ fleet flights (ADR 0006)
+
+        private static TripRecord FleetSample()
+        {
+            TripRecord r = Sample();
+            r.PausedByPlayer = true;
+            r.FleetSinceUT = 18377814400.123456789;
+            r.HandoverUT = 18377814450.000001;
+            r.HandoverPosition = new Vec3(1.1e10, -2.2e9, 0.1 + 0.2);
+            r.HandoverVelocity = new Vec3(-12345.678901, 0.1, 1e-12);
+            r.Away = new AwayShip
+            {
+                TurnRate = 5 * System.Math.PI / 180,
+                FullThrust = 1_453_000.123,
+                ExhaustVelocity = 1.0e6 / 3,
+                IspThrottleExponent = 0.5,
+                DryMass = 127_421.987,
+                Propellants = new List<KeyValuePair<string, double>> { new KeyValuePair<string, double>("LqdDeuterium", 0.25), new KeyValuePair<string, double>("LqdHe3", 0.75) },
+                ChargePerNewton = 0.0123,
+                ChargeMade = 12.5,
+                ChargeFloor = 100,
+                Facing = new Vec3(0.6, 0.8, 0),
+            };
+            return r;
+        }
+
+        [Fact]
+        public void FleetFigures_SavedAndReadBack_Exactly()
+        {
+            TripRecord saved = FleetSample();
+            TripRecord read = TripRecord.FromValues(saved.ToValues(), out string problem);
+            Assert.Null(problem);
+            AssertSame(saved, read);
+            Assert.True(read.PausedByPlayer);
+            Assert.Equal(saved.FleetSinceUT, read.FleetSinceUT);
+            Assert.Equal(saved.HandoverUT, read.HandoverUT);
+            Assert.Equal(saved.HandoverPosition, read.HandoverPosition);
+            Assert.Equal(saved.HandoverVelocity, read.HandoverVelocity);
+            AwayShip a = saved.Away, b = read.Away;
+            Assert.NotNull(b);
+            Assert.Equal(a.TurnRate, b.TurnRate);
+            Assert.Equal(a.FullThrust, b.FullThrust);
+            Assert.Equal(a.ExhaustVelocity, b.ExhaustVelocity);
+            Assert.Equal(a.IspThrottleExponent, b.IspThrottleExponent);
+            Assert.Equal(a.DryMass, b.DryMass);
+            Assert.Equal(a.Propellants, b.Propellants);
+            Assert.Equal(a.ChargePerNewton, b.ChargePerNewton);
+            Assert.Equal(a.ChargeMade, b.ChargeMade);
+            Assert.Equal(a.ChargeFloor, b.ChargeFloor);
+            Assert.Equal(a.Facing, b.Facing);
+        }
+
+        [Fact]
+        public void FleetFigures_NoPropellant_ReadsBackAsInfiniteExhaust()
+        {
+            TripRecord saved = FleetSample();
+            saved.Away.ExhaustVelocity = double.PositiveInfinity;
+            saved.Away.Propellants.Clear();
+            TripRecord read = TripRecord.FromValues(saved.ToValues(), out string problem);
+            Assert.Null(problem);
+            Assert.True(double.IsPositiveInfinity(read.Away.ExhaustVelocity));
+            Assert.Empty(read.Away.Propellants);
+        }
+
+        [Fact]
+        public void BeforeFleetFlights_ReadsWithoutThem()
+        {
+            // A trip saved by an earlier version: no away figures, not paused by the player, no handover.
+            TripRecord read = TripRecord.FromValues(Sample().ToValues(), out string problem);
+            Assert.Null(problem);
+            Assert.Null(read.Away);
+            Assert.False(read.PausedByPlayer);
+            Assert.True(double.IsNaN(read.HandoverUT));
+            Assert.True(double.IsNaN(read.FleetSinceUT));
+            Assert.Equal(1, read.Version);   // still written in the format earlier versions read
+        }
+
+        [Fact]
+        public void FleetFigures_Broken_NotFlown()
+        {
+            List<KeyValuePair<string, string>> values = FleetSample().ToValues()
+                .Select(kv => kv.Key == "awayDryMass" ? new KeyValuePair<string, string>(kv.Key, "lots") : kv).ToList();
+            Assert.Null(TripRecord.FromValues(values, out string problem));
+            Assert.NotNull(problem);
+        }
+
+        [Fact]
+        public void PropellantShares_ByMass_WeightedByEachEnginesFlow()
+        {
+            // Two engines with the same exhaust velocity: the one with twice the thrust burns twice the propellant mass.
+            var a = new EngineReading { Thrust = 2000, VacuumIsp = 300, Propellants = { new PropellantUse("LiquidFuel", 0.9, 0.005), new PropellantUse("Oxidizer", 1.1, 0.005) } };
+            var b = new EngineReading { Thrust = 1000, VacuumIsp = 300, Propellants = { new PropellantUse("XenonGas", 1, 0.0001), new PropellantUse("ElectricCharge", 18, 0) } };
+            Dictionary<string, double> shares = AwayShip.MassShares(new[] { a, b }).ToDictionary(kv => kv.Key, kv => kv.Value);
+            Assert.Equal(3, shares.Count);   // electric charge has no mass: not a propellant here
+            Assert.Equal(2.0 / 3 * 0.45, shares["LiquidFuel"], 9);
+            Assert.Equal(2.0 / 3 * 0.55, shares["Oxidizer"], 9);
+            Assert.Equal(1.0 / 3, shares["XenonGas"], 9);
+        }
     }
 }

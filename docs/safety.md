@@ -17,15 +17,30 @@ why, in plain words, and usually what to change.
 | The planner says | What to do |
 |---|---|
 | You're landed, in the atmosphere, or not in a stable orbit yet | Get into a stable orbit first. Trips start from orbit. |
-| You're orbiting a moon | Flip and Burn flies between planets. Get into orbit around the planet, or out into orbit around the Sun. |
+| You're orbiting a moon and want another planet | From a moon, Flip and Burn flies to its planet and the planet's other moons. For another planet, get into orbit around this moon's planet first. |
 | No engine is active | Stage or activate your main engine, so Flip and Burn can read its thrust. |
 | This ship can reach only *X* g | Lower the acceleration to what the ship can do. |
 | Not enough delta-v | The ship doesn't have the fuel for a full burn. Try **Coast in the middle**; the planner suggests it with its trip time. |
 | The destination's gravity is too strong at this acceleration | Choose at least the acceleration it names, or a higher parking orbit. |
+| *Kerbin*'s gravity where the ship is now is too strong to leave | Moon trips: leaving a low orbit, the engines have to out-pull the planet or moon there. Choose at least the acceleration it names, or start from a higher orbit. |
+| A coast trip down to *Kerbin* needs at least *X* g | Moon trips: coasting down to the planet speeds the ship up all the way, so the braking needs more push. Choose that or more, or **Full burn**. |
+| *The Mun* is in the way right now | Moon trips: the path to the target would pass too close to another moon. Try again in a few minutes. |
 | A coast trip can't go around the Sun yet | The Sun is between you and the target. Choose **Full burn**, or wait a while. |
 
 **When the Sun is in the way** of a full burn, the trip doesn't fly through it: the planner routes it around the Sun in
 two legs, and says so. The numbers it shows include the detour.
+
+**Leaving a planet with the target on its far side,** the ship doesn't burn through the planet or waste fuel burning
+round it. It climbs until it's escaping, then coasts outward with the engine off until the way to the target is clear
+(the window says so), and only then turns and fires. With a weak engine it keeps climbing along its orbit instead, until
+it is far enough out that the planet's pull can't bring it back. The planner's fuel figures include all of this.
+
+**On a moon trip, the planet and its moons are kept clear the same way.**
+- **Leaving a low orbit with the target behind the planet (or moon):** the ship waits in its orbit, engine off, until it
+  has come round to the target's side, and burns from there. Waiting costs no fuel; it's never more than one orbit, and
+  the planner says how long.
+- **The planet between two moons:** the trip goes around it in two legs, far enough out that its pull stays small.
+- **Leaving a moon:** if the burn would ever aim through the moon, the ship climbs along its orbit until the way is clear.
 
 ## During the trip
 
@@ -38,6 +53,19 @@ two legs, and says so. The numbers it shows include the detour.
   or it has drifted too far off course to reach the target. The engine is cut and the window says what happened.
 - **Abort** is always there. It cuts the engine, stops time warp, and hands the ship back to you with your settings as
   they were.
+
+## While you're away
+
+A trip you leave [flies on without you](saving-and-pausing.md#fleet-flights-trips-that-fly-without-you), with the same
+care:
+
+- **The same steering and the same safety net.** Planets and moons are kept clear, and an arrival that goes wrong ends
+  in the safest orbit the ship can reach, as below.
+- **No stepping back up.** It flies at the acceleration it held when you left, lower if the engines had overheated.
+  Heat isn't checked for a ship you aren't flying, so this is the figure the trip has proven it can hold.
+- **Time warp waits for it.** When warp is faster than Flip and Burn can fly the ship, or its arrival is near, warp
+  drops to a rate it can keep up with, and a message names the ship holding it.
+- **Warp stops** when it arrives or has to stop, and a message names the ship, where it is and its orbit.
 
 ## The arrival safety net
 
@@ -61,9 +89,17 @@ trips to Duna, Eve, Dres and Jool at accelerations from 0.25 g to 3 g, and every
 A **coast trip** always keeps 10% of your ship's delta-v unused. You arrive with some fuel left for whatever you came to
 do: landing, moving to a different orbit, or coming home. The planner shows the amount as **Kept in reserve**.
 
+Slowing down into a planet with a strong pull, like Jool, costs more than the speed you arrive with: the ship gains speed
+as it falls in. The planner prices the braking from that, and when a fast trip would eat into the 10%, it offers a
+slower one that doesn't. Some engines, like KSP Interstellar's fusion drives, use more fuel at part throttle; braking
+often runs below full throttle, and the planner counts that too.
+
 On top of that, the plan sets aside extra for steering and course corrections. Most trips don't need all of it, so
-they usually arrive with a bit more than 10%. As the trip flies, the trip window shows what the ship will most likely
-have left at arrival, worked out from the burning still to do. In testing it matched the arrival to within a point.
+they usually arrive with a bit more than 10%. The trip window shows what the ship will most likely have left at
+arrival: at Start from the plan, then from the burning still to do. In testing it matched the arrival to within a point
+all the way: within 0.9 points on a coast trip to Duna, and 0.7 on a coast from Jool to Tylo. On some coast trips into
+strong gravity it can be up to about 2 points off until the braking starts: low at Start (the safe side), but on a
+moon coast to Laythe up to 1.6 points high while speeding up; once the braking begins it settles to within a point.
 
 If that figure heads below 10% for any reason, the window says so in plain words, with the reason.
 

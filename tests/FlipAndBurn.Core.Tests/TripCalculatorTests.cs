@@ -73,9 +73,15 @@ namespace FlipAndBurn.Core.Tests
             double dvHand = 2 * Math.Sqrt(d * OneG);
             output.WriteLine($"  straight-line distance to the aim point d = {d / 1e9:F6} Gm; hand t = {tHand:F3} s, hand dv = {dvHand:F3} m/s");
 
-            AssertRel(tHand, plan.TripTime, 1e-9, "trip time vs 2*sqrt(d/a)");
-            AssertRel(dvHand, plan.BurnDeltaV, 1e-9, "burn delta-v vs 2*sqrt(d*a)");
-            AssertRel(tHand / 2, plan.TimeToFlip, 1e-9, "time to flip");
+            // The burn profile is the even split. In a deep well (Jool at 1 g) the braking is flown at a lower share of the
+            // acceleration (CoastPlanner.BrakingFractionFor), and the trip's numbers say so: longer, a little less delta-v.
+            double f = CoastPlanner.BrakingFractionFor(req.Target, req.ParkingAltitude, OneG);
+            double k = f < CoastPlanner.BrakingFraction ? Math.Sqrt((1 + 1 / f) / 2) / Math.Sqrt((1 + 1 / CoastPlanner.BrakingFraction) / 2) : 1;
+            output.WriteLine($"  braking share {f:F3}: trip time x {k:F4}");
+            AssertRel(tHand, plan.BurnProfileTime, 1e-9, "profile time vs 2*sqrt(d/a)");
+            AssertRel(tHand * k, plan.TripTime, 1e-9, "trip time vs 2*sqrt(d/a), for the braking share");
+            AssertRel(dvHand / k, plan.BurnDeltaV, 1e-9, "burn delta-v vs 2*sqrt(d*a), for the braking share");
+            AssertRel(k == 1 ? tHand / 2 : tHand * k / (1 + 1 / f), plan.TimeToFlip, 1e-9, "time to flip");
             AssertRel(OneG * tHand / 2, plan.PeakSpeed, 1e-9, "peak speed vs a*t/2");
             AssertRel(OneG, plan.AccelerationBeforeFlip, 1e-9, "acceleration before flip");
             AssertRel(OneG, plan.AccelerationAfterFlip, 1e-9, "acceleration after flip");
@@ -119,8 +125,8 @@ namespace FlipAndBurn.Core.Tests
 
             // The path really ends at the moving planet: at the arrival time, the ship is at the parking radius from
             // where the planet actually is then, with the planet's actual velocity.
-            StateVector planetThen = target.Orbit.StateAt(plan.ArrivalTime);
-            StateVector shipThen = plan.ShipStateAt(plan.TripTime);
+            StateVector planetThen = target.Orbit.StateAt(req.StartTime + plan.BurnProfileTime);
+            StateVector shipThen = plan.ShipStateAt(plan.BurnProfileTime);   // the burn profile's end (the trip time also counts the braking share)
             double parkingRadius = target.Radius + ParkingAltitude;
             Assert.True(Math.Abs((shipThen.Position - planetThen.Position).Length - parkingRadius) < 1.0, "ship not at parking radius from the planet");
             Assert.True((shipThen.Velocity - planetThen.Velocity).Length < 1e-6, "ship velocity does not match the planet's");

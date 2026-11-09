@@ -13,9 +13,28 @@ namespace FlipAndBurn.Core
         public double BurnDownTime { get; internal set; }    // s, braking burn
         public double TripTime { get; internal set; }        // s
         public double ArrivalUT { get; internal set; }
-        /// <summary>Delta-v of the two planned burns, gravity included (m/s).</summary>
+        /// <summary>
+        /// Delta-v of the two planned burns, gravity included (m/s), the braking at the share the guidance flies
+        /// (<see cref="CoastPlanner.BrakingFlownShare"/>) and never under <see cref="CoastPlanner.BrakingFloor"/> for a trip
+        /// between planets; counted in the ship's delta-v at the chosen acceleration, so braking below it on an engine that loses
+        /// Isp at part throttle counts what it really burns (<see cref="ShipPerformance.ThrottleCost"/>).
+        /// </summary>
         public double DeltaV { get; internal set; }
         public double Budget { get; internal set; }
+        /// <summary>Moon trips leaving the planet: the wait in orbit before the first burn (s), included in <see cref="TripTime"/>.</summary>
+        public double DepartureWait { get; internal set; }
+
+        /// <summary>
+        /// The gravity allowance the plan settled on (what gravity adds over the trip, in velocity and position). The guidance
+        /// starts from it: deep in a planet's pull the fixed-arrival solve has no answer without it (ADR 0005).
+        /// </summary>
+        internal Vec3 WellVelocity, WellPosition;
+
+        /// <summary>
+        /// Set when the acceleration is too low for this coast trip's braking (m/s^2): the least that works. Moon trips falling
+        /// to the planet at the centre (ADR 0005).
+        /// </summary>
+        public double MinimumAcceleration { get; internal set; }
         /// <summary>Delta-v to allow for flying the trip: the burns plus the guidance margin (m/s).</summary>
         public double DeltaVNeeded => DeltaV * (1 + CoastPlanner.GuidanceMargin);
     }
@@ -28,6 +47,83 @@ namespace FlipAndBurn.Core
     {
         public const double BrakingFraction = 0.99;   // same as GuidanceConfig.BrakingFraction
 
+        /// <summary>Deep wells (cycle 15): at or below this share of the acceleration, the target's pull at the parking orbit leaves the braking at <see cref="BrakingFraction"/>.</summary>
+        public const double DeepWellStart = 0.25;
+        /// <summary>Deep wells: from this share on, the braking is planned at <see cref="DeepWellFraction"/>.</summary>
+        public const double DeepWellFull = 0.4;
+        public const double DeepWellFraction = 0.85;
+
+        /// <summary>
+        /// The share of the chosen acceleration the braking is planned at, for an arrival where the target pulls
+        /// <paramref name="gravityAtParking"/> (m/s^2) at the parking orbit. Braking steers by the arrival law, whose thrust
+        /// changes along the braking; diving into a deep well (Jool, Tylo, Laythe, Kerbin from its moons) the end of that
+        /// braking has to hold the ship up against the target's pull as well as slow it, and asked more than the
+        /// acceleration: the law ran at full thrust, fell behind, and reached the parking orbit up to 1.25 km/s fast, which the
+        /// last burn then took off (ADR 0005 addendum). Planned with this much headroom, the law can rise to full thrust at the
+        /// end and arrives on the plan. 99 % in a shallow well; down to 90 % where the pull is half the acceleration or more.
+        /// </summary>
+        public static double BrakingFractionFor(double gravityAtParking, double acceleration)
+        {
+            double share = acceleration > 0 ? gravityAtParking / acceleration : 0;
+            if (!(share > DeepWellStart)) return BrakingFraction;
+            double x = Math.Min(1, (share - DeepWellStart) / (DeepWellFull - DeepWellStart));
+            return BrakingFraction - (BrakingFraction - DeepWellFraction) * x;
+        }
+
+        /// <summary>
+        /// The share of the acceleration a coast plan counts the braking's delta-v at, for its planned share: the same where it
+        /// is the usual 99 %; in a deep well, halfway to full thrust. Moon trips: the arrival law starts at the planned share
+        /// and uses the headroom at the end, finishing at full thrust (measured in the simulator: Tylo 0.92 for 0.85 planned,
+        /// Laythe 0.88, the Mun to Kerbin at 2 g 0.95). Between planets the braking flies at its planned share but longer than
+        /// the plan's timing, whose smooth gravity path misses the end of a deep well (Jool: 5,287 s against 4,774): the same
+        /// extra cost. Counted so, planned and flown delta-v agree within about 1 % between planets and 2.6 to 5.1 % (flown
+        /// under) for moon coast trips.
+        /// </summary>
+        public static double BrakingFlownShare(double plannedShare) =>
+            plannedShare < BrakingFraction - 1e-9 ? (plannedShare + 1) / 2 : plannedShare;
+
+        /// <summary>
+        /// The share of the acceleration a coast plan counts its braking's delta-v at, over the planned braking time, as the
+        /// braking is really flown (measured in the simulator, planned against flown):
+        /// - a moon trip: the planned share. The plan adds gravity up along the path, so that is the speed to lose; the arrival
+        ///   law flies it faster (Tylo at 0.92 of the acceleration, in 1,206 s against 1,353 planned), not more;
+        /// - between planets, braking starting inside the target's sphere: halfway to full thrust. The plan's smooth path misses
+        ///   the end of the deep well, which adds that much (Jool at 1 g: 0.921 for 4,707 s against 4,659 planned);
+        /// - between planets otherwise: the planned share (Duna at 0.4 g: 0.852 for 9,132 s against 9,042).
+        /// Counted at halfway everywhere, with the Isp loss on top, the 0.4 g trip to Duna flew 7 % under its braking and the
+        /// moon coasts 11 % under, so the figure at Start read 2.5 to 3.6 points low (in-game run 14): the halfway share had
+        /// been standing in for the Isp loss that wasn't counted.
+        /// </summary>
+        public static double BrakingKinematicShare(TargetPlanet target, double acceleration, double plannedShare, double brakingSeconds,
+            bool planetSystemTrip) =>
+            planetSystemTrip ? plannedShare : BrakingThrottleShare(target, acceleration, plannedShare, brakingSeconds, false);
+
+        /// <summary>
+        /// The throttle share a coast trip's braking is really flown at, for what each m/s of it costs on an engine that loses
+        /// Isp at part throttle (<see cref="ShipPerformance.ThrottleCost"/>). Halfway from the planned share to full thrust
+        /// (<see cref="BrakingFlownShare"/>) where the guidance flies it so: a moon trip, or braking that starts inside the
+        /// target's sphere of influence (the coast then adds gravity up along the path really flown, and the arrival law uses its
+        /// headroom). The planned share otherwise, the floor included. Measured in the simulator: Jool at 1 g 0.922 (inside),
+        /// Duna at 0.4 g 0.851 (braking starts 146,000 km out, Duna's sphere is 48,000; priced by the floor, and counted at
+        /// halfway it flew 4.8 % over its braking).
+        /// </summary>
+        public static double BrakingThrottleShare(TargetPlanet target, double acceleration, double plannedShare, double brakingSeconds,
+            bool planetSystemTrip)
+        {
+            double halfway = BrakingFlownShare(plannedShare);
+            if (planetSystemTrip) return halfway;
+            double distance = 0.5 * acceleration * plannedShare * brakingSeconds * brakingSeconds;
+            return target != null && target.SphereOfInfluence > 0 && distance < target.SphereOfInfluence ? halfway : plannedShare;
+        }
+
+        /// <summary>The braking share for a trip to <paramref name="target"/>'s parking orbit at <paramref name="acceleration"/>.</summary>
+        public static double BrakingFractionFor(TargetPlanet target, double parkingAltitude, double acceleration)
+        {
+            if (target == null) return BrakingFraction;
+            double r = target.Radius + parkingAltitude;
+            return r > 0 ? BrakingFractionFor(target.GravParameter / (r * r), acceleration) : BrakingFraction;
+        }
+
         /// <summary>
         /// Flying a coast trip costs more delta-v than its two planned burns: steering corrections, the braking law
         /// holding 98-100 % of the acceleration, the last circularizing burn, and gravity the plan models only roughly
@@ -37,8 +133,131 @@ namespace FlipAndBurn.Core
         /// </summary>
         public const double GuidanceMargin = 0.06;
 
+        /// <summary>
+        /// A coast trip down to the planet a moon trip is centred on needs at least this many times the planet's pull at the
+        /// parking orbit (ADR 0005). The coast speeds up all the way down the planet's well and leaves the braking to the end,
+        /// where the pull is strongest: at 1 g from the Mun to Kerbin's 80 km orbit (1.29 times the pull there) the braking
+        /// couldn't keep up and every simulated trip arrived 5 km low after a long last burn; at 2 g it arrived within 0.3 %.
+        /// Other trips need 1.1 times (<see cref="TripCalculator.TargetGravityMargin"/>).
+        /// </summary>
+        public const double CentralTargetGravityMargin = 1.5;
+
+        /// <summary>Braking into a well with finite thrust: the allowance over the one-shot floor, times the escape speed at the
+        /// parking orbit and the target's pull there against the acceleration (<see cref="DeepWellLoss"/>).</summary>
+        public const double FiniteBrakingLoss = 0.30;
+
+        /// <summary>
+        /// Trips between planets: the least delta-v braking into the target's parking orbit can take, arriving at
+        /// <paramref name="arrivalSpeed"/> (m/s, relative to the target, before its pull). Falling in, the ship gains speed;
+        /// even braking all at once at the parking height takes sqrt(v_inf^2 + v_esc^2) - v_circular. Braking with finite
+        /// thrust deep in a strong pull takes more (<see cref="DeepWellLoss"/>). Measured in the simulator (cycle 15) for Jool,
+        /// Kerbin, Duna and Dres at 1 g and arrival speeds of 9 to 51 km/s: flown braking within 2 % of this or under it, where
+        /// the plan had priced braking below it (Kerbin to Jool at 1 g on 2 % of a full burn's delta-v: one-shot 8.5 km/s,
+        /// flown 11.05, priced 7.1). A plan whose braking comes out under this is priced at this, so the planner picks a
+        /// slower trip that still keeps the reserve; the guidance plans its braking no shorter than this takes. Revisit if a
+        /// coast trip arrives with less than 10 % left while its braking was priced by this.
+        /// </summary>
+        public static double BrakingFloor(TargetPlanet target, double parkingAltitude, double acceleration, double arrivalSpeed)
+        {
+            double rp = target.Radius + parkingAltitude, mu = target.GravParameter;
+            if (!(rp > 0) || !(mu > 0) || !(acceleration > 0) || double.IsNaN(arrivalSpeed)) return 0;
+            return OneShotBraking(target, parkingAltitude, arrivalSpeed) + DeepWellLoss(target, parkingAltitude, acceleration);
+        }
+
+        /// <summary>
+        /// What braking with finite thrust deep in a strong pull adds (m/s): <see cref="FiniteBrakingLoss"/> times the escape speed
+        /// at the parking orbit and the pull there against the acceleration. About 2.1 km/s into Jool's 220 km orbit at 1 g;
+        /// under 0.1 km/s for Duna and Dres.
+        /// </summary>
+        public static double DeepWellLoss(TargetPlanet target, double parkingAltitude, double acceleration)
+        {
+            double rp = target.Radius + parkingAltitude, mu = target.GravParameter;
+            if (!(rp > 0) || !(mu > 0) || !(acceleration > 0)) return 0;
+            return FiniteBrakingLoss * Math.Sqrt(2 * mu / rp) * Math.Min(1, mu / (rp * rp) / acceleration);
+        }
+
+        /// <summary>
+        /// Braking all at once at the parking height, arriving at <paramref name="arrivalSpeed"/>: sqrt(v_inf^2 + v_esc^2) -
+        /// v_circular (m/s).
+        /// </summary>
+        public static double OneShotBraking(TargetPlanet target, double parkingAltitude, double arrivalSpeed)
+        {
+            double rp = target.Radius + parkingAltitude, mu = target.GravParameter;
+            if (!(rp > 0) || !(mu > 0) || double.IsNaN(arrivalSpeed)) return 0;
+            return Math.Sqrt(arrivalSpeed * arrivalSpeed + 2 * mu / rp) - Math.Sqrt(mu / rp);
+        }
+
+        /// <summary>
+        /// The speed relative to the target at the end of a plan's coast (the ship on its orbit around the Sun, the target's
+        /// pull left out): what it arrives with before falling in, as far as that orbit can be trusted (<see cref="TrustedArrivalSpeed"/>).
+        /// </summary>
+        /// <param name="departure">What leaving the departure planet adds to the velocity (its pull and the climb-out,
+        /// <see cref="DepartureGravity"/>), zero if it is already behind.</param>
+        public static double ArrivalSpeed(TargetPlanet target, double sunMu, double startUT, Vec3 position, Vec3 velocity, TwoArcSolver.Arcs arcs,
+            Vec3 departure = default)
+        {
+            Vec3 r1 = position + velocity * arcs.T1 + arcs.A1 * (0.5 * arcs.T1 * arcs.T1), v1 = velocity + arcs.A1 * arcs.T1 + departure;
+            StateVector ship = arcs.Tc > 0 && sunMu > 0 ? TwoBody.Propagate(r1, v1, sunMu, arcs.Tc) : new StateVector(r1, v1);
+            return TrustedArrivalSpeed(ship, target.Ephemeris.StateAt(startUT + arcs.T1 + arcs.Tc), arcs.Tc, 0.5 * arcs.A2.Length * arcs.T2 * arcs.T2);
+        }
+
+        /// <summary>
+        /// The speed relative to the target where a coast carried along its orbit around the Sun ends (m/s), counted only as
+        /// far as that orbit really ends where braking should start. A plan aims its coast with the gravity worked out on its
+        /// previous pass (none on the first), so while the planner searches, a long coast's orbit can end far from the target,
+        /// and its speed there means nothing: the Bebop V2.4's 51-day coast from Duna to Dres came out at 1.5 to 19.6 km/s for
+        /// a 4.7 km/s braking, and no trip was offered (cycle 15, in-game run 8). So the speed it would take to close the miss
+        /// over the coast comes off. A coast that lands (Kerbin to Jool: 0.1 % of the path) keeps its full speed.
+        /// </summary>
+        /// <param name="coastSeconds">How long the coast was carried along its orbit.</param>
+        /// <param name="brakingDistance">How far from the target braking starts (m).</param>
+        public static double TrustedArrivalSpeed(StateVector ship, StateVector target, double coastSeconds, double brakingDistance)
+        {
+            double speed = (ship.Velocity - target.Velocity).Length;
+            if (!(coastSeconds > 1)) return speed;
+            double miss = Math.Max(0, (ship.Position - target.Position).Length - Math.Max(0, brakingDistance));
+            return Math.Max(0, speed - miss / coastSeconds);
+        }
+
+        // The braking's delta-v as priced: its planned time at the share the guidance flies, but never under the floor for a
+        // trip between planets (BrakingFloor); at what each m/s costs at that share on an engine that loses Isp at part
+        // throttle (ShipPerformance.ThrottleCost).
+        private static double BrakingDeltaV(TripRequest request, TwoArcSolver.Arcs arcs, Vec3 departure)
+        {
+            double share = BrakingFractionFor(request.Target, request.ParkingAltitude, request.Acceleration);
+            double planned = request.Acceleration * BrakingKinematicShare(request.Target, request.Acceleration, share, arcs.T2, request.PlanetSystemTrip) * arcs.T2;
+            double floor = 0;
+            if (!request.PlanetSystemTrip)
+            {
+                double speed = ArrivalSpeed(request.Target, request.SunGravParameter, request.StartTime, request.ShipPosition, request.ShipVelocity, arcs, departure);
+                floor = BrakingFloor(request.Target, request.ParkingAltitude, request.Acceleration, speed);
+            }
+
+            double throttle = BrakingThrottleShare(request.Target, request.Acceleration, share, arcs.T2, request.PlanetSystemTrip);
+            return Math.Max(planned, floor) * ShipPerformance.ThrottleCost(throttle, request.IspThrottleExponent);
+        }
+
         public static CoastPlan Plan(TripRequest request, double deltaVBudget)
         {
+            // A moon trip leaving the planet: plan from the departure window (ADR 0005), the wait added to the trip.
+            if (request != null && request.PlanetSystemTrip && request.WaitForDepartureWindow && request.Departure != null && request.Target != null)
+            {
+                double wait = DepartureWindow.Find(request, out StateVector s);
+                if (wait > 1)
+                {
+                    TripRequest later = Copy(request);
+                    later.ShipPosition = s.Position;
+                    later.ShipVelocity = s.Velocity;
+                    later.StartTime = request.StartTime + wait;
+                    later.WaitForDepartureWindow = false;
+                    CoastPlan fromWindow = Plan(later, deltaVBudget);
+                    if (!fromWindow.Feasible) return fromWindow;
+                    fromWindow.DepartureWait = wait;
+                    fromWindow.TripTime += wait;
+                    return fromWindow;
+                }
+            }
+
             var result = new CoastPlan { Budget = deltaVBudget };
             if (request?.Target == null || !(request.Acceleration > 0) || !(deltaVBudget > 0))
             {
@@ -46,11 +265,24 @@ namespace FlipAndBurn.Core
                 return result;
             }
 
-            double a1 = request.Acceleration, a2 = request.Acceleration * BrakingFraction;
+            if (request.PlanetSystemTrip && request.Target.IsCentralBody && request.CheckTargetGravity)
+            {
+                double rp = request.Target.Radius + request.ParkingAltitude;
+                double minimum = CentralTargetGravityMargin * request.Target.GravParameter / (rp * rp);
+                if (request.Acceleration < minimum)
+                {
+                    result.MinimumAcceleration = minimum;
+                    result.Problem = "the braking can't beat the planet's pull near the end";
+                    return result;
+                }
+            }
+
+            double a1 = request.Acceleration, a2 = request.Acceleration * BrakingFractionFor(request.Target, request.ParkingAltitude, request.Acceleration);
             // Plan the burns a margin under the budget: flying them costs a little more (see GuidanceMargin).
             double burnBudget = deltaVBudget / (1 + GuidanceMargin);
             double parkingRadius = request.Target.Radius + request.ParkingAltitude;
-            var gravity = new PathGravity(request.Target.Ephemeris, request.Target.GravParameter, request.SunGravParameter, true);
+            PathGravity gravity = request.PlanetSystemTrip ? SystemTrip.GravityFor(request)
+                : new PathGravity(request.Target.Ephemeris, request.Target.GravParameter, request.SunGravParameter, true);
             Vec3 wellV = Vec3.Zero, wellP = Vec3.Zero;
 
             StateVector EndState(double arrivalUT)
@@ -61,7 +293,11 @@ namespace FlipAndBurn.Core
             }
 
             var solver = new TwoArcSolver(EndState, a1, a2, request.MaxTripTime);
-            double DeltaVFor(TwoArcSolver.Arcs arcs) => a1 * arcs.T1 + a2 * arcs.T2;
+            // The braking's delta-v as flown (BrakingKinematicShare, never under the floor between planets), at what each m/s costs
+            // at the throttle flown (BrakingThrottleShare); its timing at the planned share.
+            // The departure's effect on the velocity, from the last pass (it changes little from one pass to the next).
+            Vec3 depV = Vec3.Zero;
+            double DeltaVFor(TwoArcSolver.Arcs arcs) => a1 * arcs.T1 + BrakingDeltaV(request, arcs, depV);
 
             TwoArcSolver.Arcs best = default;
             for (int pass = 0; pass < 6; pass++)
@@ -110,10 +346,12 @@ namespace FlipAndBurn.Core
                 }
 
                 // Gravity over the trip just planned; aim off by it and plan again.
-                Allowance(request, gravity, parkingRadius, best, out wellV, out wellP);
+                Allowance(request, gravity, parkingRadius, best, out wellV, out wellP, out depV);
             }
 
             result.Feasible = true;
+            result.WellVelocity = wellV;
+            result.WellPosition = wellP;
             result.BurnUpTime = best.T1;
             result.CoastTime = best.Tc;
             result.BurnDownTime = best.T2;
@@ -122,6 +360,15 @@ namespace FlipAndBurn.Core
             result.DeltaV = DeltaVFor(best);
             return result;
         }
+
+        private static TripRequest Copy(TripRequest r) => new TripRequest
+        {
+            ShipPosition = r.ShipPosition, ShipVelocity = r.ShipVelocity, StartTime = r.StartTime, Target = r.Target, Departure = r.Departure,
+            Acceleration = r.Acceleration, ParkingAltitude = r.ParkingAltitude, SunGravParameter = r.SunGravParameter,
+            SunSafetyDistance = r.SunSafetyDistance, MaxTripTime = r.MaxTripTime, North = r.North, CheckTargetGravity = r.CheckTargetGravity,
+            PlanSunDetour = r.PlanSunDetour, PlanetSystemTrip = r.PlanetSystemTrip, DetourClearance = r.DetourClearance,
+            Obstacles = r.Obstacles, WaitForDepartureWindow = r.WaitForDepartureWindow, IspThrottleExponent = r.IspThrottleExponent,
+        };
 
         /// <summary>
         /// The fastest coast trip that still keeps the reserve when propellant is lost while the engines aren't firing
@@ -168,10 +415,11 @@ namespace FlipAndBurn.Core
                 return result;
             }
 
-            double a1 = request.Acceleration, a2 = request.Acceleration * BrakingFraction;
+            double a1 = request.Acceleration, a2 = request.Acceleration * BrakingFractionFor(request.Target, request.ParkingAltitude, request.Acceleration);
             double burnBudget = deltaVBudget / (1 + GuidanceMargin);
             double parkingRadius = request.Target.Radius + request.ParkingAltitude;
-            var gravity = new PathGravity(request.Target.Ephemeris, request.Target.GravParameter, request.SunGravParameter, true);
+            PathGravity gravity = request.PlanetSystemTrip ? SystemTrip.GravityFor(request)
+                : new PathGravity(request.Target.Ephemeris, request.Target.GravParameter, request.SunGravParameter, true);
             Vec3 wellV = Vec3.Zero, wellP = Vec3.Zero;
 
             StateVector EndState(double ut)
@@ -183,6 +431,7 @@ namespace FlipAndBurn.Core
 
             var solver = new TwoArcSolver(EndState, a1, a2, request.MaxTripTime);
             TwoArcSolver.Arcs best = default;
+            Vec3 depV = Vec3.Zero;
             for (int pass = 0; pass < 6; pass++)
             {
                 best = solver.SolveFixedTotal(request.StartTime, request.ShipPosition, request.ShipVelocity, total);
@@ -192,7 +441,7 @@ namespace FlipAndBurn.Core
                     return result;
                 }
 
-                Allowance(request, gravity, parkingRadius, best, out wellV, out wellP);
+                Allowance(request, gravity, parkingRadius, best, out wellV, out wellP, out depV);
             }
 
             result.BurnUpTime = best.T1;
@@ -200,7 +449,9 @@ namespace FlipAndBurn.Core
             result.BurnDownTime = best.T2;
             result.TripTime = best.Total;
             result.ArrivalUT = request.StartTime + best.Total;
-            result.DeltaV = a1 * best.T1 + a2 * best.T2;
+            result.DeltaV = a1 * best.T1 + BrakingDeltaV(request, best, depV);
+            result.WellVelocity = wellV;
+            result.WellPosition = wellP;
             result.Feasible = result.DeltaV <= burnBudget && best.Tc >= 0;
             if (!result.Feasible) result.Problem = "arriving then needs more delta-v than the budget";
             return result;
@@ -209,17 +460,32 @@ namespace FlipAndBurn.Core
         // Gravity over a planned trip, along its burn-coast-burn path (the coast on its orbit around the Sun): the target's
         // well, the Sun's pull relative to it, the target's own curve around the Sun, and the departure planet's pull while
         // leaving it. The two-arc solve aims off by it.
-        private static void Allowance(TripRequest request, PathGravity gravity, double parkingRadius, TwoArcSolver.Arcs best, out Vec3 wellV, out Vec3 wellP)
+        private static void Allowance(TripRequest request, PathGravity gravity, double parkingRadius, TwoArcSolver.Arcs best, out Vec3 wellV, out Vec3 wellP,
+            out Vec3 departure)
         {
+            departure = Vec3.Zero;
             StateVector planetNow = request.Target.Ephemeris.StateAt(request.StartTime);
+            if (request.PlanetSystemTrip)
+            {
+                // A moon trip (ADR 0005): along the path the burns and the coast really fly, the moon being left included.
+                gravity.IntegratePlanned(request.StartTime, request.ShipPosition - planetNow.Position, request.ShipVelocity - planetNow.Velocity,
+                    best.A1, best.T1, best.Tc, best.A2, best.T2, out Vec3 sg1, out Vec3 sg2);
+                gravity.FrameCurve(request.StartTime, best.Total, out Vec3 sp, out Vec3 sv);
+                wellV = sg1 + sv;
+                wellP = sg2 + sp;
+                return;
+            }
+
             StateVector end = ParkingArrival.Relative(request.Target, request.StartTime + best.Total, request.ShipPosition, parkingRadius, request.North);
             gravity.Integrate(request.StartTime,
                 gravity.CoastPath(request.StartTime, request.ShipPosition - planetNow.Position, request.ShipVelocity - planetNow.Velocity,
                     best.T1, best.A1, best.Tc, best.T2, end.Position, end.Velocity),
                 best.Total, out Vec3 g1, out Vec3 g2, PathGravity.CoastSamples);
             gravity.FrameCurve(request.StartTime, best.Total, out Vec3 curveP, out Vec3 curveV);
+
             DepartureGravity.Effect(request.Departure, request.StartTime, request.ShipPosition, request.ShipVelocity,
                 best.A1, best.T1, best.Total, out Vec3 depV, out Vec3 depP);
+            departure = depV;
             wellV = g1 + curveV + depV;
             wellP = g2 + curveP + depP;
         }
