@@ -89,7 +89,7 @@ namespace FlipAndBurn.TestHarness
             CommNetParams cp = HighLogic.CurrentGame.Parameters.CustomParams<CommNetParams>();
             float level = ScenarioUpgradeableFacilities.GetFacilityLevel(SpaceCenterFacility.TrackingStation);
             Log($"jibar tightbeam: save mode {HighLogic.CurrentGame.Mode}; CommNet on {HighLogic.CurrentGame.Parameters.Difficulty.EnableCommNet}; range setting {cp.rangeModifier}; " +
-                $"ground station setting {cp.DSNModifier}; extra ground stations {cp.enableGroundStations}; occlusion vacuum {cp.occlusionMultiplierVac}; Tracking Station level {level}");
+                $"ground station setting {cp.DSNModifier}; extra ground stations {cp.enableGroundStations}; occlusion vacuum {cp.occlusionMultiplierVac}; Tracking Station level {level * 2 + 1:F0} of 3");
             foreach (float l in new[] { 0f, 0.5f, 1f })
             {
                 double dsn = GameVariables.Instance.GetDSNRange(l);
@@ -176,7 +176,16 @@ namespace FlipAndBurn.TestHarness
             yield return Shot("jibar-tightbeam-5-small-antenna-probe.png", null);
             yield return CommMapShot(vB.mapObject, (float)(DistanceFromKerbin(vB, kerbin) * 0.75 / 6000), "Path", "jibar-tightbeam-6-relayed-path-map.png");
 
-            // ---- 6. the edge of the system, and Tightbeam to Tightbeam across it
+            // ---- 6. the edge of the system, and Tightbeam to Tightbeam across it. The Eeloo-distance Tightbeam is taken away
+            // first: CommNet takes the strongest route, and two strong hops through it beat one weak direct hop, so with it
+            // there the direct links aren't tested (run 1).
+            yield return SwitchTo(pC, "jibartightbeam");
+            if (failed) yield break;
+            vC = pC.vesselRef;
+            Log($"jibar tightbeam: before taking the Eeloo-distance pair away: {vC.vesselName} path: {PathText(vC.Connection?.ControlPath)}");
+            vB.Die();
+            vA.Die();
+            yield return new WaitForSecondsRealtime(10f);
             Describe(vC, kerbin);
             Describe(vD, kerbin);
             CommNetVessel cC = vC.Connection, cD = vD.Connection;
@@ -188,7 +197,7 @@ namespace FlipAndBurn.TestHarness
             Log($"jibar tightbeam: Tightbeam to Tightbeam: {apart / 1e9:F1} Gm apart; path found {found}: {PathText(across)}");
             BeamCheck("two Tightbeams link across the system", found && across.Count == 1 && apart > 1.3e12,
                 $"{apart / 1e9:F1} Gm apart, hops {across.Count}");
-            yield return CommMapShot(FlightGlobals.Bodies.First(b => b.referenceBody == b || b.orbit == null).MapObject, 1.0e8f, "Network", "jibar-tightbeam-7-system-map.png");
+            yield return CommMapShot(FlightGlobals.Bodies.First(b => b.referenceBody == b || b.orbit == null).MapObject, 2.2e8f, "Network", "jibar-tightbeam-7-system-map.png");
 
             Log($"jibar tightbeam: {(beamOk ? "ALL AS SET" : "SOME NOT AS SET (see above)")}");
             if (!beamOk) { Fail("jibartightbeam", "some checks didn't come out as set"); failed = true; }
