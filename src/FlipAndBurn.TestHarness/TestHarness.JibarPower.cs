@@ -94,6 +94,21 @@ namespace FlipAndBurn.TestHarness
                 EditorPartList.Instance.Refresh();
             }
 
+            // The test craft built in the VAB, for a picture of the parts in the editor (the parts list itself sits under other
+            // mods' windows in this install).
+            try
+            {
+                string craftPath = KSPUtil.ApplicationRootPath + "saves/" + SaveFolder + "/Ships/VAB/" + PowerTest + ".craft";
+                MethodInfo load = typeof(EditorLogic).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)
+                    .FirstOrDefault(mi => mi.Name == "LoadShipFromFile" && mi.GetParameters().Length == 1 && mi.GetParameters()[0].ParameterType == typeof(string));
+                load?.Invoke(load.IsStatic ? null : EditorLogic.fetch, new object[] { craftPath });
+                Log($"jibar power: the test craft loaded into the VAB: {(load != null ? "yes" : "no LoadShipFromFile")}; parts in the editor {EditorLogic.fetch.ship?.parts?.Count}");
+            }
+            catch (Exception e) { Log("jibar power: couldn't load the test craft into the VAB: " + (e.InnerException ?? e).Message); }
+
+            yield return new WaitForSecondsRealtime(5f);
+            yield return Shot($"jibar-power-{shot++}-vab-test-craft.png", null);
+
             // ---- 3. the test craft in orbit
             var host = new Flown();
             yield return FlyFromSave(SaveFile, ElectricShip, host, false);
@@ -118,17 +133,20 @@ namespace FlipAndBurn.TestHarness
                 ModuleResourceConverter c = Converter(v, name);
                 StopAll(v);
                 yield return WaitPhysics(5);
+                OpenMenu(c.part);
                 SetAll(v, "ElectricCharge", 0);
                 c.StartResourceConverter();
                 yield return WaitPhysics(2);
-                double ut0 = Planetarium.GetUniversalTime(), ec0 = Amount(v, "ElectricCharge"), pl0 = c.part.Resources.Get(Pellets).amount;
+                // Pellets: the whole ship's (a reactor draws from every pellet store on the ship at once, as Ore flows).
+                double ut0 = Planetarium.GetUniversalTime(), ec0 = Amount(v, "ElectricCharge"), pl0 = Amount(v, Pellets);
                 yield return WaitPhysics(6);
-                double dt = Planetarium.GetUniversalTime() - ut0, ec = (Amount(v, "ElectricCharge") - ec0) / dt, pl = (pl0 - c.part.Resources.Get(Pellets).amount) / dt;
+                double dt = Planetarium.GetUniversalTime() - ut0, ec = (Amount(v, "ElectricCharge") - ec0) / dt, pl = (pl0 - Amount(v, Pellets)) / dt;
                 PowerCheck($"{name} makes charge", Math.Abs(ec - outRate) / outRate < 0.02,
                     $"{ec:F1} electric charge a second (set {outRate}) over {dt:F2} game s; burns {pl:E4} pellets a second (set {burn:E4}); status '{c.status}'");
                 PowerCheck($"{name} burns pellets", Math.Abs(pl - burn) / burn < 0.02, $"{pl:E4} a second (set {burn:E4}): a full load of {load} lasts {load / pl / 21600:F0} Kerbin days");
-                OpenMenu(c.part);
-                yield return new WaitForSecondsRealtime(1f);
+                // The picture while it works: the charge emptied again just before, so the menu shows it at full load.
+                SetAll(v, "ElectricCharge", 0);
+                yield return WaitPhysics(3);
                 yield return Shot($"jibar-power-{shot++}-{name.Split('.').Last().ToLowerInvariant()}-running.png", null);
                 CloseMenus();
             }
@@ -437,21 +455,33 @@ namespace FlipAndBurn.TestHarness
             double tankBefore = carrierTank.Resources.Get(Pellets).amount, reactorBefore = reactor.Resources.Get(Pellets).amount;
             MethodInfo transfer = typeof(Part).GetMethods().FirstOrDefault(mi => mi.Name == "TransferResource" && mi.GetParameters().Length == 3 &&
                                                                                mi.GetParameters()[0].ParameterType == typeof(PartResource));
-            string how;
+            string how = "";
             if (transfer != null)
             {
                 transfer.Invoke(reactor, new object[] { reactor.Resources.Get(Pellets), 100.0, carrierTank });
-                how = "Part.TransferResource (what the stock transfer buttons call)";
+                double tankNow = carrierTank.Resources.Get(Pellets).amount, reactorNow = reactor.Resources.Get(Pellets).amount;
+                Log($"jibar power: Part.TransferResource(reactor's pellets, 100, carrier's tank): the carrier's tank {tankBefore:F6} -> {tankNow:F6}, " +
+                    $"the reactor {reactorBefore:F6} -> {reactorNow:F6}");
+                if (Math.Abs((tankBefore - tankNow) - (reactorNow - reactorBefore)) > 0.01)
+                {
+                    // Not a two-sided move as called: undo it, and move them as a pump does.
+                    reactor.Resources.Get(Pellets).amount = reactorBefore;
+                    carrierTank.Resources.Get(Pellets).amount = tankBefore;
+                    transfer = null;
+                }
+                else how = "Part.TransferResource (what the stock transfer buttons call)";
             }
-            else
+
+            if (transfer == null)
             {
                 double moved = carrierTank.RequestResource(Pellets, 100.0, ResourceFlowMode.NO_FLOW);
                 reactor.RequestResource(Pellets, -moved, ResourceFlowMode.NO_FLOW);
-                how = "a request from one part and to the other";
+                how = "taking them from the carrier's tank and giving them to the reactor (each part alone)";
             }
 
             yield return WaitPhysics(2);
-            PowerCheck("100 pellets moved by hand between the docked ships", Math.Abs(reactor.Resources.Get(Pellets).amount - reactorBefore - 100) < 0.01,
+            PowerCheck("100 pellets moved by hand between the docked ships", Math.Abs(reactor.Resources.Get(Pellets).amount - reactorBefore - 100) < 0.01 &&
+                       Math.Abs(tankBefore - carrierTank.Resources.Get(Pellets).amount - 100) < 0.01,
                 $"by {how}: the carrier's tank {tankBefore:F2} -> {carrierTank.Resources.Get(Pellets).amount:F2}, the reactor {reactorBefore:F2} -> " +
                 $"{reactor.Resources.Get(Pellets).amount:F2}; transfer mode {PartResourceLibrary.Instance.GetDefinition(Pellets).resourceTransferMode}");
             OpenMenu(reactor);
